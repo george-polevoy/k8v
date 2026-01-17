@@ -97,6 +97,8 @@ export const ComputationResult = z.object({
   schema: z.record(DataSchema),
   timestamp: z.number(),
   version: z.string(),
+  textOutput: z.string().optional(), // Captured stdout/stderr
+  graphicsOutput: z.string().optional(), // Base64 encoded image or data URL
 });
 
 export type ComputationResult = z.infer<typeof ComputationResult>;

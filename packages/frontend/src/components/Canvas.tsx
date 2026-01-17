@@ -19,7 +19,7 @@ const nodeTypes = {
 };
 
 function Canvas() {
-  const { graph, addConnection, updateGraph } = useGraphStore();
+  const { graph, addConnection } = useGraphStore();
 
   // Convert graph nodes to ReactFlow nodes
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -81,11 +81,36 @@ function Canvas() {
             useGraphStore.getState().selectNode(change.id);
           } else if (change.type === 'select' && !change.selected) {
             useGraphStore.getState().selectNode(null);
+          } else if (change.type === 'remove') {
+            // Handle node deletion
+            useGraphStore.getState().deleteNode(change.id);
+            // Clear selection if deleted node was selected
+            const currentSelected = useGraphStore.getState().selectedNodeId;
+            if (currentSelected === change.id) {
+              useGraphStore.getState().selectNode(null);
+            }
           }
         });
       }
     },
     [onNodesChange, graph]
+  );
+
+  // Handle node deletion (backup handler)
+  const onNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      if (graph) {
+        deleted.forEach((node) => {
+          useGraphStore.getState().deleteNode(node.id);
+          // Clear selection if deleted node was selected
+          const currentSelected = useGraphStore.getState().selectedNodeId;
+          if (currentSelected === node.id) {
+            useGraphStore.getState().selectNode(null);
+          }
+        });
+      }
+    },
+    [graph]
   );
 
   if (!graph) {
@@ -98,6 +123,7 @@ function Canvas() {
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChangeLocal}
+        onNodesDelete={onNodesDelete}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={(event, node) => {
@@ -108,6 +134,7 @@ function Canvas() {
         }}
         nodeTypes={nodeTypes}
         fitView
+        deleteKeyCode={['Backspace', 'Delete']}
       >
         <Background />
         <Controls />

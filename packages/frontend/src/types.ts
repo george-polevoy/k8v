@@ -74,6 +74,8 @@ export interface ComputationResult {
   schema: Record<string, DataSchema>;
   timestamp: number;
   version: string;
+  textOutput?: string; // Captured stdout/stderr
+  graphicsOutput?: string; // Base64 encoded image or data URL
 }
 
 export interface LibraryManifest {

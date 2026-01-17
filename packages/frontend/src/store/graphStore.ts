@@ -206,6 +206,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     try {
       await axios.post(`/api/graphs/${graph.id}/compute`, {});
       set({ isLoading: false });
+      // Trigger a small delay to allow results to be saved, then refresh
+      setTimeout(() => {
+        // Results will be fetched by OutputPanel when node is selected
+      }, 1000);
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }

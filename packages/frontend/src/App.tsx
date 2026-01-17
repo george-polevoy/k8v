@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import Canvas from './components/Canvas';
 import Toolbar from './components/Toolbar';
 import NodePanel from './components/NodePanel';
+import OutputPanel from './components/OutputPanel';
 import { useGraphStore } from './store/graphStore';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Canvas />
       </div>
       <NodePanel />
+      <OutputPanel />
     </div>
   );
 }

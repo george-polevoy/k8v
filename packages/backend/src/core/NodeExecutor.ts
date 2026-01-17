@@ -16,11 +16,17 @@ export class NodeExecutor {
    */
   async execute(node: GraphNode, inputs: Record<string, any>): Promise<ComputationResult> {
     let outputs: Record<string, any> = {};
+    let textOutput: string | undefined;
+    let graphicsOutput: string | undefined;
 
     switch (node.config.type) {
-      case NodeType.INLINE_CODE:
-        outputs = await this.executeInlineCode(node, inputs);
+      case NodeType.INLINE_CODE: {
+        const result = await this.executeInlineCode(node, inputs);
+        outputs = result.outputs;
+        textOutput = result.textOutput;
+        graphicsOutput = result.graphicsOutput;
         break;
+      }
       case NodeType.LIBRARY:
         outputs = await this.executeLibraryNode(node, inputs);
         break;
@@ -46,23 +52,50 @@ export class NodeExecutor {
       schema,
       timestamp: Date.now(),
       version: node.version,
+      textOutput,
+      graphicsOutput,
     };
   }
 
   /**
    * Execute inline code node
    */
-  private async executeInlineCode(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
+  private async executeInlineCode(node: GraphNode, inputs: Record<string, any>): Promise<{
+    outputs: Record<string, any>;
+    textOutput?: string;
+    graphicsOutput?: string;
+  }> {
     if (!node.config.code) {
       throw new Error(`Inline code node ${node.id} has no code`);
     }
+
+    // Capture stdout/stderr
+    const textOutputLines: string[] = [];
+    const graphicsOutputs: string[] = [];
 
     // Create a safe execution context
     const context = {
       inputs,
       outputs: {} as Record<string, any>,
-      // Add utility functions
-      log: console.log,
+      // Capture console.log, console.error, etc.
+      log: (...args: any[]) => {
+        textOutputLines.push(args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        ).join(' '));
+      },
+      print: (...args: any[]) => {
+        textOutputLines.push(args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        ).join(' '));
+      },
+      // Helper to output graphics (base64 image data)
+      outputGraphics: (data: string) => {
+        graphicsOutputs.push(data);
+      },
+      // Helper to output images from canvas or image data
+      outputImage: (imageData: string) => {
+        graphicsOutputs.push(imageData);
+      },
     };
 
     // Execute code in a sandboxed context
@@ -82,9 +115,20 @@ export class NodeExecutor {
       // This should be replaced with a proper sandbox in production
       // eslint-disable-next-line no-eval
       const result = eval(code).call(context);
-      return result || context.outputs;
-    } catch (error) {
-      throw new Error(`Error executing inline code in node ${node.id}: ${error}`);
+      const outputs = result || context.outputs;
+
+      return {
+        outputs,
+        textOutput: textOutputLines.length > 0 ? textOutputLines.join('\n') : undefined,
+        graphicsOutput: graphicsOutputs.length > 0 ? graphicsOutputs[graphicsOutputs.length - 1] : undefined,
+      };
+    } catch (error: any) {
+      // Include error in text output
+      const errorMessage = `Error: ${error.message || String(error)}`;
+      return {
+        outputs: {},
+        textOutput: errorMessage,
+      };
     }
   }
 

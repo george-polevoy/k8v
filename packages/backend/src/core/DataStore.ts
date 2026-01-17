@@ -28,7 +28,9 @@ export class DataStore {
         version TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         data_path TEXT NOT NULL,
-        schema_path TEXT NOT NULL
+        schema_path TEXT NOT NULL,
+        text_output_path TEXT,
+        graphics_output_path TEXT
       );
 
       CREATE TABLE IF NOT EXISTS graphs (
@@ -67,6 +69,12 @@ export class DataStore {
   async storeResult(nodeId: string, result: ComputationResult): Promise<void> {
     const dataPath = path.join(this.dataDir, `${nodeId}_${result.timestamp}.json`);
     const schemaPath = path.join(this.dataDir, `${nodeId}_${result.timestamp}_schema.json`);
+    const textOutputPath = result.textOutput 
+      ? path.join(this.dataDir, `${nodeId}_${result.timestamp}_text.txt`)
+      : null;
+    const graphicsOutputPath = result.graphicsOutput
+      ? path.join(this.dataDir, `${nodeId}_${result.timestamp}_graphics`)
+      : null;
 
     // Serialize outputs
     await fs.writeFile(dataPath, JSON.stringify(result.outputs, null, 2));
@@ -74,14 +82,43 @@ export class DataStore {
     // Serialize schema
     await fs.writeFile(schemaPath, JSON.stringify(result.schema, null, 2));
 
-    // Store metadata in database
+    // Store text output
+    if (result.textOutput && textOutputPath) {
+      await fs.writeFile(textOutputPath, result.textOutput);
+    }
+
+    // Store graphics output (could be base64, data URL, etc.)
+    if (result.graphicsOutput && graphicsOutputPath) {
+      // If it's a data URL, extract the base64 part and save as appropriate format
+      if (result.graphicsOutput.startsWith('data:image/')) {
+        const base64Data = result.graphicsOutput.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        // Try to detect format from data URL
+        const formatMatch = result.graphicsOutput.match(/data:image\/(\w+);/);
+        const format = formatMatch ? formatMatch[1] : 'png';
+        await fs.writeFile(`${graphicsOutputPath}.${format}`, buffer);
+      } else {
+        // Assume it's already base64 or raw data
+        await fs.writeFile(`${graphicsOutputPath}.dat`, result.graphicsOutput);
+      }
+    }
+
+    // Store metadata in database (update schema to include text/graphics paths)
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO computation_results 
-      (node_id, version, timestamp, data_path, schema_path)
-      VALUES (?, ?, ?, ?, ?)
+      (node_id, version, timestamp, data_path, schema_path, text_output_path, graphics_output_path)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(nodeId, result.version, result.timestamp, dataPath, schemaPath);
+    stmt.run(
+      nodeId,
+      result.version,
+      result.timestamp,
+      dataPath,
+      schemaPath,
+      textOutputPath,
+      graphicsOutputPath
+    );
   }
 
   /**
@@ -119,12 +156,56 @@ export class DataStore {
     // Load schema
     const schema = JSON.parse(await fs.readFile(row.schema_path, 'utf-8'));
 
+    // Load text output if exists
+    let textOutput: string | undefined;
+    if (row.text_output_path) {
+      try {
+        textOutput = await fs.readFile(row.text_output_path, 'utf-8');
+      } catch (error) {
+        // File might not exist, ignore
+      }
+    }
+
+    // Load graphics output if exists
+    let graphicsOutput: string | undefined;
+    if (row.graphics_output_path) {
+      try {
+        // The path might have an extension, try to read it
+        let graphicsPath = row.graphics_output_path;
+        // Check if file exists with extension
+        const possibleExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'dat'];
+        let found = false;
+        for (const ext of possibleExtensions) {
+          const testPath = `${graphicsPath}.${ext}`;
+          try {
+            await fs.access(testPath);
+            graphicsPath = testPath;
+            found = true;
+            break;
+          } catch {
+            // Continue to next extension
+          }
+        }
+        
+        if (found) {
+          const buffer = await fs.readFile(graphicsPath);
+          const base64 = buffer.toString('base64');
+          const ext = graphicsPath.split('.').pop() || 'png';
+          graphicsOutput = `data:image/${ext === 'dat' ? 'png' : ext};base64,${base64}`;
+        }
+      } catch (error) {
+        // File might not exist, ignore
+      }
+    }
+
     return {
       nodeId,
       outputs,
       schema,
       timestamp: row.timestamp,
       version: row.version,
+      textOutput,
+      graphicsOutput,
     };
   }
 
@@ -153,7 +234,7 @@ export class DataStore {
    */
   async getGraph(graphId: string): Promise<any | null> {
     const stmt = this.db.prepare('SELECT * FROM graphs WHERE id = ?');
-    const row = stmt.get(graphId);
+    const row = stmt.get(graphId) as { data: string } | undefined;
 
     if (!row) {
       return null;
@@ -187,7 +268,7 @@ export class DataStore {
    */
   async getLibraryNode(libraryId: string): Promise<any | null> {
     const stmt = this.db.prepare('SELECT manifest FROM library_nodes WHERE id = ?');
-    const row = stmt.get(libraryId);
+    const row = stmt.get(libraryId) as { manifest: string } | undefined;
 
     if (!row) {
       return null;
@@ -211,9 +292,9 @@ export class DataStore {
    */
   async listGraphs(): Promise<Array<{ id: string; name: string; updatedAt: number }>> {
     const stmt = this.db.prepare('SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC');
-    const rows = stmt.all();
+    const rows = stmt.all() as Array<{ id: string; name: string; updated_at: number }>;
 
-    return rows.map((row: any) => ({
+    return rows.map((row) => ({
       id: row.id,
       name: row.name,
       updatedAt: row.updated_at,
@@ -225,7 +306,7 @@ export class DataStore {
    */
   async getLatestGraph(): Promise<any | null> {
     const stmt = this.db.prepare('SELECT data FROM graphs ORDER BY updated_at DESC LIMIT 1');
-    const row = stmt.get() as any;
+    const row = stmt.get() as { data: string } | undefined;
 
     if (!row) {
       return null;
