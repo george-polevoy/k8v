@@ -35,23 +35,38 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     try {
       const response = await axios.get(`/api/graphs/${id}`);
       set({ graph: response.data, isLoading: false });
-      // Save graph ID to localStorage
-      localStorage.setItem('k8v-current-graph-id', id);
+      // Save graph ID to localStorage (with error handling)
+      try {
+        localStorage.setItem('k8v-current-graph-id', id);
+      } catch (storageError) {
+        console.warn('Could not save to localStorage:', storageError);
+      }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
   },
 
   createGraph: async (name: string) => {
-    set({ isLoading: true, error: null });
+    const currentLoading = get().isLoading;
+    if (!currentLoading) {
+      set({ isLoading: true, error: null });
+    }
     try {
       const response = await axios.post('/api/graphs', { name });
       const newGraph = response.data;
-      set({ graph: newGraph, isLoading: false });
-      // Save graph ID to localStorage
-      localStorage.setItem('k8v-current-graph-id', newGraph.id);
+      set({ graph: newGraph, isLoading: false, error: null });
+      // Save graph ID to localStorage (with error handling for environments where it might not work)
+      try {
+        localStorage.setItem('k8v-current-graph-id', newGraph.id);
+      } catch (storageError) {
+        console.warn('Could not save to localStorage:', storageError);
+        // Continue anyway - graph is still created
+      }
+      console.log('Graph created successfully:', newGraph.id);
     } catch (error: any) {
+      console.error('Error creating graph:', error);
       set({ error: error.message, isLoading: false });
+      throw error; // Re-throw so caller can handle it
     }
   },
 
@@ -61,37 +76,102 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       const response = await axios.get('/api/graphs/latest');
       const graph = response.data;
       set({ graph, isLoading: false });
-      // Save graph ID to localStorage
-      localStorage.setItem('k8v-current-graph-id', graph.id);
+      // Save graph ID to localStorage (with error handling)
+      try {
+        localStorage.setItem('k8v-current-graph-id', graph.id);
+      } catch (storageError) {
+        console.warn('Could not save to localStorage:', storageError);
+      }
     } catch (error: any) {
       // If no graphs exist, create a new one
       if (error.response?.status === 404) {
+        set({ isLoading: false }); // Clear loading before creating
         await get().createGraph('Untitled Graph');
       } else {
         set({ error: error.message, isLoading: false });
+        // Fallback: create new graph on other errors too
+        await get().createGraph('Untitled Graph');
       }
     }
   },
 
   initializeGraph: async () => {
-    // Check localStorage for saved graph ID
-    const savedGraphId = localStorage.getItem('k8v-current-graph-id');
-    
-    if (savedGraphId) {
+    console.log('Initializing graph...');
+    set({ isLoading: true, error: null });
+    try {
+      // Try to access localStorage (might fail in some environments like Cursor's browser)
+      let savedGraphId: string | null = null;
       try {
-        await get().loadGraph(savedGraphId);
-      } catch (error: any) {
-        // If graph not found, try loading latest or create new
-        if (error.response?.status === 404) {
+        savedGraphId = localStorage.getItem('k8v-current-graph-id');
+        console.log('Saved graph ID:', savedGraphId);
+      } catch (storageError) {
+        console.warn('localStorage not available, skipping saved graph ID:', storageError);
+        // Continue without localStorage
+      }
+      
+      if (savedGraphId) {
+        try {
+          console.log('Attempting to load saved graph:', savedGraphId);
+          await get().loadGraph(savedGraphId);
+          console.log('Graph loaded successfully');
+          set({ isLoading: false });
+          return; // Successfully loaded
+        } catch (error: any) {
+          console.log('Failed to load saved graph:', error.message);
+          // If graph not found, clear stale ID and try loading latest or create new
+          if (error.response?.status === 404) {
+            try {
+              localStorage.removeItem('k8v-current-graph-id');
+            } catch (e) {
+              // Ignore localStorage errors
+            }
+            try {
+              console.log('Trying to load latest graph...');
+              await get().loadLatestGraph();
+              set({ isLoading: false });
+              return;
+            } catch (latestError: any) {
+              console.log('Failed to load latest, creating new graph...');
+              // If latest also fails, create new
+              await get().createGraph('Untitled Graph');
+              set({ isLoading: false });
+              return;
+            }
+          } else {
+            console.log('Other error, creating new graph...');
+            // Other error, clear stale ID and create new
+            try {
+              localStorage.removeItem('k8v-current-graph-id');
+            } catch (e) {
+              // Ignore localStorage errors
+            }
+            await get().createGraph('Untitled Graph');
+            set({ isLoading: false });
+            return;
+          }
+        }
+      } else {
+        // No saved graph ID, try to load latest or create new
+        try {
+          console.log('No saved graph ID, trying to load latest...');
           await get().loadLatestGraph();
-        } else {
-          // Fallback: create new graph
+          set({ isLoading: false });
+        } catch (error: any) {
+          console.log('Failed to load latest, creating new graph...', error.message);
+          // If latest fails, create new
           await get().createGraph('Untitled Graph');
+          set({ isLoading: false });
         }
       }
-    } else {
-      // No saved graph ID, try to load latest or create new
-      await get().loadLatestGraph();
+    } catch (error: any) {
+      // Final fallback: create new graph
+      console.error('Error initializing graph:', error);
+      try {
+        await get().createGraph('Untitled Graph');
+      } catch (createError: any) {
+        console.error('Failed to create graph:', createError);
+        set({ error: `Failed to create graph: ${createError.message}`, isLoading: false });
+      }
     }
   },
 
@@ -206,10 +286,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     try {
       await axios.post(`/api/graphs/${graph.id}/compute`, {});
       set({ isLoading: false });
-      // Trigger a small delay to allow results to be saved, then refresh
-      setTimeout(() => {
-        // Results will be fetched by OutputPanel when node is selected
-      }, 1000);
+      // Update graph to trigger refresh in OutputPanel
+      // The updatedAt timestamp will change, causing OutputPanel to refetch
+      if (graph) {
+        set({ graph: { ...graph, updatedAt: Date.now() } });
+      }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }

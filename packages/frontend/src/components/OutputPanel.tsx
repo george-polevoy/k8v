@@ -54,14 +54,27 @@ function OutputPanel() {
           if (response.data) {
             setTextOutput(response.data.textOutput || '');
             setGraphicsOutput(response.data.graphicsOutput || null);
+          } else {
+            setTextOutput('No output yet. Run the graph to see results.');
+            setGraphicsOutput(null);
           }
-        } catch (error) {
-          // Ignore errors, might not have result yet
+        } catch (error: any) {
+          if (error.response?.status === 404) {
+            setTextOutput('No output yet. Run the graph to see results.');
+            setGraphicsOutput(null);
+          }
+          // Ignore other errors
         }
       };
-      // Small delay to allow backend to save result
-      const timeout = setTimeout(fetchResult, 500);
-      return () => clearTimeout(timeout);
+      // Delay to allow backend to save result, with retries
+      const timeout1 = setTimeout(fetchResult, 500);
+      const timeout2 = setTimeout(fetchResult, 1500);
+      const timeout3 = setTimeout(fetchResult, 3000);
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+        clearTimeout(timeout3);
+      };
     }
   }, [graph?.updatedAt, selectedNodeId]);
 

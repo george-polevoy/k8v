@@ -73,20 +73,34 @@ export class NodeExecutor {
     const textOutputLines: string[] = [];
     const graphicsOutputs: string[] = [];
 
+    // Helper function to format output
+    const formatOutput = (...args: any[]): string => {
+      return args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+    };
+
+    // Create output capture functions
+    const logFn = (...args: any[]) => {
+      textOutputLines.push(formatOutput(...args));
+    };
+
+    const printFn = (...args: any[]) => {
+      textOutputLines.push(formatOutput(...args));
+    };
+
     // Create a safe execution context
     const context = {
       inputs,
       outputs: {} as Record<string, any>,
       // Capture console.log, console.error, etc.
-      log: (...args: any[]) => {
-        textOutputLines.push(args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-        ).join(' '));
-      },
-      print: (...args: any[]) => {
-        textOutputLines.push(args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-        ).join(' '));
+      log: logFn,
+      print: printFn,
+      console: {
+        log: logFn,
+        error: logFn,
+        warn: logFn,
+        info: logFn,
       },
       // Helper to output graphics (base64 image data)
       outputGraphics: (data: string) => {
@@ -104,18 +118,31 @@ export class NodeExecutor {
     // - isolated-vm (V8 isolates)
     // - Docker containers for complete isolation
     try {
+      // Inject print, log, console, and other helpers into the function scope
       const code = `
-        (function() {
+        (function(inputs, outputs, print, log, console, outputGraphics, outputImage) {
           ${node.config.code}
           return outputs;
-        })()
+        })
       `;
 
       // SECURITY WARNING: eval() allows arbitrary code execution
       // This should be replaced with a proper sandbox in production
       // eslint-disable-next-line no-eval
-      const result = eval(code).call(context);
+      const fn = eval(code);
+      console.log(`Executing node ${node.id} with inputs:`, context.inputs);
+      const result = fn.call(
+        context,
+        context.inputs,
+        context.outputs,
+        context.print,
+        context.log,
+        context.console,
+        context.outputGraphics,
+        context.outputImage
+      );
       const outputs = result || context.outputs;
+      console.log(`Node ${node.id} produced outputs:`, outputs);
 
       return {
         outputs,

@@ -105,13 +105,27 @@ export class GraphEngine {
     const inputs: Record<string, any> = {};
     const connections = graph.connections.filter(c => c.targetNodeId === nodeId);
 
+    console.log(`Getting inputs for node ${nodeId}, found ${connections.length} connections`);
+
     for (const connection of connections) {
+      console.log(`Connection: ${connection.sourceNodeId}:${connection.sourcePort} -> ${connection.targetNodeId}:${connection.targetPort}`);
       const sourceResult = await this.dataStore.getResult(connection.sourceNodeId);
-      if (sourceResult && sourceResult.outputs[connection.sourcePort]) {
-        inputs[connection.targetPort] = sourceResult.outputs[connection.sourcePort];
+      console.log(`Source result for ${connection.sourceNodeId}:`, sourceResult ? 'found' : 'not found');
+      if (sourceResult) {
+        console.log(`Source outputs:`, Object.keys(sourceResult.outputs));
+        console.log(`Looking for port: ${connection.sourcePort}`);
+        if (sourceResult.outputs[connection.sourcePort]) {
+          inputs[connection.targetPort] = sourceResult.outputs[connection.sourcePort];
+          console.log(`Mapped ${connection.sourcePort} -> ${connection.targetPort}:`, sourceResult.outputs[connection.sourcePort]);
+        } else {
+          console.warn(`Port ${connection.sourcePort} not found in outputs. Available ports:`, Object.keys(sourceResult.outputs));
+        }
+      } else {
+        console.warn(`No result found for source node ${connection.sourceNodeId}. Make sure to compute the source node first.`);
       }
     }
 
+    console.log(`Final inputs for node ${nodeId}:`, inputs);
     return inputs;
   }
 

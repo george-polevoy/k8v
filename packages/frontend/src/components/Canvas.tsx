@@ -13,13 +13,14 @@ import 'reactflow/dist/style.css';
 import { useGraphStore } from '../store/graphStore';
 import { Connection as GraphConnection } from '../types';
 import CustomNode from './CustomNode';
+import { v4 as uuidv4 } from 'uuid';
 
 const nodeTypes = {
   custom: CustomNode,
 };
 
 function Canvas() {
-  const { graph, addConnection } = useGraphStore();
+  const { graph, addConnection, isLoading, error } = useGraphStore();
 
   // Convert graph nodes to ReactFlow nodes
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -54,8 +55,23 @@ function Canvas() {
         return;
       }
 
+      // Check if connection already exists
+      const existingConnections = graph?.connections || [];
+      const alreadyExists = existingConnections.some(
+        (conn) =>
+          conn.sourceNodeId === params.source &&
+          conn.sourcePort === params.sourceHandle &&
+          conn.targetNodeId === params.target &&
+          conn.targetPort === params.targetHandle
+      );
+
+      if (alreadyExists) {
+        console.warn('Connection already exists, skipping');
+        return;
+      }
+
       const connection: GraphConnection = {
-        id: `${params.source}-${params.sourceHandle}-${params.target}-${params.targetHandle}`,
+        id: uuidv4(), // Use UUID for unique IDs
         sourceNodeId: params.source,
         sourcePort: params.sourceHandle,
         targetNodeId: params.target,
@@ -64,7 +80,7 @@ function Canvas() {
 
       addConnection(connection);
     },
-    [addConnection]
+    [addConnection, graph]
   );
 
   const onNodesChangeLocal = useCallback(
@@ -113,8 +129,51 @@ function Canvas() {
     [graph]
   );
 
+  if (isLoading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '100%',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div>Loading...</div>
+        {error && <div style={{ color: 'red', fontSize: '12px' }}>Error: {error}</div>}
+      </div>
+    );
+  }
+
   if (!graph) {
-    return <div>Loading...</div>;
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '100%',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div>No graph loaded</div>
+        {error && <div style={{ color: 'red', fontSize: '12px' }}>Error: {error}</div>}
+        <button
+          onClick={() => {
+            useGraphStore.getState().createGraph('Untitled Graph');
+          }}
+          style={{
+            padding: '8px 16px',
+            background: '#2196F3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Create New Graph
+        </button>
+      </div>
+    );
   }
 
   return (
