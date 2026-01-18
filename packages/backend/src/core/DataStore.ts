@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { ComputationResult, DataSchema } from '../types/index.js';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -18,7 +19,7 @@ export class DataStore {
     this.db = new Database(dbPath);
     this.dataDir = dataDir;
     this.initializeDatabase();
-    this.ensureDataDirectory();
+    this.ensureDataDirectorySync();
   }
 
   private initializeDatabase(): void {
@@ -55,9 +56,12 @@ export class DataStore {
     `);
   }
 
-  private async ensureDataDirectory(): Promise<void> {
+  /**
+   * Synchronously ensure data directory exists (called from constructor)
+   */
+  private ensureDataDirectorySync(): void {
     try {
-      await fs.mkdir(this.dataDir, { recursive: true });
+      fsSync.mkdirSync(this.dataDir, { recursive: true });
     } catch (error) {
       console.error('Failed to create data directory:', error);
     }

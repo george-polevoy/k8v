@@ -1,30 +1,79 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { GraphNode, NodeType } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { NodeType } from '../types';
+import { createInlineCodeNode } from '../utils/nodeFactory';
 
 function NodePanel() {
   const { selectedNodeId, graph, updateNode, addNode } = useGraphStore();
   const selectedNode = graph?.nodes.find((n) => n.id === selectedNodeId);
 
+  // Local state for code editing to prevent cursor jumping
+  const [codeValue, setCodeValue] = useState('');
+  const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync local state with selected node
+  useEffect(() => {   
+    if (selectedNode?.config.code !== undefined) {
+      setCodeValue(selectedNode.config.code);
+    }
+  }, [selectedNode?.id, selectedNode?.config.code]);
+
+  // Debounced update function
+  const debouncedUpdate = useCallback((nodeId: string, config: any, newValue: string) => {
+    if (updateTimerRef.current) {
+      clearTimeout(updateTimerRef.current);
+    }
+
+    updateTimerRef.current = setTimeout(() => {
+      updateNode(nodeId, { config: { ...config, code: newValue } });
+    }, 300); // 300ms debounce delay
+  }, [updateNode]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleAddInlineCodeNode = () => {
     if (!graph) return;
 
-    const newNode: GraphNode = {
-      id: uuidv4(),
-      type: NodeType.INLINE_CODE,
-      position: { x: Math.random() * 400, y: Math.random() * 400 },
-      metadata: {
-        name: 'Inline Code',
-        inputs: [{ name: 'input', schema: { type: 'object' } }],
-        outputs: [{ name: 'output', schema: { type: 'object' } }],
-      },
-      config: {
-        type: NodeType.INLINE_CODE,
-        code: 'outputs.result = inputs.input;',
-      },
-      version: Date.now().toString(),
-    };
+    // Calculate non-overlapping position for new node
+    const gridSize = 50;
+    const nodeWidth = 200;
+    const nodeHeight = 150;
+    let newPosition = { x: 100, y: 100 };
 
+    // Find a non-overlapping position
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    while (attempts < maxAttempts) {
+      const overlapping = graph.nodes.some(node => {
+        const xOverlap = Math.abs(node.position.x - newPosition.x) < nodeWidth;
+        const yOverlap = Math.abs(node.position.y - newPosition.y) < nodeHeight;
+        return xOverlap && yOverlap;
+      });
+
+      if (!overlapping) {
+        break;
+      }
+
+      // Try next position in a spiral pattern
+      const angle = (attempts * 137.5) * (Math.PI / 180); // Golden angle for good distribution
+      const radius = gridSize + (attempts * 20);
+      newPosition = {
+        x: 300 + Math.cos(angle) * radius,
+        y: 300 + Math.sin(angle) * radius,
+      };
+
+      attempts++;
+    }
+
+    const newNode = createInlineCodeNode({ position: newPosition });
     addNode(newNode);
   };
 
@@ -53,12 +102,12 @@ function NodePanel() {
                 Code:
               </label>
               <textarea
-                value={selectedNode.config.code || ''}
-                onChange={(e) =>
-                  updateNode(selectedNode.id, {
-                    config: { ...selectedNode.config, code: e.target.value },
-                  })
-                }
+                value={codeValue}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  setCodeValue(newValue);
+                  debouncedUpdate(selectedNode.id, selectedNode.config, newValue);
+                }}
                 style={{
                   width: '100%',
                   minHeight: '200px',

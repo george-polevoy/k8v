@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { GraphNode, NodeType } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { 
+  createInlineCodeNode, 
+  createLibraryNode, 
+  createExternalInputNode, 
+  createExternalOutputNode 
+} from '../utils/nodeFactory';
 
 interface NodeCreationDialogProps {
   onClose: () => void;
@@ -10,25 +15,42 @@ interface NodeCreationDialogProps {
 
 function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProps) {
   const [nodeType, setNodeType] = useState<NodeType>(NodeType.INLINE_CODE);
-  const [name, setName] = useState('New Node');
-  const [code, setCode] = useState('outputs.result = inputs.input;');
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('outputs.output = inputs.input;');
 
   const handleCreate = () => {
-    const newNode: GraphNode = {
-      id: uuidv4(),
-      type: nodeType,
-      position,
-      metadata: {
-        name,
-        inputs: [{ name: 'input', schema: { type: 'object' } }],
-        outputs: [{ name: 'result', schema: { type: 'object' } }],
-      },
-      config: {
-        type: nodeType,
-        code: nodeType === NodeType.INLINE_CODE ? code : undefined,
-      },
-      version: Date.now().toString(),
-    };
+    let newNode: GraphNode;
+
+    switch (nodeType) {
+      case NodeType.INLINE_CODE:
+        newNode = createInlineCodeNode({ 
+          position, 
+          name: name || undefined,
+          code: code || undefined 
+        });
+        break;
+      case NodeType.LIBRARY:
+        newNode = createLibraryNode({ 
+          position, 
+          name: name || undefined,
+          libraryId: '' 
+        });
+        break;
+      case NodeType.EXTERNAL_INPUT:
+        newNode = createExternalInputNode({ 
+          position, 
+          name: name || undefined 
+        });
+        break;
+      case NodeType.EXTERNAL_OUTPUT:
+        newNode = createExternalOutputNode({ 
+          position, 
+          name: name || undefined 
+        });
+        break;
+      default:
+        newNode = createInlineCodeNode({ position, name: name || undefined });
+    }
 
     onAdd(newNode);
     onClose();
@@ -74,12 +96,13 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
 
       <div style={{ marginBottom: '16px' }}>
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-          Name:
+          Name (optional):
         </label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          placeholder="Leave empty for default name"
           style={{
             width: '100%',
             padding: '8px',

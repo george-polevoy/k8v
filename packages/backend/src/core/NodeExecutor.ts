@@ -130,7 +130,6 @@ export class NodeExecutor {
       // This should be replaced with a proper sandbox in production
       // eslint-disable-next-line no-eval
       const fn = eval(code);
-      console.log(`Executing node ${node.id} with inputs:`, context.inputs);
       const result = fn.call(
         context,
         context.inputs,
@@ -142,7 +141,6 @@ export class NodeExecutor {
         context.outputImage
       );
       const outputs = result || context.outputs;
-      console.log(`Node ${node.id} produced outputs:`, outputs);
 
       return {
         outputs,
@@ -196,12 +194,13 @@ export class NodeExecutor {
 
     // Map inputs to external input nodes in subgraph
     const externalInputNodes = subgraph.nodes.filter(
-      n => n.config.type === NodeType.EXTERNAL_INPUT
+      (n: GraphNode) => n.config.type === NodeType.EXTERNAL_INPUT
     );
 
     for (const inputNode of externalInputNodes) {
       // Set inputs on external input nodes
       // This would be handled by the graph engine
+      void inputNode; // Placeholder to prevent unused variable warning
     }
 
     // Execute subgraph (would use GraphEngine)

@@ -1,14 +1,54 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
-import { Graph, GraphNode, Connection } from './types/index.js';
+import { Graph, GraphNode, Connection, NodeType } from './types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Request validation schemas
+const CreateGraphSchema = z.object({
+  name: z.string().optional().default('Untitled Graph'),
+  nodes: z.array(z.any()).optional().default([]),
+  connections: z.array(z.any()).optional().default([]),
+});
+
+const UpdateGraphSchema = z.object({
+  name: z.string().optional(),
+  nodes: z.array(z.any()).optional(),
+  connections: z.array(z.any()).optional(),
+});
+
+const ComputeRequestSchema = z.object({
+  nodeId: z.string().optional(),
+});
+
+const CreateLibraryNodeSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  graphId: z.string().optional(),
+  version: z.string().optional().default('1.0.0'),
+});
+
+// Validation middleware factory
+const validate = <T extends z.ZodType>(schema: T) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: result.error.flatten() 
+      });
+    }
+    req.body = result.data;
+    next();
+  };
+};
 
 // Initialize services
 const dataStore = new DataStore('./k8v.db', './data');
@@ -51,13 +91,13 @@ app.get('/api/graphs/:id', async (req, res) => {
   }
 });
 
-app.post('/api/graphs', async (req, res) => {
+app.post('/api/graphs', validate(CreateGraphSchema), async (req, res) => {
   try {
     const graph: Graph = {
       id: uuidv4(),
-      name: req.body.name || 'Untitled Graph',
-      nodes: req.body.nodes || [],
-      connections: req.body.connections || [],
+      name: req.body.name,
+      nodes: req.body.nodes,
+      connections: req.body.connections,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -69,7 +109,7 @@ app.post('/api/graphs', async (req, res) => {
   }
 });
 
-app.put('/api/graphs/:id', async (req, res) => {
+app.put('/api/graphs/:id', validate(UpdateGraphSchema), async (req, res) => {
   try {
     const existing = await dataStore.getGraph(req.params.id);
     if (!existing) {
@@ -91,7 +131,7 @@ app.put('/api/graphs/:id', async (req, res) => {
 });
 
 // Node computation
-app.post('/api/graphs/:id/compute', async (req, res) => {
+app.post('/api/graphs/:id/compute', validate(ComputeRequestSchema), async (req, res) => {
   try {
     const graph = await dataStore.getGraph(req.params.id);
     if (!graph) {
@@ -133,11 +173,13 @@ app.get('/api/library-nodes/:id', async (req, res) => {
   }
 });
 
-app.post('/api/library-nodes', async (req, res) => {
+app.post('/api/library-nodes', validate(CreateLibraryNodeSchema), async (req, res) => {
   try {
     const manifest = {
       id: uuidv4(),
-      ...req.body,
+      name: req.body.name,
+      description: req.body.description,
+      version: req.body.version,
       createdAt: Date.now(),
     };
 

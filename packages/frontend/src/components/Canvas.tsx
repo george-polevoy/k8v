@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -13,6 +13,7 @@ import 'reactflow/dist/style.css';
 import { useGraphStore } from '../store/graphStore';
 import { Connection as GraphConnection } from '../types';
 import CustomNode from './CustomNode';
+import InputNameDialog from './InputNameDialog';
 import { v4 as uuidv4 } from 'uuid';
 
 const nodeTypes = {
@@ -26,8 +27,12 @@ function Canvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
+  // State for input name dialog
+  const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
+  const [showInputDialog, setShowInputDialog] = useState(false);
+
   // Sync with graph store
-  React.useEffect(() => {
+  useEffect(() => {
     if (!graph) return;
 
     const reactFlowNodes: Node[] = graph.nodes.map((node) => ({
@@ -49,9 +54,78 @@ function Canvas() {
     setEdges(reactFlowEdges);
   }, [graph, setNodes, setEdges]);
 
+  const handleInputNameSubmit = useCallback(
+    (inputName: string) => {
+      if (!pendingConnection || !graph) return;
+
+      const params = pendingConnection;
+      const targetNode = graph.nodes.find(n => n.id === params.target);
+      if (!targetNode) return;
+
+      // Create connection with the new input name
+      const connection: GraphConnection = {
+        id: uuidv4(),
+        sourceNodeId: params.source!,
+        sourcePort: params.sourceHandle!,
+        targetNodeId: params.target!,
+        targetPort: inputName,
+      };
+
+      // Update both node metadata and connections in a single operation
+      const newInput = {
+        name: inputName,
+        schema: { type: 'object' as const },
+        description: 'Dynamically added input',
+      };
+
+      const updatedNodes = graph.nodes.map((node) =>
+        node.id === params.target
+          ? {
+              ...node,
+              metadata: {
+                ...node.metadata,
+                inputs: [
+                  ...node.metadata.inputs,
+                  newInput,
+                ],
+              },
+              version: Date.now().toString(),
+            }
+          : node
+      );
+
+      const updatedGraph = {
+        ...graph,
+        nodes: updatedNodes,
+        connections: [...graph.connections, connection],
+        updatedAt: Date.now(),
+      };
+
+      useGraphStore.getState().updateGraph(updatedGraph as any);
+
+      // Close dialog and clear pending connection
+      setShowInputDialog(false);
+      setPendingConnection(null);
+    },
+    [pendingConnection, graph]
+  );
+
+  const handleInputNameCancel = useCallback(() => {
+    setShowInputDialog(false);
+    setPendingConnection(null);
+  }, []);
+
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target || !params.sourceHandle || !params.targetHandle) {
+        return;
+      }
+
+      // Handle dynamic input creation for inline code nodes
+      if (params.targetHandle === '__add_input__') {
+        // Store the pending connection and show dialog
+        setPendingConnection(params);
+        setShowInputDialog(true);
         return;
       }
 
@@ -129,6 +203,22 @@ function Canvas() {
     [graph]
   );
 
+  // Handle edge changes (including deletion)
+  const onEdgesChangeLocal = useCallback(
+    (changes: any) => {
+      onEdgesChange(changes);
+      if (graph) {
+        changes.forEach((change: any) => {
+          if (change.type === 'remove') {
+            // Handle edge deletion
+            useGraphStore.getState().deleteConnection(change.id);
+          }
+        });
+      }
+    },
+    [onEdgesChange, graph]
+  );
+
   if (isLoading) {
     return (
       <div style={{ 
@@ -183,9 +273,9 @@ function Canvas() {
         edges={edges}
         onNodesChange={onNodesChangeLocal}
         onNodesDelete={onNodesDelete}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={onEdgesChangeLocal}
         onConnect={onConnect}
-        onNodeClick={(event, node) => {
+        onNodeClick={(_event, node) => {
           useGraphStore.getState().selectNode(node.id);
         }}
         onPaneClick={() => {
@@ -199,6 +289,19 @@ function Canvas() {
         <Controls />
         <MiniMap />
       </ReactFlow>
+
+      {/* Input name dialog */}
+      {showInputDialog && pendingConnection && graph && (
+        <InputNameDialog
+          onSubmit={handleInputNameSubmit}
+          onCancel={handleInputNameCancel}
+          existingNames={
+            graph.nodes
+              .find(n => n.id === pendingConnection.target)
+              ?.metadata.inputs.map(i => i.name) || []
+          }
+        />
+      )}
     </div>
   );
 }

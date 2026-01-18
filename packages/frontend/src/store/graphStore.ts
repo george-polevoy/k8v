@@ -19,6 +19,7 @@ interface GraphStore {
   deleteNode: (nodeId: string) => void;
   addConnection: (connection: Connection) => void;
   deleteConnection: (connectionId: string) => void;
+  deleteConnections: (connectionIds: string[]) => void;
   selectNode: (nodeId: string | null) => void;
   computeNode: (nodeId: string) => Promise<void>;
   computeGraph: () => Promise<void>;
@@ -184,8 +185,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       const updatedGraph = { ...graph, ...updates };
       const response = await axios.put(`/api/graphs/${graph.id}`, updatedGraph);
       set({ graph: response.data, isLoading: false });
-      // Ensure graph ID is saved
-      localStorage.setItem('k8v-current-graph-id', response.data.id);
+      // Ensure graph ID is saved (with error handling)
+      try {
+        localStorage.setItem('k8v-current-graph-id', response.data.id);
+      } catch (storageError) {
+        console.warn('Could not save to localStorage:', storageError);
+      }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
@@ -258,6 +263,35 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       connections: graph.connections.filter((conn) => conn.id !== connectionId),
       updatedAt: Date.now(),
     };
+    get().updateGraph(updatedGraph);
+  },
+
+  deleteConnections: (connectionIds: string[]) => {
+    const { graph } = get();
+    if (!graph) return;
+
+    // Validate that all connection IDs exist
+    const connectionIdSet = new Set(connectionIds);
+    const validConnections = graph.connections.filter(conn => connectionIdSet.has(conn.id));
+
+    if (validConnections.length === 0) {
+      console.warn('No valid connections found to delete:', connectionIds);
+      return;
+    }
+
+    if (validConnections.length !== connectionIds.length) {
+      console.warn(
+        `Some connection IDs were not found. Requested: ${connectionIds.length}, Found: ${validConnections.length}`
+      );
+    }
+
+    // Batch delete: filter out all connections at once
+    const updatedGraph = {
+      ...graph,
+      connections: graph.connections.filter((conn) => !connectionIdSet.has(conn.id)),
+      updatedAt: Date.now(),
+    };
+
     get().updateGraph(updatedGraph);
   },
 
