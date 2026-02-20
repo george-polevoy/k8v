@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Graph, GraphNode, Connection } from '../types';
+import { Graph, GraphNode, Connection, Position } from '../types';
 import axios from 'axios';
 
 interface GraphStore {
@@ -16,6 +16,7 @@ interface GraphStore {
   initializeGraph: () => Promise<void>;
   addNode: (node: GraphNode) => void;
   updateNode: (nodeId: string, updates: Partial<GraphNode>) => void;
+  updateNodePosition: (nodeId: string, position: Position) => void;
   deleteNode: (nodeId: string) => void;
   addConnection: (connection: Connection) => void;
   deleteConnection: (connectionId: string) => void;
@@ -215,6 +216,22 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
     const updatedNodes = graph.nodes.map((node) =>
       node.id === nodeId ? { ...node, ...updates, version: Date.now().toString() } : node
+    );
+
+    const updatedGraph = {
+      ...graph,
+      nodes: updatedNodes,
+      updatedAt: Date.now(),
+    };
+    get().updateGraph(updatedGraph);
+  },
+
+  updateNodePosition: (nodeId: string, position: Position) => {
+    const { graph } = get();
+    if (!graph) return;
+
+    const updatedNodes = graph.nodes.map((node) =>
+      node.id === nodeId ? { ...node, position } : node
     );
 
     const updatedGraph = {

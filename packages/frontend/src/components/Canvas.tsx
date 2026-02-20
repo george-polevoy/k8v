@@ -21,7 +21,7 @@ const nodeTypes = {
 };
 
 function Canvas() {
-  const { graph, addConnection, isLoading, error } = useGraphStore();
+  const { graph, addConnection, updateNodePosition, isLoading, error } = useGraphStore();
 
   // Convert graph nodes to ReactFlow nodes
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -163,11 +163,7 @@ function Canvas() {
       // Update positions in graph store
       if (graph) {
         changes.forEach((change: any) => {
-          if (change.type === 'position' && change.position) {
-            useGraphStore.getState().updateNode(change.id, {
-              position: change.position,
-            });
-          } else if (change.type === 'select' && change.selected) {
+          if (change.type === 'select' && change.selected) {
             useGraphStore.getState().selectNode(change.id);
           } else if (change.type === 'select' && !change.selected) {
             useGraphStore.getState().selectNode(null);
@@ -277,6 +273,9 @@ function Canvas() {
         onConnect={onConnect}
         onNodeClick={(_event, node) => {
           useGraphStore.getState().selectNode(node.id);
+        }}
+        onNodeDragStop={(_event, node) => {
+          updateNodePosition(node.id, node.position);
         }}
         onPaneClick={() => {
           useGraphStore.getState().selectNode(null);

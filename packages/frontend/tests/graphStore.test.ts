@@ -74,3 +74,60 @@ test('initializeGraph recovers from stale saved graph id by loading latest graph
     (axios as any).post = originalPost;
   }
 });
+
+test('updateNodePosition persists position without changing node version', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const initialGraph: Graph = {
+    id: 'g1',
+    name: 'Graph g1',
+    nodes: [
+      {
+        id: 'n1',
+        type: 'inline_code' as any,
+        position: { x: 10, y: 20 },
+        metadata: {
+          name: 'Node',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'node-version-1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    useGraphStore.getState().updateNodePosition('n1', { x: 111, y: 222 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = useGraphStore.getState();
+    assert.ok(capturedPayload, 'expected updateGraph payload');
+    assert.equal(capturedPayload.nodes[0].position.x, 111);
+    assert.equal(capturedPayload.nodes[0].position.y, 222);
+    assert.equal(capturedPayload.nodes[0].version, 'node-version-1');
+    assert.equal(state.graph?.nodes[0].version, 'node-version-1');
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
