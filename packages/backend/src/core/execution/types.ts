@@ -13,3 +13,5 @@ export interface ExecutionResult {
 export interface ExecutionRuntime {
   execute(request: ExecutionRequest): Promise<ExecutionResult>;
 }
+
+export const DEFAULT_RUNTIME_ID = 'javascript_vm';

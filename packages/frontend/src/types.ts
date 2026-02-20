@@ -33,11 +33,14 @@ export enum NodeType {
   EXTERNAL_OUTPUT = 'external_output',
 }
 
+export type RuntimeId = 'javascript_vm';
+
 export interface NodeConfig {
   type: NodeType;
   code?: string;
   libraryId?: string;
   subgraphId?: string;
+  runtime?: RuntimeId | string;
   config?: Record<string, any>;
 }
 

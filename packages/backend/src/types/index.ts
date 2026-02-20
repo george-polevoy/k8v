@@ -46,6 +46,7 @@ export const NodeConfig = z.object({
   code: z.string().optional(), // For inline code nodes
   libraryId: z.string().optional(), // For library nodes
   subgraphId: z.string().optional(), // For subgraph nodes
+  runtime: z.string().min(1).optional(), // Runtime identifier for executable nodes
   config: z.record(z.any()).optional(), // Additional configuration
 });
 

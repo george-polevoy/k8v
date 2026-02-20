@@ -1,6 +1,6 @@
 import { GraphNode, NodeType, ComputationResult, DataSchema } from '../types/index.js';
 import { DataStore } from './DataStore.js';
-import { ExecutionRuntime } from './execution/types.js';
+import { DEFAULT_RUNTIME_ID, ExecutionRuntime } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
 
 /**
@@ -8,11 +8,17 @@ import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
  */
 export class NodeExecutor {
   private dataStore: DataStore;
-  private executionRuntime: ExecutionRuntime;
+  private runtimes: Map<string, ExecutionRuntime>;
+  private defaultRuntimeId: string;
 
-  constructor(dataStore: DataStore, executionRuntime: ExecutionRuntime = new JavaScriptVmRuntime()) {
+  constructor(
+    dataStore: DataStore,
+    runtimeOrRegistry: ExecutionRuntime | Record<string, ExecutionRuntime> = new JavaScriptVmRuntime(),
+    defaultRuntimeId: string = DEFAULT_RUNTIME_ID
+  ) {
     this.dataStore = dataStore;
-    this.executionRuntime = executionRuntime;
+    this.defaultRuntimeId = defaultRuntimeId;
+    this.runtimes = this.initializeRuntimes(runtimeOrRegistry);
   }
 
   /**
@@ -72,7 +78,8 @@ export class NodeExecutor {
     if (!node.config.code) {
       throw new Error(`Inline code node ${node.id} has no code`);
     }
-    const runtimeResult = await this.executionRuntime.execute({
+    const runtime = this.resolveRuntime(node);
+    const runtimeResult = await runtime.execute({
       code: node.config.code,
       inputs,
       timeoutMs: this.resolveTimeoutMs(node),
@@ -226,5 +233,36 @@ export class NodeExecutor {
       return timeoutCandidate;
     }
     return 5000;
+  }
+
+  private initializeRuntimes(
+    runtimeOrRegistry: ExecutionRuntime | Record<string, ExecutionRuntime>
+  ): Map<string, ExecutionRuntime> {
+    if (this.isExecutionRuntime(runtimeOrRegistry)) {
+      return new Map([[this.defaultRuntimeId, runtimeOrRegistry]]);
+    }
+
+    const runtimeRegistry: Record<string, ExecutionRuntime> = {
+      [this.defaultRuntimeId]: new JavaScriptVmRuntime(),
+      ...runtimeOrRegistry,
+    };
+    return new Map(Object.entries(runtimeRegistry));
+  }
+
+  private isExecutionRuntime(
+    runtimeOrRegistry: ExecutionRuntime | Record<string, ExecutionRuntime>
+  ): runtimeOrRegistry is ExecutionRuntime {
+    return typeof (runtimeOrRegistry as ExecutionRuntime).execute === 'function';
+  }
+
+  private resolveRuntime(node: GraphNode): ExecutionRuntime {
+    const runtimeId = node.config.runtime ?? this.defaultRuntimeId;
+    const runtime = this.runtimes.get(runtimeId);
+
+    if (!runtime) {
+      throw new Error(`Execution runtime '${runtimeId}' is not registered`);
+    }
+
+    return runtime;
   }
 }

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
-import { Graph } from './types/index.js';
+import { Connection, Graph, GraphNode } from './types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
@@ -14,14 +14,14 @@ app.use(express.json());
 // Request validation schemas
 const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
-  nodes: z.array(z.any()).optional().default([]),
-  connections: z.array(z.any()).optional().default([]),
+  nodes: z.array(GraphNode).optional().default([]),
+  connections: z.array(Connection).optional().default([]),
 });
 
 const UpdateGraphSchema = z.object({
   name: z.string().optional(),
-  nodes: z.array(z.any()).optional(),
-  connections: z.array(z.any()).optional(),
+  nodes: z.array(GraphNode).optional(),
+  connections: z.array(Connection).optional(),
 });
 
 const ComputeRequestSchema = z.object({

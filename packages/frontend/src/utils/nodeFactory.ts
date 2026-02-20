@@ -24,6 +24,7 @@ export function createInlineCodeNode(options: CreateNodeOptions): GraphNode {
     config: {
       type: NodeType.INLINE_CODE,
       code: options.code || 'outputs.output = inputs.input;',
+      runtime: 'javascript_vm',
     },
     version: Date.now().toString(),
   };

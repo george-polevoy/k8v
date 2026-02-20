@@ -240,6 +240,8 @@ interface NodeConfig {
 Current implementation status:
 - `ExecutionRuntime` interface is wired into `NodeExecutor`
 - `JavaScriptVmRuntime` (`node:vm`) provides interim execution with timeout support
+- Runtime can be selected per node via `node.config.runtime` (defaults to `javascript_vm`)
+- Backend rejects unregistered runtime identifiers during execution
 - Next security milestone is `isolated-vm` or stronger isolation runtime
 
 ### Phase 2: TypeScript Support
