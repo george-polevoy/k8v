@@ -10,3 +10,5 @@ build/
 *.sqlite
 data/
 .cache/
+test-results/
+tmp/
