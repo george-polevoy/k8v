@@ -17,6 +17,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
   const [nodeType, setNodeType] = useState<NodeType>(NodeType.INLINE_CODE);
   const [name, setName] = useState('');
   const [code, setCode] = useState('outputs.output = inputs.input;');
+  const [runtime, setRuntime] = useState('javascript_vm');
 
   const handleCreate = () => {
     let newNode: GraphNode;
@@ -26,7 +27,8 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
         newNode = createInlineCodeNode({ 
           position, 
           name: name || undefined,
-          code: code || undefined 
+          code: code || undefined,
+          runtime,
         });
         break;
       case NodeType.LIBRARY:
@@ -114,6 +116,22 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
 
       {nodeType === NodeType.INLINE_CODE && (
         <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+            Runtime:
+          </label>
+          <select
+            value={runtime}
+            onChange={(e) => setRuntime(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              marginBottom: '12px',
+            }}
+          >
+            <option value="javascript_vm">JavaScript VM</option>
+          </select>
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
             Code:
           </label>

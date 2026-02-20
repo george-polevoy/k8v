@@ -1,10 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { GraphNode, NodeType } from '../types';
+import { GraphNode, NodeType, RuntimeId } from '../types';
 
 export interface CreateNodeOptions {
   name?: string;
   position: { x: number; y: number };
   code?: string;
+  runtime?: RuntimeId | string;
 }
 
 /**
@@ -24,7 +25,7 @@ export function createInlineCodeNode(options: CreateNodeOptions): GraphNode {
     config: {
       type: NodeType.INLINE_CODE,
       code: options.code || 'outputs.output = inputs.input;',
-      runtime: 'javascript_vm',
+      runtime: options.runtime || 'javascript_vm',
     },
     version: Date.now().toString(),
   };

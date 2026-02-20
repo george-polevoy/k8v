@@ -99,6 +99,29 @@ function NodePanel() {
           {selectedNode.config.type === NodeType.INLINE_CODE && (
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                Runtime:
+              </label>
+              <select
+                value={selectedNode.config.runtime || 'javascript_vm'}
+                onChange={(e) => {
+                  updateNode(selectedNode.id, {
+                    config: {
+                      ...selectedNode.config,
+                      runtime: e.target.value,
+                    },
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  marginBottom: '16px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                }}
+              >
+                <option value="javascript_vm">JavaScript VM</option>
+              </select>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
                 Code:
               </label>
               <textarea
