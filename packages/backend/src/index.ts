@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
-import { Graph, GraphNode, Connection, NodeType } from './types/index.js';
+import { Graph } from './types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();

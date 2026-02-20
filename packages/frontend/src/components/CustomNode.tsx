@@ -33,7 +33,7 @@ function CustomNode({ data }: CustomNodeProps) {
           setTextOutput(null);
           setOutputs(null);
         }
-      } catch (error: any) {
+      } catch {
         // No result yet or error - silently ignore
         setTextOutput(null);
         setOutputs(null);

@@ -15,7 +15,8 @@
     "build:frontend": "cd packages/frontend && npm run build",
     "install:all": "npm install && cd packages/backend && npm install && cd ../frontend && npm install",
     "test": "tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts",
-    "lint": "eslint \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\""
+    "lint": "eslint --max-warnings=0 \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\"",
+    "lint:fix": "eslint --fix \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\""
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

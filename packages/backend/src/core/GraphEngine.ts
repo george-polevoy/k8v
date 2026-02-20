@@ -1,4 +1,4 @@
-import { Graph, GraphNode, Connection, ComputationResult, NodeType } from '../types/index.js';
+import { Graph, GraphNode, ComputationResult } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { NodeExecutor } from './NodeExecutor.js';
 

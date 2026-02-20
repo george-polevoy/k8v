@@ -128,7 +128,6 @@ export class NodeExecutor {
 
       // SECURITY WARNING: eval() allows arbitrary code execution
       // This should be replaced with a proper sandbox in production
-      // eslint-disable-next-line no-eval
       const fn = eval(code);
       const result = fn.call(
         context,
@@ -160,7 +159,7 @@ export class NodeExecutor {
   /**
    * Execute library node
    */
-  private async executeLibraryNode(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
+  private async executeLibraryNode(node: GraphNode, _inputs: Record<string, any>): Promise<Record<string, any>> {
     if (!node.config.libraryId) {
       throw new Error(`Library node ${node.id} has no libraryId`);
     }
@@ -181,7 +180,7 @@ export class NodeExecutor {
   /**
    * Execute subgraph node
    */
-  private async executeSubgraph(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
+  private async executeSubgraph(node: GraphNode, _inputs: Record<string, any>): Promise<Record<string, any>> {
     if (!node.config.subgraphId) {
       throw new Error(`Subgraph node ${node.id} has no subgraphId`);
     }

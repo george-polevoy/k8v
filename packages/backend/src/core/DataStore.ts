@@ -3,10 +3,6 @@ import { ComputationResult } from '../types/index.js';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * Data store for persisting computation results and metadata
@@ -222,7 +218,7 @@ export class DataStore {
     if (row.text_output_path) {
       try {
         textOutput = await fs.readFile(row.text_output_path, 'utf-8');
-      } catch (error) {
+      } catch {
         // File might not exist, ignore
       }
     }
@@ -254,7 +250,7 @@ export class DataStore {
           const ext = graphicsPath.split('.').pop() || 'png';
           graphicsOutput = `data:image/${ext === 'dat' ? 'png' : ext};base64,${base64}`;
         }
-      } catch (error) {
+      } catch {
         // File might not exist, ignore
       }
     }

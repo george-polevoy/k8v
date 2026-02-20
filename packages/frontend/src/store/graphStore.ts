@@ -124,7 +124,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           if (error.response?.status === 404) {
             try {
               localStorage.removeItem('k8v-current-graph-id');
-            } catch (e) {
+            } catch {
               // Ignore localStorage errors
             }
             try {
@@ -132,7 +132,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
               await get().loadLatestGraph();
               set({ isLoading: false });
               return;
-            } catch (latestError: any) {
+            } catch {
               console.log('Failed to load latest, creating new graph...');
               // If latest also fails, create new
               await get().createGraph('Untitled Graph');
@@ -144,7 +144,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
             // Other error, clear stale ID and create new
             try {
               localStorage.removeItem('k8v-current-graph-id');
-            } catch (e) {
+            } catch {
               // Ignore localStorage errors
             }
             await get().createGraph('Untitled Graph');
