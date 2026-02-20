@@ -23,7 +23,8 @@ k8v is a flow-based modeling software that enables visual programming through an
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
 - Executes different node types (inline code, library, subgraph, external I/O)
 - Infers data schemas from outputs
-- Delegates to pluggable execution runtimes (see [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md))
+- Delegates inline code execution to runtime implementations (`packages/backend/src/core/execution/`)
+- Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout)
 
 #### Execution Engine (`packages/backend/src/core/execution/`)
 - **Pluggable runtime architecture** for secure code execution
@@ -92,7 +93,7 @@ Code execution security is addressed through the pluggable **Execution Engine** 
 See [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) for detailed security design.
 
 ### Current Risk (To Be Resolved)
-The existing implementation uses `eval()` which is a critical security vulnerability.
+The current implementation uses Node `vm` as an intermediate runtime. It is safer than direct `eval()`, but still in-process and not sufficient as a production security boundary.
 
 ### Resolution Plan
 1. **Phase 1**: Replace with `isolated-vm` (V8 isolates with memory/timeout limits)

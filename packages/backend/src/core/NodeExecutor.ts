@@ -1,14 +1,18 @@
 import { GraphNode, NodeType, ComputationResult, DataSchema } from '../types/index.js';
 import { DataStore } from './DataStore.js';
+import { ExecutionRuntime } from './execution/types.js';
+import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
 
 /**
  * Executes nodes and produces computation results
  */
 export class NodeExecutor {
   private dataStore: DataStore;
+  private executionRuntime: ExecutionRuntime;
 
-  constructor(dataStore: DataStore) {
+  constructor(dataStore: DataStore, executionRuntime: ExecutionRuntime = new JavaScriptVmRuntime()) {
     this.dataStore = dataStore;
+    this.executionRuntime = executionRuntime;
   }
 
   /**
@@ -68,92 +72,17 @@ export class NodeExecutor {
     if (!node.config.code) {
       throw new Error(`Inline code node ${node.id} has no code`);
     }
-
-    // Capture stdout/stderr
-    const textOutputLines: string[] = [];
-    const graphicsOutputs: string[] = [];
-
-    // Helper function to format output
-    const formatOutput = (...args: any[]): string => {
-      return args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-      ).join(' ');
-    };
-
-    // Create output capture functions
-    const logFn = (...args: any[]) => {
-      textOutputLines.push(formatOutput(...args));
-    };
-
-    const printFn = (...args: any[]) => {
-      textOutputLines.push(formatOutput(...args));
-    };
-
-    // Create a safe execution context
-    const context = {
+    const runtimeResult = await this.executionRuntime.execute({
+      code: node.config.code,
       inputs,
-      outputs: {} as Record<string, any>,
-      // Capture console.log, console.error, etc.
-      log: logFn,
-      print: printFn,
-      console: {
-        log: logFn,
-        error: logFn,
-        warn: logFn,
-        info: logFn,
-      },
-      // Helper to output graphics (base64 image data)
-      outputGraphics: (data: string) => {
-        graphicsOutputs.push(data);
-      },
-      // Helper to output images from canvas or image data
-      outputImage: (imageData: string) => {
-        graphicsOutputs.push(imageData);
-      },
+      timeoutMs: this.resolveTimeoutMs(node),
+    });
+
+    return {
+      outputs: runtimeResult.outputs,
+      textOutput: runtimeResult.textOutput,
+      graphicsOutput: runtimeResult.graphicsOutput,
     };
-
-    // Execute code in a sandboxed context
-    // WARNING: Using eval() is a security risk. In production, replace with:
-    // - vm2 (Node.js VM wrapper)
-    // - isolated-vm (V8 isolates)
-    // - Docker containers for complete isolation
-    try {
-      // Inject print, log, console, and other helpers into the function scope
-      const code = `
-        (function(inputs, outputs, print, log, console, outputGraphics, outputImage) {
-          ${node.config.code}
-          return outputs;
-        })
-      `;
-
-      // SECURITY WARNING: eval() allows arbitrary code execution
-      // This should be replaced with a proper sandbox in production
-      const fn = eval(code);
-      const result = fn.call(
-        context,
-        context.inputs,
-        context.outputs,
-        context.print,
-        context.log,
-        context.console,
-        context.outputGraphics,
-        context.outputImage
-      );
-      const outputs = result || context.outputs;
-
-      return {
-        outputs,
-        textOutput: textOutputLines.length > 0 ? textOutputLines.join('\n') : undefined,
-        graphicsOutput: graphicsOutputs.length > 0 ? graphicsOutputs[graphicsOutputs.length - 1] : undefined,
-      };
-    } catch (error: any) {
-      // Include error in text output
-      const errorMessage = `Error: ${error.message || String(error)}`;
-      return {
-        outputs: {},
-        textOutput: errorMessage,
-      };
-    }
   }
 
   /**
@@ -289,5 +218,13 @@ export class NodeExecutor {
     }
 
     return { type: 'null' };
+  }
+
+  private resolveTimeoutMs(node: GraphNode): number {
+    const timeoutCandidate = node.config.config?.timeoutMs ?? node.config.config?.timeout;
+    if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate > 0) {
+      return timeoutCandidate;
+    }
+    return 5000;
   }
 }

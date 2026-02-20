@@ -232,10 +232,15 @@ interface NodeConfig {
 ## Implementation Roadmap
 
 ### Phase 1: Foundation (Current Priority)
-- [ ] Define abstract interfaces (Language, Transpiler, Compiler, ExecutionRuntime)
+- [x] Define abstract interfaces (Language, Transpiler, Compiler, ExecutionRuntime)
 - [ ] Implement V8IsolateRuntime using `isolated-vm`
-- [ ] Replace `eval()` in NodeExecutor with ExecutionRuntime interface
+- [x] Replace `eval()` in NodeExecutor with ExecutionRuntime interface
 - [ ] Add timeout and memory limit support
+
+Current implementation status:
+- `ExecutionRuntime` interface is wired into `NodeExecutor`
+- `JavaScriptVmRuntime` (`node:vm`) provides interim execution with timeout support
+- Next security milestone is `isolated-vm` or stronger isolation runtime
 
 ### Phase 2: TypeScript Support
 - [ ] Implement TypeScriptTranspiler (TS → JS)
