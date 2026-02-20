@@ -44,6 +44,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
+      throw error;
     }
   },
 

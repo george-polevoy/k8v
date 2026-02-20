@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { ComputationResult, DataSchema } from '../types/index.js';
+import { ComputationResult } from '../types/index.js';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -25,7 +25,8 @@ export class DataStore {
   private initializeDatabase(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS computation_results (
-        node_id TEXT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id TEXT NOT NULL,
         version TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         data_path TEXT NOT NULL,
@@ -50,10 +51,66 @@ export class DataStore {
         version TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+    `);
 
-      CREATE INDEX IF NOT EXISTS idx_computation_version ON computation_results(node_id, version);
+    this.migrateComputationResultsSchemaIfNeeded();
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_computation_node_version_timestamp
+        ON computation_results(node_id, version, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_computation_node_timestamp
+        ON computation_results(node_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_graph_updated ON graphs(updated_at);
     `);
+  }
+
+  /**
+   * Migrate legacy computation_results schema that used node_id as PRIMARY KEY.
+   * That schema overwrote previous versions for the same node.
+   */
+  private migrateComputationResultsSchemaIfNeeded(): void {
+    const tableInfo = this.db
+      .prepare('PRAGMA table_info(computation_results)')
+      .all() as Array<{ name: string; pk: number }>;
+
+    if (tableInfo.length === 0) {
+      return;
+    }
+
+    const nodeIdColumn = tableInfo.find((column) => column.name === 'node_id');
+    const hasIdColumn = tableInfo.some((column) => column.name === 'id');
+    const usesLegacyPrimaryKey = Boolean(nodeIdColumn?.pk === 1 && !hasIdColumn);
+
+    if (!usesLegacyPrimaryKey) {
+      return;
+    }
+
+    const migrate = this.db.transaction(() => {
+      this.db.exec(`
+        ALTER TABLE computation_results RENAME TO computation_results_legacy;
+
+        CREATE TABLE computation_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          node_id TEXT NOT NULL,
+          version TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          data_path TEXT NOT NULL,
+          schema_path TEXT NOT NULL,
+          text_output_path TEXT,
+          graphics_output_path TEXT
+        );
+
+        INSERT INTO computation_results
+          (node_id, version, timestamp, data_path, schema_path, text_output_path, graphics_output_path)
+        SELECT
+          node_id, version, timestamp, data_path, schema_path, text_output_path, graphics_output_path
+        FROM computation_results_legacy;
+
+        DROP TABLE computation_results_legacy;
+      `);
+    });
+
+    migrate();
   }
 
   /**
@@ -107,9 +164,9 @@ export class DataStore {
       }
     }
 
-    // Store metadata in database (update schema to include text/graphics paths)
+    // Store metadata in database without replacing previous versions.
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO computation_results 
+      INSERT INTO computation_results 
       (node_id, version, timestamp, data_path, schema_path, text_output_path, graphics_output_path)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);

@@ -1,0 +1,5 @@
+# Deprecated
+
+Project-wide assistant guidance now lives in `AGENTS.md` so multiple agent tools can share one source of truth.
+
+If your assistant only supports `.clinerules`, read and follow `AGENTS.md`.

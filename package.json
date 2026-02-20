@@ -13,9 +13,18 @@
     "build": "npm run build:backend && npm run build:frontend",
     "build:backend": "cd packages/backend && npm run build",
     "build:frontend": "cd packages/frontend && npm run build",
-    "install:all": "npm install && cd packages/backend && npm install && cd ../frontend && npm install"
+    "install:all": "npm install && cd packages/backend && npm install && cd ../frontend && npm install",
+    "test": "tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts",
+    "lint": "eslint \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\""
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "@eslint/js": "^9.21.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^9.21.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "tsx": "^4.20.5",
+    "typescript-eslint": "^8.25.0"
   }
 }
