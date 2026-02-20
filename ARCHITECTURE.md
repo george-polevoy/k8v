@@ -23,7 +23,13 @@ k8v is a flow-based modeling software that enables visual programming through an
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
 - Executes different node types (inline code, library, subgraph, external I/O)
 - Infers data schemas from outputs
-- **Note**: Currently uses `eval()` for inline code execution. In production, replace with a proper sandbox like `vm2` or `isolated-vm` for security.
+- Delegates to pluggable execution runtimes (see [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md))
+
+#### Execution Engine (`packages/backend/src/core/execution/`)
+- **Pluggable runtime architecture** for secure code execution
+- Supports multiple runtimes: V8 isolates, WASM/WASI, containers
+- Supports multiple languages: JavaScript, TypeScript, Python, etc.
+- See [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) for detailed design
 
 ### Frontend
 
@@ -82,27 +88,47 @@ The system automatically infers data schemas from node outputs:
 
 ## Security Considerations
 
-**Important**: The current implementation uses `eval()` for inline code execution, which is a security risk. For production use:
+Code execution security is addressed through the pluggable **Execution Engine** architecture.
+See [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) for detailed security design.
 
-1. Replace with a proper sandbox:
-   - `vm2` (Node.js VM wrapper)
-   - `isolated-vm` (V8 isolates)
-   - Docker containers for complete isolation
+### Current Risk (To Be Resolved)
+The existing implementation uses `eval()` which is a critical security vulnerability.
 
-2. Implement code validation:
-   - Syntax checking
-   - Resource limits
-   - Timeout mechanisms
+### Resolution Plan
+1. **Phase 1**: Replace with `isolated-vm` (V8 isolates with memory/timeout limits)
+2. **Phase 2**: Add WASM/WASI runtime for maximum isolation
+3. **Phase 3**: Container-based execution for untrusted code
 
-3. Add user authentication and authorization
+### Security Guarantees (Post-Implementation)
+- No access to Node.js APIs, filesystem, or network
+- Configurable memory limits (default: 128MB)
+- Configurable execution timeout (default: 5 seconds)
+- User authentication and authorization
+
+## Related Documentation
+
+- [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) - Pluggable execution runtime architecture
+- [OUTPUT_FEATURES.md](./OUTPUT_FEATURES.md) - Text and graphics output capabilities
+- [PORT_NAMING.md](./PORT_NAMING.md) - Port naming conventions
+- [EXAMPLES.md](./EXAMPLES.md) - Usage examples
 
 ## Future Enhancements
 
-- [ ] Proper code sandboxing
+### Execution Engine
+- [x] Design pluggable runtime architecture
+- [ ] Implement V8 isolate runtime
+- [ ] Implement WASM/WASI runtime
+- [ ] Implement container runtime
+- [ ] Add TypeScript transpilation
+- [ ] Add Python language support
+
+### Collaboration
 - [ ] Real-time collaboration
 - [ ] Version control for graphs
+- [ ] Graph templates and sharing
+
+### UI/UX
 - [ ] Node marketplace/library browser
 - [ ] Visual schema editor
 - [ ] Performance optimization for large graphs
 - [ ] Export/import functionality
-- [ ] Graph templates
