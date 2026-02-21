@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Graph, GraphNode, Connection, Position, ComputationResult } from '../types';
+import { Graph, GraphDrawing, DrawingPath, GraphNode, Connection, Position, ComputationResult } from '../types';
 import axios from 'axios';
 
 export type PencilColor = 'white' | 'green' | 'red';
@@ -13,6 +13,8 @@ export interface NodeExecutionState {
   lastRunAt: number | null;
 }
 
+export type NodeGraphicsOutputMap = Record<string, string | null>;
+
 export interface GraphSummary {
   id: string;
   name: string;
@@ -23,10 +25,12 @@ interface GraphStore {
   graph: Graph | null;
   graphSummaries: GraphSummary[];
   selectedNodeId: string | null;
+  selectedDrawingId: string | null;
   isLoading: boolean;
   error: string | null;
   resultRefreshKey: number;
   nodeExecutionStates: Record<string, NodeExecutionState>;
+  nodeGraphicsOutputs: NodeGraphicsOutputMap;
   drawingEnabled: boolean;
   drawingColor: PencilColor;
   drawingThickness: PencilThickness;
@@ -46,11 +50,19 @@ interface GraphStore {
   deleteConnection: (connectionId: string) => void;
   deleteConnections: (connectionIds: string[]) => void;
   selectNode: (nodeId: string | null) => void;
+  selectDrawing: (drawingId: string | null) => void;
+  addDrawing: (drawing: GraphDrawing) => void;
+  updateDrawing: (drawingId: string, updates: Partial<GraphDrawing>) => void;
+  updateDrawingPosition: (drawingId: string, position: Position) => void;
+  deleteDrawing: (drawingId: string) => void;
+  addDrawingPath: (drawingId: string, path: DrawingPath) => void;
+  requestCreateDrawing: () => void;
   setDrawingEnabled: (enabled: boolean) => void;
   setDrawingColor: (color: PencilColor) => void;
   setDrawingThickness: (thickness: PencilThickness) => void;
   computeNode: (nodeId: string) => Promise<void>;
   computeGraph: () => Promise<void>;
+  drawingCreateRequestId: number;
 }
 
 const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
@@ -86,6 +98,14 @@ function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
   };
 }
 
+function normalizeGraph(graph: Graph): Graph {
+  return {
+    ...graph,
+    pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
+    drawings: Array.isArray(graph.drawings) ? graph.drawings : [],
+  };
+}
+
 function buildNodeStateMapForGraph(
   graph: Graph,
   previous: Record<string, NodeExecutionState>
@@ -98,6 +118,30 @@ function buildNodeStateMapForGraph(
     };
   }
   return nextStates;
+}
+
+function normalizeGraphicsOutput(graphicsOutput: unknown): string | null {
+  if (typeof graphicsOutput !== 'string') {
+    return null;
+  }
+
+  const trimmed = graphicsOutput.trim();
+  if (!trimmed.startsWith('data:image/')) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function buildNodeGraphicsOutputMapForGraph(
+  graph: Graph,
+  previous: NodeGraphicsOutputMap
+): NodeGraphicsOutputMap {
+  const nextGraphicsOutputs: NodeGraphicsOutputMap = {};
+  for (const node of graph.nodes) {
+    nextGraphicsOutputs[node.id] = previous[node.id] ?? null;
+  }
+  return nextGraphicsOutputs;
 }
 
 function buildOutgoingAdjacency(graph: Graph): Map<string, string[]> {
@@ -351,26 +395,42 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
       try {
         const response = await axios.get(`/api/nodes/${node.id}/result`);
-        return [node.id, getNodeExecutionStateFromResult(response.data)] as const;
+        return {
+          nodeId: node.id,
+          executionState: getNodeExecutionStateFromResult(response.data),
+          graphicsOutput: normalizeGraphicsOutput(response.data?.graphicsOutput),
+        };
       } catch (error: any) {
         if (error?.response?.status === 404) {
-          return [node.id, { ...DEFAULT_NODE_EXECUTION_STATE }] as const;
+          return {
+            nodeId: node.id,
+            executionState: { ...DEFAULT_NODE_EXECUTION_STATE },
+            graphicsOutput: null,
+          };
         }
 
-        return [
-          node.id,
-          {
+        return {
+          nodeId: node.id,
+          executionState: {
             ...DEFAULT_NODE_EXECUTION_STATE,
             hasError: true,
             errorMessage: `Error loading result: ${resolveErrorMessage(error, 'unknown error')}`,
           },
-        ] as const;
+          graphicsOutput: null,
+        };
       }
     }));
 
-    const hydratedStates = Object.fromEntries(nodeStateEntries);
+    const hydratedStates: Record<string, NodeExecutionState> = {};
+    const hydratedGraphicsOutputs = buildNodeGraphicsOutputMapForGraph(graph, {});
+    for (const entry of nodeStateEntries) {
+      hydratedStates[entry.nodeId] = entry.executionState;
+      hydratedGraphicsOutputs[entry.nodeId] = entry.graphicsOutput;
+    }
+
     set({
       nodeExecutionStates: withDerivedExecutionState(graph, hydratedStates),
+      nodeGraphicsOutputs: hydratedGraphicsOutputs,
     });
   };
 
@@ -454,27 +514,32 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     graph: null,
     graphSummaries: [],
     selectedNodeId: null,
+    selectedDrawingId: null,
     isLoading: false,
     error: null,
     resultRefreshKey: 0,
     nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
     drawingEnabled: false,
     drawingColor: 'white',
     drawingThickness: 3,
+    drawingCreateRequestId: 0,
 
     loadGraph: async (id: string) => {
       set({ isLoading: true, error: null });
       try {
         const response = await axios.get(`/api/graphs/${id}`);
-        const graph = response.data as Graph;
+        const graph = normalizeGraph(response.data as Graph);
         set({
           graph,
           selectedNodeId: null,
+          selectedDrawingId: null,
           isLoading: false,
           nodeExecutionStates: withDerivedExecutionState(
             graph,
             buildNodeStateMapForGraph(graph, get().nodeExecutionStates)
           ),
+          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
         });
         upsertGraphSummary({
           id: graph.id,
@@ -503,16 +568,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       try {
         const response = await axios.post('/api/graphs', { name });
-        const newGraph = response.data as Graph;
+        const newGraph = normalizeGraph(response.data as Graph);
         set({
           graph: newGraph,
           selectedNodeId: null,
+          selectedDrawingId: null,
           isLoading: false,
           error: null,
           nodeExecutionStates: withDerivedExecutionState(
             newGraph,
             buildNodeStateMapForGraph(newGraph, {})
           ),
+          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(newGraph, {}),
         });
         upsertGraphSummary({
           id: newGraph.id,
@@ -536,15 +603,17 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const response = await axios.get('/api/graphs/latest');
-        const graph = response.data as Graph;
+        const graph = normalizeGraph(response.data as Graph);
         set({
           graph,
           selectedNodeId: null,
+          selectedDrawingId: null,
           isLoading: false,
           nodeExecutionStates: withDerivedExecutionState(
             graph,
             buildNodeStateMapForGraph(graph, get().nodeExecutionStates)
           ),
+          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
         });
         upsertGraphSummary({
           id: graph.id,
@@ -664,10 +733,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     },
 
     updateGraph: async (updates: Partial<Graph>) => {
-      const { graph, nodeExecutionStates } = get();
+      const { graph, nodeExecutionStates, nodeGraphicsOutputs } = get();
       if (!graph) return;
 
-        const updatedGraph = { ...graph, ...updates } as Graph;
+        const updatedGraph = normalizeGraph({ ...graph, ...updates } as Graph);
       const requestId = latestUpdateRequestId + 1;
       latestUpdateRequestId = requestId;
 
@@ -679,6 +748,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           updatedGraph,
           buildNodeStateMapForGraph(updatedGraph, nodeExecutionStates)
         ),
+        nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(updatedGraph, nodeGraphicsOutputs),
       });
 
       try {
@@ -687,16 +757,29 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           return;
         }
 
-        const persistedGraph = response.data as Graph;
+        const persistedGraph = normalizeGraph(response.data as Graph);
         const autoRecomputeTargets = collectAutoRecomputeTargets(graph, persistedGraph);
 
         set((state) => ({
           graph: persistedGraph,
+          selectedNodeId:
+            state.selectedNodeId && persistedGraph.nodes.some((node) => node.id === state.selectedNodeId)
+              ? state.selectedNodeId
+              : null,
+          selectedDrawingId:
+            state.selectedDrawingId &&
+            persistedGraph.drawings?.some((drawing) => drawing.id === state.selectedDrawingId)
+              ? state.selectedDrawingId
+              : null,
           isLoading: false,
           error: null,
           nodeExecutionStates: withDerivedExecutionState(
             persistedGraph,
             buildNodeStateMapForGraph(persistedGraph, state.nodeExecutionStates)
+          ),
+          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
+            persistedGraph,
+            state.nodeGraphicsOutputs
           ),
         }));
         upsertGraphSummary({
@@ -725,6 +808,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             graph,
             buildNodeStateMapForGraph(graph, nodeExecutionStates)
           ),
+          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
         });
       }
     },
@@ -843,8 +927,105 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     },
 
     selectNode: (nodeId: string | null) => {
-      if (get().selectedNodeId === nodeId) return;
-      set({ selectedNodeId: nodeId });
+      if (get().selectedNodeId === nodeId && get().selectedDrawingId === null) return;
+      set({ selectedNodeId: nodeId, selectedDrawingId: null });
+    },
+
+    selectDrawing: (drawingId: string | null) => {
+      if (get().selectedDrawingId === drawingId && get().selectedNodeId === null) return;
+      set({ selectedDrawingId: drawingId, selectedNodeId: null });
+    },
+
+    addDrawing: (drawing: GraphDrawing) => {
+      const { graph } = get();
+      if (!graph) return;
+
+      const updatedGraph = {
+        ...graph,
+        drawings: [...(graph.drawings ?? []), drawing],
+        updatedAt: Date.now(),
+      };
+      void get().updateGraph(updatedGraph);
+    },
+
+    updateDrawing: (drawingId: string, updates: Partial<GraphDrawing>) => {
+      const { graph } = get();
+      if (!graph) return;
+
+      const updatedGraph = {
+        ...graph,
+        drawings: (graph.drawings ?? []).map((drawing) =>
+          drawing.id === drawingId
+            ? {
+                ...drawing,
+                ...updates,
+              }
+            : drawing
+        ),
+        updatedAt: Date.now(),
+      };
+      void get().updateGraph(updatedGraph);
+    },
+
+    updateDrawingPosition: (drawingId: string, position: Position) => {
+      const { graph } = get();
+      if (!graph) return;
+
+      const updatedGraph = {
+        ...graph,
+        drawings: (graph.drawings ?? []).map((drawing) =>
+          drawing.id === drawingId
+            ? {
+                ...drawing,
+                position,
+              }
+            : drawing
+        ),
+        updatedAt: Date.now(),
+      };
+      void get().updateGraph(updatedGraph);
+    },
+
+    deleteDrawing: (drawingId: string) => {
+      const { graph, selectedDrawingId } = get();
+      if (!graph) return;
+
+      const updatedGraph = {
+        ...graph,
+        drawings: (graph.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
+        updatedAt: Date.now(),
+      };
+
+      if (selectedDrawingId === drawingId) {
+        set({ selectedDrawingId: null });
+      }
+
+      void get().updateGraph(updatedGraph);
+    },
+
+    addDrawingPath: (drawingId: string, path: DrawingPath) => {
+      const { graph } = get();
+      if (!graph) return;
+
+      const updatedGraph = {
+        ...graph,
+        drawings: (graph.drawings ?? []).map((drawing) =>
+          drawing.id === drawingId
+            ? {
+                ...drawing,
+                paths: [...drawing.paths, path],
+              }
+            : drawing
+        ),
+        updatedAt: Date.now(),
+      };
+      void get().updateGraph(updatedGraph);
+    },
+
+    requestCreateDrawing: () => {
+      set((state) => ({
+        drawingCreateRequestId: state.drawingCreateRequestId + 1,
+      }));
     },
 
     setDrawingEnabled: (enabled: boolean) => {
@@ -875,6 +1056,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         const nextState = getNodeExecutionStateFromResult(result);
 
         mergeNodeExecutionState(nodeId, nextState);
+        set((state) => ({
+          nodeGraphicsOutputs: {
+            ...state.nodeGraphicsOutputs,
+            [nodeId]: normalizeGraphicsOutput(result?.graphicsOutput),
+          },
+        }));
         set({ resultRefreshKey: Date.now() });
       } catch (error: any) {
         const message = resolveErrorMessage(error, 'Failed to compute node');
@@ -915,6 +1102,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
         set((state) => {
           const nextStates = { ...state.nodeExecutionStates };
+          const nextGraphicsOutputs = buildNodeGraphicsOutputMapForGraph(
+            graph,
+            state.nodeGraphicsOutputs
+          );
           for (const node of graph.nodes) {
             nextStates[node.id] = {
               ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
@@ -924,11 +1115,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           for (const result of results) {
             if (result?.nodeId) {
               nextStates[result.nodeId] = getNodeExecutionStateFromResult(result);
+              nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphicsOutput);
             }
           }
 
           return {
             nodeExecutionStates: withDerivedExecutionState(graph, nextStates),
+            nodeGraphicsOutputs: nextGraphicsOutputs,
             isLoading: false,
             error: null,
             resultRefreshKey: Date.now(),

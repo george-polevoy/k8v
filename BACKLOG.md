@@ -58,6 +58,7 @@ Status: IN PROGRESS
 - Distinguish runtime error vs transport/API error in UI.
 - Provide clear stale-result vs fresh-result indicator. (DONE: downstream stale state + brown indicator on upstream error propagation)
 - Add visual error-state cue for fast scanning. (DONE: subtle black smoke emission from errored nodes)
+- Display Python-node graphics outputs directly on canvas node cards. (DONE)
 
 ### B-006 Canvas UX Quality
 Status: IN PROGRESS
@@ -66,6 +67,7 @@ Status: IN PROGRESS
 - Add keyboard shortcuts reference and discoverability.
 - Add optional edge reroute handles.
 - Add pencil freehand annotations with limited style presets. (DONE: white/green/red and hairline/3px/9px options in toolbar)
+- Throttle Pixi redraw loop by pausing ticker when canvas has no active interactions/effects and waking on demand. (DONE)
 
 ### B-007 Automated UI Regression Coverage
 Status: TODO
@@ -80,6 +82,7 @@ Status: TODO
 Status: IN PROGRESS
 
 - Expose graph-editing operations via MCP for agent-driven node and connection changes. (DONE)
+- Expose graph-level Python env add/edit/delete operations via MCP. (DONE)
 - Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
 - Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
 - Add automated MCP integration tests for graph edit operations and screenshot size/region assertions.
@@ -91,3 +94,29 @@ Status: DONE
 - Wire runtime registry so NodeExecutor resolves Python runtime by id. (DONE)
 - Add runtime selection options in frontend node creation and node panel runtime selector. (DONE)
 - Add backend regression tests for python runtime execution, errors, timeout, and API acceptance. (DONE)
+
+### B-010 Graph-Scoped Python Env Management
+Status: DONE
+
+- Add graph-level Python env definitions (`name`, `pythonPath`, `cwd`) to graph model and API validation. (DONE)
+- Enforce unique graph env names and validate node `pythonEnv` references/runtime compatibility. (DONE)
+- Add per-node Python env selection in node panel and node creation dialog. (DONE)
+- Resolve node-selected env to Python runtime request (`pythonBin` + `cwd`). (DONE)
+- Add regression tests for API validation, runtime request env forwarding, and runtime cwd override behavior. (DONE)
+
+### B-011 Python PNG Output Normalization
+Status: DONE
+
+- Allow Python nodes to emit renderable PNG graphics from raw bytes. (DONE)
+- Accept raw PNG base64 in Python graphics helpers and normalize to data URLs. (DONE)
+- Add dedicated `outputPng`/`outputPNG` helpers for Python inline nodes. (DONE)
+- Add backend regression tests for bytes/base64 PNG graphics normalization. (DONE)
+
+### B-012 Persistent Drawing Objects
+Status: DONE
+
+- Replace ephemeral canvas-only pencil strokes with persisted graph-level drawing objects. (DONE)
+- Add explicit drawing-object creation flow and draw-into-selected-drawing behavior. (DONE)
+- Add drawing handle selection, drag-move, rename, and delete interactions. (DONE)
+- Render persisted drawings in MCP screenshot renderer and expose MCP drawing manipulation tools. (DONE)
+- Add regression tests for drawing payload acceptance and duplicate-id validation. (DONE)

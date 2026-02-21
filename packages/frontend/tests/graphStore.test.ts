@@ -524,3 +524,274 @@ test('auto recompute marks downstream nodes stale when an upstream node errors',
     (axios as any).post = originalPost;
   }
 });
+
+test('selectDrawing clears selected node and tracks drawing selection', () => {
+  useGraphStore.setState({
+    selectedNodeId: 'node-1',
+    selectedDrawingId: null,
+  } as any);
+
+  useGraphStore.getState().selectDrawing('drawing-1');
+  let state = useGraphStore.getState();
+  assert.equal(state.selectedNodeId, null);
+  assert.equal(state.selectedDrawingId, 'drawing-1');
+
+  useGraphStore.getState().selectNode('node-2');
+  state = useGraphStore.getState();
+  assert.equal(state.selectedNodeId, 'node-2');
+  assert.equal(state.selectedDrawingId, null);
+});
+
+test('addDrawing persists drawing objects in graph payload', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const graph: Graph = {
+    id: 'g-drawings',
+    name: 'Drawing Graph',
+    nodes: [],
+    connections: [],
+    drawings: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    nodeExecutionStates: {},
+  } as any);
+
+  try {
+    useGraphStore.getState().addDrawing({
+      id: 'drawing-1',
+      name: 'Sketch',
+      position: { x: 10, y: 20 },
+      paths: [
+        {
+          id: 'path-1',
+          color: 'green',
+          thickness: 3,
+          points: [{ x: 0, y: 0 }, { x: 5, y: 5 }],
+        },
+      ],
+    });
+
+    await delay(0);
+    assert.ok(capturedPayload, 'expected graph update payload');
+    assert.equal(capturedPayload.drawings.length, 1);
+    assert.equal(capturedPayload.drawings[0].name, 'Sketch');
+    assert.equal(capturedPayload.drawings[0].paths.length, 1);
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
+test('loadGraph hydrates node graphics outputs from persisted node results', async () => {
+  const originalGet = axios.get;
+
+  const graph: Graph = {
+    id: 'g-graphics-hydrate',
+    name: 'Graphics Hydrate',
+    nodes: [
+      {
+        id: 'node-python',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Python Node',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          runtime: 'python_process',
+          code: 'outputPng("abc")',
+        },
+        version: 'v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-graphics-hydrate') {
+      return { data: graph };
+    }
+    if (url === '/api/nodes/node-python/result') {
+      return {
+        data: {
+          nodeId: 'node-python',
+          outputs: {},
+          schema: {},
+          timestamp: Date.now(),
+          version: 'r1',
+          graphicsOutput: 'data:image/png;base64,abc123',
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: null,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
+  } as any);
+
+  try {
+    await useGraphStore.getState().loadGraph('g-graphics-hydrate');
+    const state = useGraphStore.getState();
+    assert.equal(state.nodeGraphicsOutputs['node-python'], 'data:image/png;base64,abc123');
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
+test('computeNode updates graphics output cache for the computed node', async () => {
+  const originalPost = axios.post;
+
+  const graph: Graph = {
+    id: 'g-node-compute',
+    name: 'Node Compute',
+    nodes: [
+      {
+        id: 'node-python',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Python Node',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          runtime: 'python_process',
+          code: 'outputPng("abc")',
+        },
+        version: 'v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).post = async (url: string, body: any) => {
+    assert.equal(url, '/api/graphs/g-node-compute/compute');
+    assert.equal(body.nodeId, 'node-python');
+    return {
+      data: {
+        nodeId: 'node-python',
+        outputs: {},
+        schema: {},
+        timestamp: Date.now(),
+        version: 'r1',
+        graphicsOutput: ' data:image/png;base64,xyz987 ',
+      },
+    };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {
+      'node-python': null,
+    },
+  } as any);
+
+  try {
+    await useGraphStore.getState().computeNode('node-python');
+    const state = useGraphStore.getState();
+    assert.equal(state.nodeGraphicsOutputs['node-python'], 'data:image/png;base64,xyz987');
+  } finally {
+    (axios as any).post = originalPost;
+  }
+});
+
+test('computeGraph clears cached graphics output when latest result has no graphics payload', async () => {
+  const originalPost = axios.post;
+
+  const graph: Graph = {
+    id: 'g-graph-compute',
+    name: 'Graph Compute',
+    nodes: [
+      {
+        id: 'node-python',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Python Node',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          runtime: 'python_process',
+          code: 'print("hi")',
+        },
+        version: 'v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).post = async (url: string, body: any) => {
+    assert.equal(url, '/api/graphs/g-graph-compute/compute');
+    assert.deepEqual(body, {});
+    return {
+      data: [
+        {
+          nodeId: 'node-python',
+          outputs: {},
+          schema: {},
+          timestamp: Date.now(),
+          version: 'r2',
+        },
+      ],
+    };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {
+      'node-python': 'data:image/png;base64,oldvalue',
+    },
+  } as any);
+
+  try {
+    await useGraphStore.getState().computeGraph();
+    const state = useGraphStore.getState();
+    assert.equal(state.nodeGraphicsOutputs['node-python'], null);
+  } finally {
+    (axios as any).post = originalPost;
+  }
+});

@@ -1,4 +1,4 @@
-import { PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useRef } from 'react';
+import { PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Application,
   Circle,
@@ -13,8 +13,9 @@ import {
   Texture,
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
-import type { NodeExecutionState, PencilColor, PencilThickness } from '../store/graphStore';
-import { GraphNode, Position } from '../types';
+import type { NodeExecutionState, PencilColor } from '../store/graphStore';
+import { DrawingPath, GraphDrawing, GraphNode, Position } from '../types';
+import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
@@ -23,6 +24,7 @@ const HEADER_HEIGHT = 44;
 const NODE_BODY_PADDING = 14;
 const PORT_SPACING = 22;
 const PORT_RADIUS = 4;
+const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2.5;
 const ZOOM_SENSITIVITY = 0.0014;
@@ -54,8 +56,14 @@ interface NodeVisual {
   container: Container;
   width: number;
   height: number;
+  projectedGraphicsHeight: number;
   inputPortOffsets: Map<string, number>;
   outputPortOffsets: Map<string, number>;
+}
+
+interface GraphicsTextureCacheEntry {
+  texture: Texture;
+  refCount: number;
 }
 
 interface PanState {
@@ -121,11 +129,27 @@ interface NodeShock {
   durationMs: number;
 }
 
-interface FreehandStroke {
-  id: string;
-  color: PencilColor;
-  thickness: PencilThickness;
-  points: Position[];
+interface ActiveDrawingPath {
+  drawingId: string;
+  path: DrawingPath;
+}
+
+interface DrawingDragState {
+  drawingId: string;
+  pointerX: number;
+  pointerY: number;
+  drawingX: number;
+  drawingY: number;
+  currentX: number;
+  currentY: number;
+  moved: boolean;
+}
+
+interface DrawingVisual {
+  drawing: GraphDrawing;
+  container: Container;
+  width: number;
+  height: number;
 }
 
 interface SmokePuff {
@@ -189,9 +213,64 @@ function resolvePencilColor(color: PencilColor): number {
   return 0xffffff;
 }
 
+function getNextDrawingName(drawings: GraphDrawing[]): string {
+  const existing = new Set(drawings.map((drawing) => drawing.name));
+  let index = 1;
+  let candidate = `Drawing ${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `Drawing ${index}`;
+  }
+  return candidate;
+}
+
+function isRenderablePythonGraphicsOutput(
+  node: GraphNode,
+  graphicsOutput: string | null | undefined
+): graphicsOutput is string {
+  return node.config.runtime === 'python_process' &&
+    typeof graphicsOutput === 'string' &&
+    graphicsOutput.startsWith('data:image/');
+}
+
 function getNodeHeight(node: GraphNode): number {
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
   return Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+}
+
+function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
+  const width = texture.orig.width || texture.width || 0;
+  const height = texture.orig.height || texture.height || 0;
+  const valid = texture.baseTexture.valid && width > 0 && height > 0;
+  return { width, height, valid };
+}
+
+function drawNodeCardFrame(
+  graphics: Graphics,
+  width: number,
+  height: number,
+  strokeColor: number,
+  fillColor: number,
+  squareBottomCorners: boolean
+): void {
+  graphics.lineStyle(2, strokeColor, 1);
+  graphics.beginFill(fillColor, 1);
+
+  if (!squareBottomCorners) {
+    graphics.drawRoundedRect(0, 0, width, height, 10);
+    graphics.endFill();
+    return;
+  }
+
+  const radius = Math.min(10, Math.floor(width * 0.5), Math.floor(height * 0.5));
+  graphics.moveTo(radius, 0);
+  graphics.lineTo(width - radius, 0);
+  graphics.quadraticCurveTo(width, 0, width, radius);
+  graphics.lineTo(width, height);
+  graphics.lineTo(0, height);
+  graphics.lineTo(0, radius);
+  graphics.quadraticCurveTo(0, 0, radius, 0);
+  graphics.endFill();
 }
 
 function drawBezierConnection(
@@ -380,9 +459,17 @@ function createsCycle(
 function Canvas() {
   const graph = useGraphStore((state) => state.graph);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const nodeExecutionStates = useGraphStore((state) => state.nodeExecutionStates);
+  const nodeGraphicsOutputs = useGraphStore((state) => state.nodeGraphicsOutputs);
   const selectNode = useGraphStore((state) => state.selectNode);
+  const selectDrawing = useGraphStore((state) => state.selectDrawing);
   const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
+  const updateDrawingPosition = useGraphStore((state) => state.updateDrawingPosition);
+  const addDrawing = useGraphStore((state) => state.addDrawing);
+  const addDrawingPath = useGraphStore((state) => state.addDrawingPath);
+  const deleteDrawing = useGraphStore((state) => state.deleteDrawing);
+  const drawingCreateRequestId = useGraphStore((state) => state.drawingCreateRequestId);
   const addConnection = useGraphStore((state) => state.addConnection);
   const deleteConnection = useGraphStore((state) => state.deleteConnection);
   const deleteNode = useGraphStore((state) => state.deleteNode);
@@ -400,14 +487,17 @@ function Canvas() {
   const backgroundSpriteRef = useRef<Sprite | null>(null);
   const viewportRef = useRef<Container | null>(null);
   const nodeLayerRef = useRef<Container | null>(null);
+  const drawingHandleLayerRef = useRef<Container | null>(null);
   const edgeLayerRef = useRef<Graphics | null>(null);
   const drawLayerRef = useRef<Graphics | null>(null);
   const effectsLayerRef = useRef<Graphics | null>(null);
   const connectionGeometriesRef = useRef<Map<string, ConnectionGeometry>>(new Map());
   const lightningPulsesRef = useRef<LightningPulse[]>([]);
   const nodeShocksRef = useRef<NodeShock[]>([]);
-  const freehandStrokesRef = useRef<FreehandStroke[]>([]);
-  const activeFreehandStrokeIdRef = useRef<string | null>(null);
+  const drawingVisualsRef = useRef<Map<string, DrawingVisual>>(new Map());
+  const drawingPositionsRef = useRef<Map<string, Position>>(new Map());
+  const drawingDragStateRef = useRef<DrawingDragState | null>(null);
+  const activeDrawingPathRef = useRef<ActiveDrawingPath | null>(null);
   const smokePuffsRef = useRef<SmokePuff[]>([]);
   const lastSmokeEmitAtRef = useRef<Map<string, number>>(new Map());
   const nodeVisualsRef = useRef<Map<string, NodeVisual>>(new Map());
@@ -422,22 +512,66 @@ function Canvas() {
   const connectionDragStateRef = useRef<ConnectionDragState | null>(null);
   const selectedConnectionIdRef = useRef<string | null>(null);
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
+  const selectedDrawingIdRef = useRef<string | null>(selectedDrawingId);
   const nodeExecutionStatesRef = useRef(nodeExecutionStates);
   const drawingEnabledRef = useRef(drawingEnabled);
   const drawingColorRef = useRef(drawingColor);
   const drawingThicknessRef = useRef(drawingThickness);
   const previousNodeExecutionStatesRef = useRef<Record<string, NodeExecutionState>>({});
+  const nodeGraphicsOutputsRef = useRef(nodeGraphicsOutputs);
+  const nodeGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
+  const graphicsTextureCacheRef = useRef<Map<string, GraphicsTextureCacheEntry>>(new Map());
+  const pendingGraphicsTextureLoadsRef = useRef<Set<string>>(new Set());
   const graphRef = useRef(graph);
   const renderGraphRef = useRef<() => void>(() => {});
   const panStateRef = useRef<PanState | null>(null);
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
   const lastGraphIdRef = useRef<string | null>(null);
   const viewportInitializedRef = useRef(false);
+  const handledDrawingCreateRequestRef = useRef(0);
+  const [canvasReady, setCanvasReady] = useState(false);
   selectedNodeIdRef.current = selectedNodeId;
+  selectedDrawingIdRef.current = selectedDrawingId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
+  nodeGraphicsOutputsRef.current = nodeGraphicsOutputs;
   drawingEnabledRef.current = drawingEnabled;
   drawingColorRef.current = drawingColor;
   drawingThicknessRef.current = drawingThickness;
+
+  const requestCanvasAnimationLoop = useCallback(() => {
+    const app = appRef.current;
+    if (!app || app.ticker.started) {
+      return;
+    }
+    app.start();
+  }, []);
+
+  const shouldKeepCanvasAnimationLoop = useCallback(() => {
+    return shouldKeepCanvasAnimationLoopRunning({
+      hasActiveInteraction: Boolean(
+        connectionDragStateRef.current ||
+        nodeDragStateRef.current ||
+        drawingDragStateRef.current ||
+        panStateRef.current ||
+        activeDrawingPathRef.current
+      ),
+      hasErroredNodes: hasErroredNodeExecutionState(nodeExecutionStatesRef.current),
+      lightningPulseCount: lightningPulsesRef.current.length,
+      nodeShockCount: nodeShocksRef.current.length,
+      smokePuffCount: smokePuffsRef.current.length,
+    });
+  }, []);
+
+  const pauseCanvasAnimationLoopIfIdle = useCallback(() => {
+    const app = appRef.current;
+    if (!app || !app.ticker.started) {
+      return;
+    }
+    if (shouldKeepCanvasAnimationLoop()) {
+      return;
+    }
+    app.stop();
+  }, [shouldKeepCanvasAnimationLoop]);
 
   const drawMinimap = useCallback(() => {
     const canvas = minimapCanvasRef.current;
@@ -481,17 +615,38 @@ function Canvas() {
     let maxX = Number.NEGATIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
 
-    if (currentGraph && currentGraph.nodes.length > 0) {
+    if (currentGraph && (currentGraph.nodes.length > 0 || (currentGraph.drawings?.length ?? 0) > 0)) {
       for (const node of currentGraph.nodes) {
         const position = nodePositionsRef.current.get(node.id) ?? node.position;
         const visual = nodeVisualsRef.current.get(node.id);
         const nodeWidth = visual?.width ?? NODE_WIDTH;
-        const nodeHeight = visual?.height ?? getNodeHeight(node);
+        const nodeHeight = visual
+          ? visual.height + visual.projectedGraphicsHeight
+          : getNodeHeight(node);
 
         minX = Math.min(minX, position.x);
         minY = Math.min(minY, position.y);
         maxX = Math.max(maxX, position.x + nodeWidth);
         maxY = Math.max(maxY, position.y + nodeHeight);
+      }
+
+      for (const drawing of currentGraph.drawings ?? []) {
+        const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+        minX = Math.min(minX, drawingPosition.x);
+        minY = Math.min(minY, drawingPosition.y);
+        maxX = Math.max(maxX, drawingPosition.x + 140);
+        maxY = Math.max(maxY, drawingPosition.y + 26);
+
+        for (const path of drawing.paths) {
+          for (const point of path.points) {
+            const worldX = drawingPosition.x + point.x;
+            const worldY = drawingPosition.y + point.y;
+            minX = Math.min(minX, worldX);
+            minY = Math.min(minY, worldY);
+            maxX = Math.max(maxX, worldX);
+            maxY = Math.max(maxY, worldY);
+          }
+        }
       }
     } else {
       minX = viewMinX - 100;
@@ -536,7 +691,9 @@ function Canvas() {
         const position = nodePositionsRef.current.get(node.id) ?? node.position;
         const visual = nodeVisualsRef.current.get(node.id);
         const nodeWidth = visual?.width ?? NODE_WIDTH;
-        const nodeHeight = visual?.height ?? getNodeHeight(node);
+        const nodeHeight = visual
+          ? visual.height + visual.projectedGraphicsHeight
+          : getNodeHeight(node);
 
         const x = offsetX + (position.x - minX) * scale;
         const y = offsetY + (position.y - minY) * scale;
@@ -548,6 +705,40 @@ function Canvas() {
         ctx.lineWidth = 1;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
+      }
+
+      for (const drawing of currentGraph.drawings ?? []) {
+        const position = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+        const x = offsetX + (position.x - minX) * scale;
+        const y = offsetY + (position.y - minY) * scale;
+        const w = Math.max(26 * scale, 10);
+        const h = Math.max(12 * scale, 6);
+        ctx.fillStyle = selectedDrawingIdRef.current === drawing.id
+          ? 'rgba(14, 165, 233, 0.9)'
+          : 'rgba(15, 118, 110, 0.75)';
+        ctx.fillRect(x, y, w, h);
+
+        ctx.strokeStyle = 'rgba(241, 245, 249, 0.9)';
+        ctx.lineWidth = 1;
+        for (const path of drawing.paths) {
+          if (path.points.length < 2) {
+            continue;
+          }
+          ctx.beginPath();
+          const first = path.points[0];
+          ctx.moveTo(
+            offsetX + ((position.x + first.x) - minX) * scale,
+            offsetY + ((position.y + first.y) - minY) * scale
+          );
+          for (let i = 1; i < path.points.length; i += 1) {
+            const point = path.points[i];
+            ctx.lineTo(
+              offsetX + ((position.x + point.x) - minX) * scale,
+              offsetY + ((position.y + point.y) - minY) * scale
+            );
+          }
+          ctx.stroke();
+        }
       }
     }
 
@@ -586,7 +777,8 @@ function Canvas() {
       snapToPixel(app.screen.width * 0.5 - worldX * scale),
       snapToPixel(app.screen.height * 0.5 - worldY * scale)
     );
-  }, []);
+    requestCanvasAnimationLoop();
+  }, [requestCanvasAnimationLoop]);
 
   const handleMinimapPointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -620,15 +812,17 @@ function Canvas() {
     const marker = inputPortMarkersRef.current.get(portKey);
     if (marker) {
       drawInputPortMarker(marker, highlighted);
+      requestCanvasAnimationLoop();
     }
-  }, []);
+  }, [requestCanvasAnimationLoop]);
 
   const setOutputPortHighlight = useCallback((portKey: string, highlighted: boolean) => {
     const marker = outputPortMarkersRef.current.get(portKey);
     if (marker) {
       drawOutputPortMarker(marker, highlighted);
+      requestCanvasAnimationLoop();
     }
-  }, []);
+  }, [requestCanvasAnimationLoop]);
 
   const syncNodePortPositions = useCallback((nodeId: string, position: Position, visual: NodeVisual) => {
     for (const [portName, offsetY] of visual.inputPortOffsets.entries()) {
@@ -645,6 +839,95 @@ function Canvas() {
       });
     }
   }, []);
+
+  const destroyNodeGraphicsTexture = useCallback((texture: Texture) => {
+    if (texture === Texture.WHITE) {
+      return;
+    }
+
+    texture.destroy(true);
+  }, []);
+
+  const releaseTextureSource = useCallback((source: string) => {
+    const cached = graphicsTextureCacheRef.current.get(source);
+    if (!cached) {
+      return;
+    }
+
+    if (cached.refCount <= 1) {
+      destroyNodeGraphicsTexture(cached.texture);
+      graphicsTextureCacheRef.current.delete(source);
+      return;
+    }
+
+    cached.refCount -= 1;
+  }, [destroyNodeGraphicsTexture]);
+
+  const queueNodeGraphicsTextureRefresh = useCallback((source: string, texture: Texture) => {
+    if (texture.baseTexture.valid || pendingGraphicsTextureLoadsRef.current.has(source)) {
+      return;
+    }
+
+    pendingGraphicsTextureLoadsRef.current.add(source);
+    texture.baseTexture.once('loaded', () => {
+      pendingGraphicsTextureLoadsRef.current.delete(source);
+      requestCanvasAnimationLoop();
+      renderGraphRef.current();
+    });
+    texture.baseTexture.once('error', () => {
+      pendingGraphicsTextureLoadsRef.current.delete(source);
+    });
+  }, [requestCanvasAnimationLoop]);
+
+  const getNodeGraphicsTextureForNode = useCallback((nodeId: string, source: string): Texture => {
+    const previousSource = nodeGraphicsTextureBindingsRef.current.get(nodeId);
+    if (previousSource === source) {
+      const existing = graphicsTextureCacheRef.current.get(source);
+      if (existing) {
+        queueNodeGraphicsTextureRefresh(source, existing.texture);
+        return existing.texture;
+      }
+      const texture = Texture.from(source);
+      graphicsTextureCacheRef.current.set(source, { texture, refCount: 1 });
+      queueNodeGraphicsTextureRefresh(source, texture);
+      return texture;
+    }
+
+    if (previousSource) {
+      releaseTextureSource(previousSource);
+    }
+
+    let cached = graphicsTextureCacheRef.current.get(source);
+    if (!cached) {
+      cached = { texture: Texture.from(source), refCount: 0 };
+      graphicsTextureCacheRef.current.set(source, cached);
+    }
+
+    cached.refCount += 1;
+    nodeGraphicsTextureBindingsRef.current.set(nodeId, source);
+    queueNodeGraphicsTextureRefresh(source, cached.texture);
+    return cached.texture;
+  }, [queueNodeGraphicsTextureRefresh, releaseTextureSource]);
+
+  const releaseUnusedNodeGraphicsTextures = useCallback((activeNodeIds: Set<string>) => {
+    for (const [nodeId, source] of nodeGraphicsTextureBindingsRef.current.entries()) {
+      if (activeNodeIds.has(nodeId)) {
+        continue;
+      }
+
+      releaseTextureSource(source);
+      nodeGraphicsTextureBindingsRef.current.delete(nodeId);
+    }
+  }, [releaseTextureSource]);
+
+  const clearAllNodeGraphicsTextures = useCallback(() => {
+    for (const cacheEntry of graphicsTextureCacheRef.current.values()) {
+      destroyNodeGraphicsTexture(cacheEntry.texture);
+    }
+    graphicsTextureCacheRef.current.clear();
+    nodeGraphicsTextureBindingsRef.current.clear();
+    pendingGraphicsTextureLoadsRef.current.clear();
+  }, [destroyNodeGraphicsTexture]);
 
   const pickConnectionAtClientPoint = useCallback((clientX: number, clientY: number): string | null => {
     const viewport = viewportRef.current;
@@ -684,6 +967,7 @@ function Canvas() {
 
     if (!edges) return;
 
+    requestCanvasAnimationLoop();
     edges.clear();
     connectionGeometriesRef.current.clear();
     if (!currentGraph) return;
@@ -737,43 +1021,63 @@ function Canvas() {
 
     edges.lineStyle(2, 0x1d4ed8, 0.95);
     drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
-  }, []);
+  }, [requestCanvasAnimationLoop]);
 
   const drawFreehandStrokes = useCallback(() => {
     const drawLayer = drawLayerRef.current;
     const viewport = viewportRef.current;
+    const currentGraph = graphRef.current;
     if (!drawLayer || !viewport) {
       return;
     }
 
+    requestCanvasAnimationLoop();
     drawLayer.clear();
     const viewportScale = Math.max(viewport.scale.x, 0.1);
 
-    for (const stroke of freehandStrokesRef.current) {
-      if (stroke.points.length === 0) {
-        continue;
+    const drawPath = (path: DrawingPath, origin: Position) => {
+      if (path.points.length === 0) {
+        return;
       }
 
-      const lineWidth = Math.max(stroke.thickness / viewportScale, 0.5 / viewportScale);
-      drawLayer.lineStyle(lineWidth, resolvePencilColor(stroke.color), 0.95, 0.5, false);
+      const lineWidth = Math.max(path.thickness / viewportScale, 0.5 / viewportScale);
+      const color = resolvePencilColor(path.color);
+      drawLayer.lineStyle(lineWidth, color, 0.95, 0.5, false);
 
-      if (stroke.points.length === 1) {
-        const point = stroke.points[0];
-        drawLayer.beginFill(resolvePencilColor(stroke.color), 0.95);
-        drawLayer.drawCircle(point.x, point.y, lineWidth * 0.5);
+      if (path.points.length === 1) {
+        const point = path.points[0];
+        drawLayer.beginFill(color, 0.95);
+        drawLayer.drawCircle(origin.x + point.x, origin.y + point.y, lineWidth * 0.5);
         drawLayer.endFill();
-        continue;
+        return;
       }
 
-      drawLayer.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length; i += 1) {
-        drawLayer.lineTo(stroke.points[i].x, stroke.points[i].y);
+      drawLayer.moveTo(origin.x + path.points[0].x, origin.y + path.points[0].y);
+      for (let i = 1; i < path.points.length; i += 1) {
+        drawLayer.lineTo(origin.x + path.points[i].x, origin.y + path.points[i].y);
+      }
+    };
+
+    for (const drawing of currentGraph?.drawings ?? []) {
+      const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+      for (const path of drawing.paths) {
+        drawPath(path, drawingPosition);
       }
     }
-  }, []);
+
+    const activePath = activeDrawingPathRef.current;
+    if (activePath) {
+      const drawing = currentGraph?.drawings?.find((candidate) => candidate.id === activePath.drawingId);
+      if (drawing) {
+        const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+        drawPath(activePath.path, drawingPosition);
+      }
+    }
+  }, [requestCanvasAnimationLoop]);
 
   const enqueueLightningForConnection = useCallback((connectionId: string) => {
     const now = performance.now();
+    requestCanvasAnimationLoop();
     lightningPulsesRef.current = [
       ...lightningPulsesRef.current.filter(
         (pulse) => !(pulse.connectionId === connectionId && now - pulse.startAt < pulse.durationMs * 0.35)
@@ -784,7 +1088,7 @@ function Canvas() {
         durationMs: LIGHTNING_DURATION_MS,
       },
     ];
-  }, []);
+  }, [requestCanvasAnimationLoop]);
 
   const enqueueLightningForNodeInputs = useCallback((nodeId: string) => {
     const currentGraph = graphRef.current;
@@ -801,6 +1105,7 @@ function Canvas() {
 
   const enqueueNodeShock = useCallback((nodeId: string) => {
     const now = performance.now();
+    requestCanvasAnimationLoop();
     nodeShocksRef.current = [
       ...nodeShocksRef.current.filter(
         (shock) => !(shock.nodeId === nodeId && now - shock.startAt < shock.durationMs * 0.4)
@@ -811,7 +1116,7 @@ function Canvas() {
         durationMs: NODE_SHOCK_DURATION_MS,
       },
     ];
-  }, []);
+  }, [requestCanvasAnimationLoop]);
 
   const drawEffects = useCallback(() => {
     const effectsLayer = effectsLayerRef.current;
@@ -992,7 +1297,8 @@ function Canvas() {
 
       return true;
     });
-  }, []);
+    pauseCanvasAnimationLoopIfIdle();
+  }, [pauseCanvasAnimationLoopIfIdle]);
 
   const fitViewportToGraph = useCallback(() => {
     const app = appRef.current;
@@ -1001,7 +1307,7 @@ function Canvas() {
 
     if (!app || !viewport) return;
 
-    if (!currentGraph || currentGraph.nodes.length === 0) {
+    if (!currentGraph || (currentGraph.nodes.length === 0 && (currentGraph.drawings?.length ?? 0) === 0)) {
       viewport.scale.set(1);
       viewport.position.set(app.screen.width / 2, app.screen.height / 2);
       updateTextResolutionForScale(1);
@@ -1022,7 +1328,26 @@ function Canvas() {
       minX = Math.min(minX, position.x);
       minY = Math.min(minY, position.y);
       maxX = Math.max(maxX, position.x + visual.width);
-      maxY = Math.max(maxY, position.y + visual.height);
+      maxY = Math.max(maxY, position.y + visual.height + visual.projectedGraphicsHeight);
+    }
+
+    for (const drawing of currentGraph.drawings ?? []) {
+      const position = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+      minX = Math.min(minX, position.x);
+      minY = Math.min(minY, position.y);
+      maxX = Math.max(maxX, position.x + 160);
+      maxY = Math.max(maxY, position.y + 30);
+
+      for (const path of drawing.paths) {
+        for (const point of path.points) {
+          const worldX = position.x + point.x;
+          const worldY = position.y + point.y;
+          minX = Math.min(minX, worldX);
+          minY = Math.min(minY, worldY);
+          maxX = Math.max(maxX, worldX);
+          maxY = Math.max(maxY, worldY);
+        }
+      }
     }
 
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
@@ -1096,13 +1421,18 @@ function Canvas() {
 
   const renderGraph = useCallback(() => {
     const nodesLayer = nodeLayerRef.current;
+    const drawingHandleLayer = drawingHandleLayerRef.current;
     const currentGraph = graphRef.current;
 
-    if (!nodesLayer) return;
+    if (!nodesLayer || !drawingHandleLayer) return;
 
+    requestCanvasAnimationLoop();
     nodesLayer.removeChildren();
+    drawingHandleLayer.removeChildren();
     nodeVisualsRef.current.clear();
+    drawingVisualsRef.current.clear();
     nodePositionsRef.current.clear();
+    drawingPositionsRef.current.clear();
     textNodesRef.current.clear();
     inputPortMarkersRef.current.clear();
     outputPortMarkersRef.current.clear();
@@ -1112,13 +1442,19 @@ function Canvas() {
     hoveredOutputPortKeyRef.current = null;
 
     if (!currentGraph) {
+      clearAllNodeGraphicsTextures();
       drawConnections();
       drawFreehandStrokes();
       return;
     }
 
+    const activeNodeGraphicsTextureIds = new Set<string>();
+
     for (const node of currentGraph.nodes) {
       const width = NODE_WIDTH;
+      const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
+      const shouldProjectGraphics = isRenderablePythonGraphicsOutput(node, graphicsOutput);
+      const hasProjectedGraphics = shouldProjectGraphics && Boolean(graphicsOutput);
       const height = getNodeHeight(node);
       const position = { ...node.position };
       const container = new Container();
@@ -1129,10 +1465,14 @@ function Canvas() {
       container.cursor = 'pointer';
 
       const frame = new Graphics();
-      frame.lineStyle(2, isSelected ? 0x1d4ed8 : 0x334155, 1);
-      frame.beginFill(isSelected ? 0xe2e8f0 : 0xf8fafc, 1);
-      frame.drawRoundedRect(0, 0, width, height, 10);
-      frame.endFill();
+      drawNodeCardFrame(
+        frame,
+        width,
+        height,
+        isSelected ? 0x1d4ed8 : 0x334155,
+        isSelected ? 0xe2e8f0 : 0xf8fafc,
+        hasProjectedGraphics
+      );
       container.addChild(frame);
 
       const nodeExecutionState = nodeExecutionStatesRef.current[node.id];
@@ -1176,7 +1516,7 @@ function Canvas() {
 
       const inputPortOffsets = new Map<string, number>();
       const outputPortOffsets = new Map<string, number>();
-      const bodyHeight = height - HEADER_HEIGHT - NODE_BODY_PADDING;
+      const bodyHeight = Math.max(1, height - HEADER_HEIGHT - NODE_BODY_PADDING);
       const inputSlots = Math.max(node.metadata.inputs.length, 1);
       const outputSlots = Math.max(node.metadata.outputs.length, 1);
 
@@ -1197,6 +1537,7 @@ function Canvas() {
             return;
           }
           event.stopPropagation();
+          requestCanvasAnimationLoop();
           hoveredInputPortKeyRef.current = portKey;
           drawInputPortMarker(marker, true);
           const dragState = connectionDragStateRef.current;
@@ -1210,6 +1551,7 @@ function Canvas() {
             return;
           }
           event.stopPropagation();
+          requestCanvasAnimationLoop();
           if (hoveredInputPortKeyRef.current === portKey) {
             hoveredInputPortKeyRef.current = null;
           }
@@ -1255,6 +1597,7 @@ function Canvas() {
             return;
           }
           event.stopPropagation();
+          requestCanvasAnimationLoop();
           hoveredOutputPortKeyRef.current = portKey;
           drawOutputPortMarker(marker, true);
         });
@@ -1263,6 +1606,7 @@ function Canvas() {
             return;
           }
           event.stopPropagation();
+          requestCanvasAnimationLoop();
           if (hoveredOutputPortKeyRef.current === portKey) {
             hoveredOutputPortKeyRef.current = null;
           }
@@ -1312,6 +1656,26 @@ function Canvas() {
         label.anchor.set(1, 0);
         label.position.set(width - 10, y - 7);
         container.addChild(label);
+      }
+
+      let projectedGraphicsHeight = 0;
+      if (shouldProjectGraphics && graphicsOutput) {
+        const texture = getNodeGraphicsTextureForNode(node.id, graphicsOutput);
+        activeNodeGraphicsTextureIds.add(node.id);
+        const { width: textureWidth, height: textureHeight, valid: textureValid } = getTextureDimensions(texture);
+        const projectionWidth = width;
+        projectedGraphicsHeight = textureValid
+          ? (projectionWidth * textureHeight) / textureWidth
+          : projectionWidth * NODE_GRAPHICS_FALLBACK_ASPECT_RATIO;
+
+        if (textureValid) {
+          const imageSprite = new Sprite(texture);
+          imageSprite.eventMode = 'none';
+          const scale = projectionWidth / textureWidth;
+          imageSprite.scale.set(scale);
+          imageSprite.position.set(0, height);
+          container.addChild(imageSprite);
+        }
       }
 
       container.on('pointerdown', (event: FederatedPointerEvent) => {
@@ -1365,6 +1729,7 @@ function Canvas() {
         container,
         width,
         height,
+        projectedGraphicsHeight,
         inputPortOffsets,
         outputPortOffsets,
       });
@@ -1373,8 +1738,86 @@ function Canvas() {
         container,
         width,
         height,
+        projectedGraphicsHeight,
         inputPortOffsets,
         outputPortOffsets,
+      });
+    }
+
+    releaseUnusedNodeGraphicsTextures(activeNodeGraphicsTextureIds);
+
+    for (const drawing of currentGraph.drawings ?? []) {
+      const position = { ...drawing.position };
+      const container = new Container();
+      const isSelected = selectedDrawingId === drawing.id;
+      const width = Math.max(96, Math.min(220, drawing.name.length * 7 + 30));
+      const height = 24;
+
+      container.position.set(snapToPixel(position.x), snapToPixel(position.y));
+      container.eventMode = 'static';
+      container.cursor = 'move';
+
+      const frame = new Graphics();
+      frame.lineStyle(2, isSelected ? 0x0ea5e9 : 0x334155, 1);
+      frame.beginFill(isSelected ? 0xdbeafe : 0xe2e8f0, 0.95);
+      frame.drawRoundedRect(0, 0, width, height, 8);
+      frame.endFill();
+      container.addChild(frame);
+
+      const title = new Text(drawing.name, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        fontWeight: 'bold',
+        fill: 0x0f172a,
+      });
+      title.resolution = PIXEL_RATIO;
+      textNodesRef.current.add(title);
+      title.position.set(10, 5);
+      container.addChild(title);
+
+      container.on('pointerdown', (event: FederatedPointerEvent) => {
+        if (event.button !== 0) return;
+        event.stopPropagation();
+        const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+        canvas?.focus({ preventScroll: true });
+
+        const currentPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
+        drawingDragStateRef.current = {
+          drawingId: drawing.id,
+          pointerX: event.global.x,
+          pointerY: event.global.y,
+          drawingX: currentPosition.x,
+          drawingY: currentPosition.y,
+          currentX: currentPosition.x,
+          currentY: currentPosition.y,
+          moved: false,
+        };
+        selectedConnectionIdRef.current = null;
+        selectedNodeIdRef.current = null;
+        selectedDrawingIdRef.current = drawing.id;
+        selectDrawing(drawing.id);
+      });
+
+      container.on('pointertap', (event: FederatedPointerEvent) => {
+        const dragState = drawingDragStateRef.current;
+        if (dragState?.drawingId === drawing.id && dragState.moved) {
+          event.stopPropagation();
+          return;
+        }
+        event.stopPropagation();
+        selectedConnectionIdRef.current = null;
+        selectedNodeIdRef.current = null;
+        selectedDrawingIdRef.current = drawing.id;
+        selectDrawing(drawing.id);
+      });
+
+      drawingHandleLayer.addChild(container);
+      drawingPositionsRef.current.set(drawing.id, position);
+      drawingVisualsRef.current.set(drawing.id, {
+        drawing,
+        container,
+        width,
+        height,
       });
     }
 
@@ -1390,7 +1833,22 @@ function Canvas() {
       updateTextResolutionForScale(viewport.scale.x);
     }
     drawMinimap();
-  }, [drawConnections, drawFreehandStrokes, drawMinimap, fitViewportToGraph, selectNode, selectedNodeId, syncNodePortPositions, updateTextResolutionForScale]);
+  }, [
+    clearAllNodeGraphicsTextures,
+    drawConnections,
+    drawFreehandStrokes,
+    drawMinimap,
+    fitViewportToGraph,
+    getNodeGraphicsTextureForNode,
+    releaseUnusedNodeGraphicsTextures,
+    requestCanvasAnimationLoop,
+    selectDrawing,
+    selectNode,
+    selectedDrawingId,
+    selectedNodeId,
+    syncNodePortPositions,
+    updateTextResolutionForScale,
+  ]);
 
   useEffect(() => {
     renderGraphRef.current = renderGraph;
@@ -1412,12 +1870,52 @@ function Canvas() {
       selectedConnectionIdRef.current = null;
     }
 
+    if (
+      selectedDrawingIdRef.current &&
+      !graph?.drawings?.some((drawing) => drawing.id === selectedDrawingIdRef.current)
+    ) {
+      selectedDrawingIdRef.current = null;
+      selectDrawing(null);
+    }
+
     renderGraphRef.current();
-  }, [graph, renderGraph]);
+  }, [graph, renderGraph, selectDrawing]);
+
+  useEffect(() => {
+    if (drawingCreateRequestId <= handledDrawingCreateRequestRef.current) {
+      return;
+    }
+
+    if (!canvasReady) {
+      return;
+    }
+
+    const app = appRef.current;
+    const viewport = viewportRef.current;
+    const currentGraph = graphRef.current;
+    if (!app || !viewport || !currentGraph) {
+      return;
+    }
+
+    const worldPoint = viewport.toLocal(new Point(app.screen.width / 2, app.screen.height / 2));
+    const drawing: GraphDrawing = {
+      id: uuidv4(),
+      name: getNextDrawingName(currentGraph.drawings ?? []),
+      position: {
+        x: snapToPixel(worldPoint.x),
+        y: snapToPixel(worldPoint.y),
+      },
+      paths: [],
+    };
+
+    handledDrawingCreateRequestRef.current = drawingCreateRequestId;
+    addDrawing(drawing);
+    selectDrawing(drawing.id);
+  }, [addDrawing, canvasReady, drawingCreateRequestId, selectDrawing, graph]);
 
   useEffect(() => {
     renderGraphRef.current();
-  }, [selectedNodeId, renderGraph]);
+  }, [selectedDrawingId, selectedNodeId, renderGraph]);
 
   useEffect(() => {
     const app = appRef.current;
@@ -1431,6 +1929,7 @@ function Canvas() {
     if (drawingEnabled) {
       panStateRef.current = null;
       nodeDragStateRef.current = null;
+      drawingDragStateRef.current = null;
       if (connectionDragStateRef.current) {
         endConnectionDrag(false);
       }
@@ -1454,13 +1953,16 @@ function Canvas() {
     });
 
     appRef.current = app;
+    setCanvasReady(true);
     host.appendChild(app.view as HTMLCanvasElement);
 
     const viewport = new Container();
     const edgeLayer = new Graphics();
     const nodeLayer = new Container();
+    const drawingHandleLayer = new Container();
     const drawLayer = new Graphics();
     drawLayer.eventMode = 'none';
+    drawingHandleLayer.eventMode = 'passive';
     const effectsLayer = new Graphics();
     effectsLayer.eventMode = 'none';
     const createBackgroundTexture = () => {
@@ -1501,12 +2003,14 @@ function Canvas() {
     viewportRef.current = viewport;
     edgeLayerRef.current = edgeLayer;
     nodeLayerRef.current = nodeLayer;
+    drawingHandleLayerRef.current = drawingHandleLayer;
     drawLayerRef.current = drawLayer;
     effectsLayerRef.current = effectsLayer;
     app.stage.addChild(backgroundSprite);
     viewport.addChild(edgeLayer);
     viewport.addChild(nodeLayer);
     viewport.addChild(drawLayer);
+    viewport.addChild(drawingHandleLayer);
     viewport.addChild(effectsLayer);
     app.stage.addChild(viewport);
 
@@ -1522,13 +2026,24 @@ function Canvas() {
     canvasElement.tabIndex = 0;
     canvasElement.style.outline = 'none';
 
-      const finishInteraction = () => {
+    const finishInteraction = () => {
       if (connectionDragStateRef.current) {
         endConnectionDrag(true);
       }
 
-      if (activeFreehandStrokeIdRef.current) {
-        activeFreehandStrokeIdRef.current = null;
+      const activeDrawingPath = activeDrawingPathRef.current;
+      if (activeDrawingPath) {
+        const normalizedPoints = activeDrawingPath.path.points
+          .filter((point, index, points) =>
+            index === 0 || Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y) >= 0.2
+          );
+        if (normalizedPoints.length > 0) {
+          addDrawingPath(activeDrawingPath.drawingId, {
+            ...activeDrawingPath.path,
+            points: normalizedPoints,
+          });
+        }
+        activeDrawingPathRef.current = null;
         drawFreehandStrokes();
       }
 
@@ -1543,6 +2058,17 @@ function Canvas() {
         nodeDragStateRef.current = null;
       }
 
+      const drawingDragState = drawingDragStateRef.current;
+      if (drawingDragState) {
+        if (drawingDragState.moved) {
+          updateDrawingPosition(drawingDragState.drawingId, {
+            x: drawingDragState.currentX,
+            y: drawingDragState.currentY,
+          });
+        }
+        drawingDragStateRef.current = null;
+      }
+
       panStateRef.current = null;
       canvasElement.style.cursor = drawingEnabledRef.current ? 'crosshair' : 'grab';
     };
@@ -1552,15 +2078,33 @@ function Canvas() {
       canvasElement.focus({ preventScroll: true });
 
       if (drawingEnabledRef.current) {
+        const drawingId = selectedDrawingIdRef.current;
+        if (!drawingId) {
+          return;
+        }
         const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
-        const strokeId = uuidv4();
-        freehandStrokesRef.current.push({
-          id: strokeId,
-          color: drawingColorRef.current,
-          thickness: drawingThicknessRef.current,
-          points: [{ x: worldPoint.x, y: worldPoint.y }],
-        });
-        activeFreehandStrokeIdRef.current = strokeId;
+        const drawingPosition =
+          drawingPositionsRef.current.get(drawingId) ??
+          graphRef.current?.drawings?.find((drawing) => drawing.id === drawingId)?.position;
+
+        if (!drawingPosition) {
+          return;
+        }
+
+        activeDrawingPathRef.current = {
+          drawingId,
+          path: {
+            id: uuidv4(),
+            color: drawingColorRef.current,
+            thickness: drawingThicknessRef.current,
+            points: [
+              {
+                x: worldPoint.x - drawingPosition.x,
+                y: worldPoint.y - drawingPosition.y,
+              },
+            ],
+          },
+        };
         drawFreehandStrokes();
         return;
       }
@@ -1589,6 +2133,10 @@ function Canvas() {
       if (selectedConnectionIdRef.current) {
         selectedConnectionIdRef.current = null;
         drawConnections();
+      }
+      if (selectedDrawingIdRef.current) {
+        selectedDrawingIdRef.current = null;
+        selectDrawing(null);
       }
       selectedNodeIdRef.current = null;
       selectNode(null);
@@ -1630,27 +2178,66 @@ function Canvas() {
         return;
       }
 
-      const activeStrokeId = activeFreehandStrokeIdRef.current;
-      if (activeStrokeId) {
+      const activeDrawingPath = activeDrawingPathRef.current;
+      if (activeDrawingPath) {
         const currentViewport = viewportRef.current;
         if (!currentViewport) {
           return;
         }
         const worldPoint = currentViewport.toLocal(new Point(event.global.x, event.global.y));
-        const currentStroke = freehandStrokesRef.current.find((stroke) => stroke.id === activeStrokeId);
-        if (!currentStroke) {
-          activeFreehandStrokeIdRef.current = null;
+        const drawingPosition =
+          drawingPositionsRef.current.get(activeDrawingPath.drawingId) ??
+          graphRef.current?.drawings?.find((drawing) => drawing.id === activeDrawingPath.drawingId)?.position;
+        if (!drawingPosition) {
+          activeDrawingPathRef.current = null;
           return;
         }
 
-        const previousPoint = currentStroke.points[currentStroke.points.length - 1];
+        const localPoint = {
+          x: worldPoint.x - drawingPosition.x,
+          y: worldPoint.y - drawingPosition.y,
+        };
+
+        const previousPoint = activeDrawingPath.path.points[activeDrawingPath.path.points.length - 1];
         if (
           !previousPoint ||
-          Math.hypot(worldPoint.x - previousPoint.x, worldPoint.y - previousPoint.y) >= DRAW_SMOOTHING_STEP
+          Math.hypot(localPoint.x - previousPoint.x, localPoint.y - previousPoint.y) >= DRAW_SMOOTHING_STEP
         ) {
-          currentStroke.points.push({ x: worldPoint.x, y: worldPoint.y });
+          activeDrawingPath.path.points.push(localPoint);
           drawFreehandStrokes();
         }
+        return;
+      }
+
+      const activeDrawingDragState = drawingDragStateRef.current;
+      if (activeDrawingDragState) {
+        const deltaX = event.global.x - activeDrawingDragState.pointerX;
+        const deltaY = event.global.y - activeDrawingDragState.pointerY;
+        if (
+          !activeDrawingDragState.moved &&
+          Math.hypot(deltaX, deltaY) < NODE_DRAG_START_THRESHOLD
+        ) {
+          return;
+        }
+
+        const currentViewport = viewportRef.current;
+        const drawingVisual = drawingVisualsRef.current.get(activeDrawingDragState.drawingId);
+        if (!currentViewport || !drawingVisual) {
+          return;
+        }
+
+        const scale = currentViewport.scale.x || 1;
+        const nextPosition = {
+          x: snapToPixel(activeDrawingDragState.drawingX + deltaX / scale),
+          y: snapToPixel(activeDrawingDragState.drawingY + deltaY / scale),
+        };
+        activeDrawingDragState.currentX = nextPosition.x;
+        activeDrawingDragState.currentY = nextPosition.y;
+        drawingPositionsRef.current.set(activeDrawingDragState.drawingId, nextPosition);
+        drawingVisual.container.position.set(nextPosition.x, nextPosition.y);
+        activeDrawingDragState.moved = true;
+        drawFreehandStrokes();
+        drawMinimap();
         return;
       }
 
@@ -1688,6 +2275,7 @@ function Canvas() {
       const panState = panStateRef.current;
       if (!panState) return;
 
+      requestCanvasAnimationLoop();
       viewport.position.set(
         snapToPixel(panState.viewportX + (event.global.x - panState.pointerX)),
         snapToPixel(panState.viewportY + (event.global.y - panState.pointerY))
@@ -1697,10 +2285,6 @@ function Canvas() {
 
     const handleStagePointerUp = (event: FederatedPointerEvent) => {
       if (event.button !== 0) return;
-      if (activeFreehandStrokeIdRef.current) {
-        activeFreehandStrokeIdRef.current = null;
-        drawFreehandStrokes();
-      }
       finishInteraction();
     };
 
@@ -1779,6 +2363,16 @@ function Canvas() {
         return;
       }
 
+      const drawingId = selectedDrawingIdRef.current;
+      if (drawingId) {
+        event.preventDefault();
+        deleteDrawing(drawingId);
+        selectedDrawingIdRef.current = null;
+        drawFreehandStrokes();
+        drawMinimap();
+        return;
+      }
+
       const selectedNode = selectedNodeIdRef.current;
       if (!selectedNode) {
         return;
@@ -1814,16 +2408,19 @@ function Canvas() {
       app.renderer.off('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       app.ticker.remove(drawEffects);
+      clearAllNodeGraphicsTextures();
       app.destroy(true);
+      setCanvasReady(false);
       backgroundSpriteRef.current = null;
       appRef.current = null;
       viewportRef.current = null;
       edgeLayerRef.current = null;
       nodeLayerRef.current = null;
+      drawingHandleLayerRef.current = null;
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [deleteConnection, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, selectNode, setInputPortHighlight, syncNodePortPositions, updateNodePosition, updateTextResolutionForScale]);
+  }, [addDrawingPath, clearAllNodeGraphicsTextures, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodePosition, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;
@@ -1844,6 +2441,10 @@ function Canvas() {
     previousNodeExecutionStatesRef.current = current;
     renderGraphRef.current();
   }, [enqueueLightningForNodeInputs, enqueueNodeShock, nodeExecutionStates]);
+
+  useEffect(() => {
+    renderGraphRef.current();
+  }, [nodeGraphicsOutputs]);
 
   let overlay: ReactNode = null;
   if (isLoading && !graph) {

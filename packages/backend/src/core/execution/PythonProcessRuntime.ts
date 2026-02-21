@@ -4,6 +4,8 @@ import { ExecutionRequest, ExecutionResult, ExecutionRuntime } from './types.js'
 const PYTHON_RUNNER_SCRIPT = `
 import json
 import traceback
+import base64
+import io
 
 class AttrDict(dict):
     def __getattr__(self, key):
@@ -42,8 +44,60 @@ graphics_outputs = []
 def log_fn(*args):
     text_output_lines.append(" ".join(str(arg) for arg in args))
 
+PNG_SIGNATURE = b"\\x89PNG\\r\\n\\x1a\\n"
+
+def to_png_data_url(raw_bytes):
+    return "data:image/png;base64," + base64.b64encode(raw_bytes).decode("ascii")
+
+def try_parse_png_base64(value):
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except Exception:
+        return None
+
+    if decoded.startswith(PNG_SIGNATURE):
+        return to_png_data_url(decoded)
+
+    return None
+
+def normalize_graphics_output(value):
+    if value is None:
+        raise ValueError("graphics output is None")
+
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            raise ValueError("graphics output string is empty")
+
+        if candidate.startswith("data:image/"):
+            return candidate
+
+        parsed = try_parse_png_base64(candidate)
+        if parsed is not None:
+            return parsed
+
+        return candidate
+
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return to_png_data_url(bytes(value))
+
+    if hasattr(value, "savefig"):
+        buffer = io.BytesIO()
+        value.savefig(buffer, format="png", transparent=True)
+        return to_png_data_url(buffer.getvalue())
+
+    if hasattr(value, "save"):
+        buffer = io.BytesIO()
+        value.save(buffer, format="PNG")
+        return to_png_data_url(buffer.getvalue())
+
+    raise TypeError(f"Unsupported graphics output type: {type(value).__name__}")
+
 def output_graphics(data):
-    graphics_outputs.append(data)
+    graphics_outputs.append(normalize_graphics_output(data))
+
+def output_png(data):
+    graphics_outputs.append(normalize_graphics_output(data))
 
 execution_globals = {
     "__builtins__": __builtins__,
@@ -53,6 +107,8 @@ execution_globals = {
     "log": log_fn,
     "outputGraphics": output_graphics,
     "outputImage": output_graphics,
+    "outputPng": output_png,
+    "outputPNG": output_png,
 }
 
 try:
@@ -81,13 +137,15 @@ export class PythonProcessRuntime implements ExecutionRuntime {
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     const timeoutMs = request.timeoutMs ?? 5000;
+    const pythonBin = request.pythonBin ?? this.pythonBin;
+    const cwd = request.cwd;
     const payload = JSON.stringify({
       code: request.code,
       inputs: request.inputs ?? {},
     });
 
     try {
-      const { stdout, stderr, timedOut } = await this.runPython(payload, timeoutMs);
+      const { stdout, stderr, timedOut } = await this.runPython(payload, timeoutMs, pythonBin, cwd);
 
       if (timedOut) {
         return {
@@ -130,14 +188,17 @@ export class PythonProcessRuntime implements ExecutionRuntime {
 
   private runPython(
     payload: string,
-    timeoutMs: number
+    timeoutMs: number,
+    pythonBin: string,
+    cwd?: string
   ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
     return new Promise((resolve, reject) => {
       const child = spawn(
-        this.pythonBin,
+        pythonBin,
         ['-c', PYTHON_RUNNER_SCRIPT],
         {
           stdio: ['pipe', 'pipe', 'pipe'],
+          ...(cwd ? { cwd } : {}),
         }
       );
 

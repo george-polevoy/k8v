@@ -12,11 +12,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Node panel graph management: select existing graph, create new graph, and rename current graph.
+- Node panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Current graph ID is shown in node panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
 
 - Pixi.js canvas renderer for nodes and connectors.
+- Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
 - Mouse wheel zoom.
 - Shift/Alt wheel directional scroll.
 - Drag-to-pan on empty canvas.
@@ -28,15 +30,21 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Connector hover highlighting.
 - Drag from output port to input port to create connection.
 - Frontend cycle-prevention during connection creation.
+- `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool options: colors `white`/`green`/`red`.
 - Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
+- Drawings are persisted as graph-level drawing objects with named handles.
+- Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
+- Drawing handles are selectable, draggable (move drawing), and deletable.
+- Drawing paths and handles are rendered in canvas and minimap.
 
 ## Node Editing (Node Panel)
 
 - Edit node display name (card title).
 - Edit inline-code runtime (currently JavaScript VM).
+- For `python_process` inline nodes, select a named graph-level Python environment (`pythonEnv`) or fall back to backend default Python.
 - Edit inline-code source with local draft state and persist on blur.
 - Input port management:
   - add input
@@ -46,6 +54,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Input rename/delete propagates to connections targeting that input.
 - Toggle auto-recompute per node.
 - Run selected node manually.
+- Edit selected drawing name and delete selected drawing from node panel.
 
 ## Node Status and Indicators
 
@@ -66,6 +75,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Deterministic recomputation in backend based on node version + dependency result timestamps.
 - Persist outputs, inferred schema, text output, and graphics output.
 - Output panel shows text and graphics result for selected node.
+- Canvas renders `python_process` node image outputs as raw projections below the card (no in-card frame/padding).
 - Output refresh retries after compute to account for persistence lag.
 
 ## Auto-Recompute Behavior
@@ -81,6 +91,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - Backend request validation via Zod.
 - Graph validation checks missing node references in connections.
+- Graph validation enforces unique graph-level Python environment names.
+- Graph validation enforces that node `pythonEnv` references exist and are only used with `python_process` runtime.
 - Graph cycle rejection for new graphs (`POST`).
 - Graph cycle rejection for all graph updates (`PUT`), including non-connection edits.
 
@@ -89,7 +101,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - NodeExecutor supports inline code, library, subgraph, external input, external output node types.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
+- Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.
 - Python runtime supports `inputs`, `outputs`, `print`/`log`, `outputGraphics`/`outputImage`, timeout, and error capture.
+- Python runtime normalizes PNG outputs from bytes/base64 and provides `outputPng`/`outputPNG` helpers for image rendering.
+- Python runtime accepts per-execution `pythonBin` and `cwd` overrides, enabling node-level env selection.
 - Pluggable runtime architecture is in place for future runtimes.
 
 ## Debugging and Tooling
@@ -101,6 +116,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - MCP server package at `packages/mcp-server`.
 - MCP graph-edit tools for node creation, moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
+- MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
+- MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
 - Screenshot render overlays stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.
+- Screenshot render includes persisted drawing paths and drawing handles.
