@@ -13,7 +13,7 @@ interface CustomNodeProps {
 function CustomNode({ data }: CustomNodeProps) {
   const { node } = data;
   const isInlineCode = node.type === NodeType.INLINE_CODE;
-  const { graph } = useGraphStore();
+  const graphUpdatedAt = useGraphStore((state) => state.graph?.updatedAt);
 
   // State for inline result display
   const [textOutput, setTextOutput] = useState<string | null>(null);
@@ -44,9 +44,10 @@ function CustomNode({ data }: CustomNodeProps) {
 
     // Fetch initially and when graph updates
     fetchResult();
-  }, [node.id, graph?.updatedAt]);
+  }, [node.id, graphUpdatedAt]);
 
   const handleDeleteInput = (inputName: string) => {
+    const graph = useGraphStore.getState().graph;
     if (!isInlineCode || !graph) return;
 
     const updatedInputs = node.metadata.inputs.filter(input => input.name !== inputName);

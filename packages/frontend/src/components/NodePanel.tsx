@@ -4,7 +4,10 @@ import { NodeType } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
 
 function NodePanel() {
-  const { selectedNodeId, graph, updateNode, addNode } = useGraphStore();
+  const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const graph = useGraphStore((state) => state.graph);
+  const updateNode = useGraphStore((state) => state.updateNode);
+  const addNode = useGraphStore((state) => state.addNode);
   const selectedNode = graph?.nodes.find((n) => n.id === selectedNodeId);
 
   // Local state for code editing to prevent cursor jumping

@@ -3,7 +3,8 @@ import { useGraphStore } from '../store/graphStore';
 import NodeCreationDialog from './NodeCreationDialog';
 
 function Toolbar() {
-  const { computeGraph, addNode } = useGraphStore();
+  const computeGraph = useGraphStore((state) => state.computeGraph);
+  const addNode = useGraphStore((state) => state.addNode);
   const [showDialog, setShowDialog] = useState(false);
   const [dialogPosition, setDialogPosition] = useState({ x: 400, y: 300 });
 

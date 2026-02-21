@@ -3,7 +3,8 @@ import { useGraphStore } from '../store/graphStore';
 import axios from 'axios';
 
 function OutputPanel() {
-  const { selectedNodeId, graph } = useGraphStore();
+  const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const graph = useGraphStore((state) => state.graph);
   const [textOutput, setTextOutput] = useState<string>('');
   const [graphicsOutput, setGraphicsOutput] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);

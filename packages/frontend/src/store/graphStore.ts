@@ -314,6 +314,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   },
 
   selectNode: (nodeId: string | null) => {
+    if (get().selectedNodeId === nodeId) return;
     set({ selectedNodeId: nodeId });
   },
 

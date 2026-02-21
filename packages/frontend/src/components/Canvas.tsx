@@ -21,7 +21,11 @@ const nodeTypes = {
 };
 
 function Canvas() {
-  const { graph, addConnection, updateNodePosition, isLoading, error } = useGraphStore();
+  const graph = useGraphStore((state) => state.graph);
+  const addConnection = useGraphStore((state) => state.addConnection);
+  const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
+  const isLoading = useGraphStore((state) => state.isLoading);
+  const error = useGraphStore((state) => state.error);
 
   // Convert graph nodes to ReactFlow nodes
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -35,23 +39,77 @@ function Canvas() {
   useEffect(() => {
     if (!graph) return;
 
-    const reactFlowNodes: Node[] = graph.nodes.map((node) => ({
-      id: node.id,
-      type: 'custom',
-      position: node.position,
-      data: { node },
-    }));
+    setNodes((currentNodes) => {
+      const currentById = new Map(currentNodes.map((node) => [node.id, node]));
 
-    const reactFlowEdges: Edge[] = graph.connections.map((conn) => ({
-      id: conn.id,
-      source: conn.sourceNodeId,
-      target: conn.targetNodeId,
-      sourceHandle: conn.sourcePort,
-      targetHandle: conn.targetPort,
-    }));
+      const nextNodes: Node[] = graph.nodes.map((node) => {
+        const currentNode = currentById.get(node.id);
+        const currentDataNode = currentNode?.data?.node;
+        const canReuseDataNode =
+          currentDataNode &&
+          currentDataNode.id === node.id &&
+          currentDataNode.version === node.version;
 
-    setNodes(reactFlowNodes);
-    setEdges(reactFlowEdges);
+        return {
+          id: node.id,
+          type: 'custom',
+          position: node.position,
+          data: canReuseDataNode ? currentNode.data : { node },
+          selected: currentNode?.selected,
+          dragging: currentNode?.dragging,
+        };
+      });
+
+      const unchanged =
+        currentNodes.length === nextNodes.length &&
+        currentNodes.every((node, index) => {
+          const nextNode = nextNodes[index];
+          if (!nextNode) return false;
+          return (
+            node.id === nextNode.id &&
+            node.position.x === nextNode.position.x &&
+            node.position.y === nextNode.position.y &&
+            node.selected === nextNode.selected &&
+            node.dragging === nextNode.dragging &&
+            node.data === nextNode.data
+          );
+        });
+
+      return unchanged ? currentNodes : nextNodes;
+    });
+
+    setEdges((currentEdges) => {
+      const currentById = new Map(currentEdges.map((edge) => [edge.id, edge]));
+
+      const nextEdges: Edge[] = graph.connections.map((conn) => {
+        const currentEdge = currentById.get(conn.id);
+        return {
+          id: conn.id,
+          source: conn.sourceNodeId,
+          target: conn.targetNodeId,
+          sourceHandle: conn.sourcePort,
+          targetHandle: conn.targetPort,
+          selected: currentEdge?.selected,
+        };
+      });
+
+      const unchanged =
+        currentEdges.length === nextEdges.length &&
+        currentEdges.every((edge, index) => {
+          const nextEdge = nextEdges[index];
+          if (!nextEdge) return false;
+          return (
+            edge.id === nextEdge.id &&
+            edge.source === nextEdge.source &&
+            edge.target === nextEdge.target &&
+            edge.sourceHandle === nextEdge.sourceHandle &&
+            edge.targetHandle === nextEdge.targetHandle &&
+            edge.selected === nextEdge.selected
+          );
+        });
+
+      return unchanged ? currentEdges : nextEdges;
+    });
   }, [graph, setNodes, setEdges]);
 
   const handleInputNameSubmit = useCallback(
@@ -160,26 +218,28 @@ function Canvas() {
   const onNodesChangeLocal = useCallback(
     (changes: any) => {
       onNodesChange(changes);
-      // Update positions in graph store
-      if (graph) {
-        changes.forEach((change: any) => {
-          if (change.type === 'select' && change.selected) {
-            useGraphStore.getState().selectNode(change.id);
-          } else if (change.type === 'select' && !change.selected) {
-            useGraphStore.getState().selectNode(null);
-          } else if (change.type === 'remove') {
-            // Handle node deletion
-            useGraphStore.getState().deleteNode(change.id);
-            // Clear selection if deleted node was selected
-            const currentSelected = useGraphStore.getState().selectedNodeId;
-            if (currentSelected === change.id) {
-              useGraphStore.getState().selectNode(null);
-            }
-          }
-        });
+
+      const selectedChange = [...changes]
+        .reverse()
+        .find((change: any) => change.type === 'select');
+
+      if (selectedChange) {
+        useGraphStore.getState().selectNode(selectedChange.selected ? selectedChange.id : null);
       }
+
+      changes.forEach((change: any) => {
+        if (change.type === 'remove') {
+          // Handle node deletion
+          useGraphStore.getState().deleteNode(change.id);
+          // Clear selection if deleted node was selected
+          const currentSelected = useGraphStore.getState().selectedNodeId;
+          if (currentSelected === change.id) {
+            useGraphStore.getState().selectNode(null);
+          }
+        }
+      });
     },
-    [onNodesChange, graph]
+    [onNodesChange]
   );
 
   // Handle node deletion (backup handler)
@@ -271,9 +331,6 @@ function Canvas() {
         onNodesDelete={onNodesDelete}
         onEdgesChange={onEdgesChangeLocal}
         onConnect={onConnect}
-        onNodeClick={(_event, node) => {
-          useGraphStore.getState().selectNode(node.id);
-        }}
         onNodeDragStop={(_event, node) => {
           updateNodePosition(node.id, node.position);
         }}
