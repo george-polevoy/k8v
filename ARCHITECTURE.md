@@ -35,15 +35,19 @@ k8v is a flow-based modeling software that enables visual programming through an
 ### Frontend
 
 #### Canvas (`packages/frontend/src/components/Canvas.tsx`)
-- Infinite canvas using React Flow
-- Visual node representation with input/output handles
-- Drag-and-drop node positioning
-- Connection creation between nodes
+- Infinite canvas rendered with Pixi.js
+- Viewport navigation supports wheel zoom, wheel scroll (modifier), and drag-to-pan
+- Visual node and edge rendering from graph store state
+- Drag-and-drop node positioning with persisted coordinates
+- Node status indicators (error/computing/auto-recompute/idle)
 
 #### Graph Store (`packages/frontend/src/store/graphStore.ts`)
 - Zustand state management for graph data
 - API integration with backend
 - Node and connection management
+- Optimistic persistence for graph edits
+- Node execution state tracking (computing/error/last-run)
+- Auto-recompute propagation for opted-in downstream nodes
 
 ## Data Flow
 

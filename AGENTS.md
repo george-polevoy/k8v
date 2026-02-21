@@ -5,7 +5,7 @@ This file provides project context and working rules for coding assistants on `k
 ## Project Overview
 
 k8v is a flow-based visual programming tool with:
-- React frontend (ReactFlow canvas)
+- React frontend (Pixi.js canvas renderer)
 - Node.js backend (Express API)
 - SQLite for persistence
 - Pluggable execution engine (in development)
@@ -18,6 +18,9 @@ Before making significant changes, review the relevant docs:
 - `OUTPUT_FEATURES.md` - output display features
 - `PORT_NAMING.md` - naming conventions for node ports
 - `EXAMPLES.md` - usage examples
+- `FUNCTIONALITY.md` - current implemented feature inventory
+- `TEST_CASES.md` - feature-to-test coverage map (automated/manual/gaps)
+- `BACKLOG.md` - prioritized implementation and coverage backlog
 
 ## Code Organization
 
@@ -86,6 +89,22 @@ npm run dev
 2. Identify affected backend/frontend boundaries
 3. Add regression coverage where practical
 
+### Test Case Requests
+When the user says: `test case: this should ...`
+1. Treat it as a bug/regression signal and retest that behavior
+2. Search for an existing test case that already covers the scenario
+3. If coverage exists, run it and report whether it still passes
+4. If coverage does not exist, add a corresponding test case, then run it
+5. If behavior is broken, fix it and keep the new/updated test as regression coverage
+
+### Feature Requests
+When the user says: `feature: x should be working like y...`
+1. Check whether the feature is tracked in project documentation (for example `FUNCTIONALITY.md`, `BACKLOG.md`, `README.md`, `ARCHITECTURE.md`)
+2. Check whether the feature is covered by test cases
+3. Check whether the feature is already implemented and working
+4. Then start working on the feature immediately (do not stop at analysis)
+5. Update documentation and tests as part of delivering the feature
+
 ## Assistant Expectations
 
 1. Read relevant docs before broad changes
@@ -94,3 +113,5 @@ npm run dev
 4. Prefer existing patterns over one-off designs
 5. Verify builds before claiming success
 6. Do not introduce new unsafe code-execution paths
+7. For explicit user test-case requests, always verify existing coverage first, add missing tests, and retest before closing
+8. For explicit user feature requests, verify documentation and coverage status first, then implement right away

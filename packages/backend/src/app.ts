@@ -49,6 +49,88 @@ const validate = <T extends z.ZodType>(schema: T) => {
   };
 };
 
+function connectionSignature(connection: Connection): string {
+  return [
+    connection.id,
+    connection.sourceNodeId,
+    connection.sourcePort,
+    connection.targetNodeId,
+    connection.targetPort,
+  ].join('|');
+}
+
+function areConnectionsEquivalent(left: Connection[], right: Connection[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftSignatures = left.map(connectionSignature).sort();
+  const rightSignatures = right.map(connectionSignature).sort();
+
+  for (let i = 0; i < leftSignatures.length; i += 1) {
+    if (leftSignatures[i] !== rightSignatures[i]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function validateGraphStructure(graph: Graph, options?: { validateCycles?: boolean }): string | null {
+  const shouldValidateCycles = options?.validateCycles ?? true;
+  const nodeIds = new Set(graph.nodes.map((node) => node.id));
+
+  for (const connection of graph.connections) {
+    if (!nodeIds.has(connection.sourceNodeId)) {
+      return `Connection ${connection.id} references missing source node ${connection.sourceNodeId}`;
+    }
+    if (!nodeIds.has(connection.targetNodeId)) {
+      return `Connection ${connection.id} references missing target node ${connection.targetNodeId}`;
+    }
+  }
+
+  if (shouldValidateCycles) {
+    const adjacency = new Map<string, string[]>();
+    for (const nodeId of nodeIds) {
+      adjacency.set(nodeId, []);
+    }
+    for (const connection of graph.connections) {
+      adjacency.get(connection.sourceNodeId)?.push(connection.targetNodeId);
+    }
+
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+
+    const dfs = (nodeId: string): boolean => {
+      if (visiting.has(nodeId)) {
+        return true;
+      }
+      if (visited.has(nodeId)) {
+        return false;
+      }
+
+      visiting.add(nodeId);
+      const neighbors = adjacency.get(nodeId) || [];
+      for (const neighbor of neighbors) {
+        if (dfs(neighbor)) {
+          return true;
+        }
+      }
+      visiting.delete(nodeId);
+      visited.add(nodeId);
+      return false;
+    };
+
+    for (const nodeId of nodeIds) {
+      if (dfs(nodeId)) {
+        return 'Graph contains a circular dependency';
+      }
+    }
+  }
+
+  return null;
+}
+
 export function createApp(deps?: AppDependencies) {
   const app = express();
   app.use(cors());
@@ -102,6 +184,11 @@ export function createApp(deps?: AppDependencies) {
         updatedAt: Date.now(),
       };
 
+      const validationError = validateGraphStructure(graph);
+      if (validationError) {
+        return res.status(400).json({ error: validationError });
+      }
+
       await dataStore.storeGraph(graph);
       res.json(graph);
     } catch (error: any) {
@@ -122,6 +209,12 @@ export function createApp(deps?: AppDependencies) {
         id: req.params.id,
         updatedAt: Date.now(),
       };
+
+      const connectionsChanged = !areConnectionsEquivalent(existing.connections, graph.connections);
+      const validationError = validateGraphStructure(graph, { validateCycles: connectionsChanged });
+      if (validationError) {
+        return res.status(400).json({ error: validationError });
+      }
 
       await dataStore.storeGraph(graph);
       res.json(graph);

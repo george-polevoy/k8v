@@ -34,6 +34,25 @@ function createValidInlineNode() {
   };
 }
 
+function createPassThroughNode(id: string) {
+  return {
+    id,
+    type: 'inline_code',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: `Node ${id}`,
+      inputs: [{ name: 'input', schema: { type: 'number' } }],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = inputs.input;',
+      runtime: 'javascript_vm',
+    },
+    version: '1',
+  };
+}
+
 async function setupTestServer(): Promise<AppTestContext> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-app-test-'));
   const dataStore = new DataStore(':memory:', tmpDir);
@@ -149,6 +168,139 @@ test('POST /api/graphs/:id/compute returns clear error for unregistered runtime'
     assert.equal(computeResponse.status, 500);
     const payload = await computeResponse.json();
     assert.match(payload.error, /not registered/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects cyclic graph structures', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createPassThroughNode('node-a');
+    const nodeB = createPassThroughNode('node-b');
+
+    const response = await createGraph(ctx.baseUrl, {
+      name: 'Cyclic Graph',
+      nodes: [nodeA, nodeB],
+      connections: [
+        {
+          id: 'c1',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'c2',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-a',
+          targetPort: 'input',
+        },
+      ],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /circular dependency/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createPassThroughNode('node-a');
+    const nodeB = createPassThroughNode('node-b');
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      name: 'Acyclic Graph',
+      nodes: [nodeA, nodeB],
+      connections: [
+        {
+          id: 'c1',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        connections: [
+          ...createdGraph.connections,
+          {
+            id: 'c2',
+            sourceNodeId: 'node-b',
+            sourcePort: 'output',
+            targetNodeId: 'node-a',
+            targetPort: 'input',
+          },
+        ],
+      }),
+    });
+
+    assert.equal(updateResponse.status, 400);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /circular dependency/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs/:id allows non-connection edits on legacy cyclic graphs', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createPassThroughNode('node-a');
+    const nodeB = createPassThroughNode('node-b');
+    const legacyGraph = {
+      id: 'legacy-cyclic',
+      name: 'Legacy Cyclic Graph',
+      nodes: [nodeA, nodeB],
+      connections: [
+        {
+          id: 'c1',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'c2',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-a',
+          targetPort: 'input',
+        },
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await ctx.dataStore.storeGraph(legacyGraph);
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${legacyGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodes: [...legacyGraph.nodes, createPassThroughNode('node-c')],
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const payload = await updateResponse.json();
+    assert.equal(payload.nodes.length, 3);
+    assert.equal(payload.connections.length, 2);
   } finally {
     await ctx.close();
   }

@@ -15,10 +15,13 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
   - Library nodes with retrievable manifests
 - **Reusable Subgraphs**: Wrap interlinked parts of graph into reusable library nodes
 - **Visual Programming**: Create library nodes using the graph as a visual programming language
+- **Node Panel Editing**: Edit card names and manage input ports (add, rename, reorder, delete)
+- **Node Status Indicators**: Card-level indicator for compute status and errors
+- **Auto Recompute Toggle**: Opt-in downstream recompute when upstream nodes change
 
 ## Architecture
 
-- **Frontend**: React + TypeScript + React Flow (infinite canvas)
+- **Frontend**: React + TypeScript + Pixi.js (infinite canvas renderer)
 - **Backend**: Node.js + Express + TypeScript
 - **Storage**: SQLite for metadata, file system for serialized data
 
@@ -34,6 +37,20 @@ npm run dev
 
 The frontend will be available at `http://localhost:5173` and the backend at `http://localhost:3000`.
 
+## Canvas Snapshot Debugging
+
+Generate a headless screenshot of the Pixi canvas (no backend required):
+
+```bash
+npm run -w packages/frontend snapshot:canvas -- --out tmp/canvas.png
+```
+
+Tune readability (defaults are now high-res + zoomed):
+
+```bash
+npm run -w packages/frontend snapshot:canvas -- --out tmp/canvas.png --zoom 2.5 --width 2800 --height 1600 --dpr 2
+```
+
 ## Project Structure
 
 ```
@@ -43,3 +60,10 @@ k8v/
 │   └── backend/      # Node.js backend with computation engine
 └── README.md
 ```
+
+## Documentation
+
+- [FUNCTIONALITY.md](./FUNCTIONALITY.md) - current implemented behavior inventory
+- [TEST_CASES.md](./TEST_CASES.md) - feature-to-test-case coverage map (automated/manual/gap)
+- [BACKLOG.md](./BACKLOG.md) - prioritized engineering backlog and status
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - system architecture and component boundaries
