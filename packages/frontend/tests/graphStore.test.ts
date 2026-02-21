@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import axios from 'axios';
+import { setTimeout as delay } from 'node:timers/promises';
 import { useGraphStore } from '../src/store/graphStore.ts';
 import { Graph } from '../src/types.ts';
 
@@ -129,5 +130,241 @@ test('updateNodePosition persists position without changing node version', async
     assert.equal(state.graph?.nodes[0].version, 'node-version-1');
   } finally {
     (axios as any).put = originalPut;
+  }
+});
+
+test('auto recompute keeps only latest pending batch while compute is in flight', async () => {
+  const originalPut = axios.put;
+  const originalPost = axios.post;
+
+  let computeCalls = 0;
+  const initialGraph: Graph = {
+    id: 'g-auto',
+    name: 'Auto Graph',
+    nodes: [
+      {
+        id: 'upstream',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Upstream',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'u-v1',
+      },
+      {
+        id: 'downstream',
+        type: 'inline_code' as any,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'Downstream',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'd-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'c1',
+        sourceNodeId: 'upstream',
+        sourcePort: 'output',
+        targetNodeId: 'downstream',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
+  (axios as any).post = async (_url: string, body: any) => {
+    if (body?.nodeId === 'downstream') {
+      computeCalls += 1;
+      await delay(120);
+      return {
+        data: {
+          nodeId: 'downstream',
+          outputs: { output: computeCalls },
+          schema: { output: { type: 'number' } },
+          timestamp: Date.now(),
+          version: `result-${computeCalls}`,
+        },
+      };
+    }
+
+    throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+  };
+
+  const patchUpstreamVersion = (version: string): Graph => ({
+    ...initialGraph,
+    nodes: initialGraph.nodes.map((node) =>
+      node.id === 'upstream'
+        ? { ...node, version }
+        : node
+    ),
+    updatedAt: Date.now(),
+  });
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v2'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v3'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v4'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v5'));
+
+    await delay(450);
+    assert.equal(
+      computeCalls,
+      2,
+      'expected one in-flight recompute and one latest replacement batch'
+    );
+  } finally {
+    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
+  }
+});
+
+test('auto recompute runs impacted nodes in upstream-to-downstream order', async () => {
+  const originalPut = axios.put;
+  const originalPost = axios.post;
+
+  const computeOrder: string[] = [];
+  const graph: Graph = {
+    id: 'g-order',
+    name: 'Order Graph',
+    nodes: [
+      {
+        id: 'node-c',
+        type: 'inline_code' as any,
+        position: { x: 400, y: 0 },
+        metadata: {
+          name: 'C',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'c-v1',
+      },
+      {
+        id: 'node-b',
+        type: 'inline_code' as any,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'B',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'b-v1',
+      },
+      {
+        id: 'node-a',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'a-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'ab',
+        sourceNodeId: 'node-a',
+        sourcePort: 'output',
+        targetNodeId: 'node-b',
+        targetPort: 'input',
+      },
+      {
+        id: 'bc',
+        sourceNodeId: 'node-b',
+        sourcePort: 'output',
+        targetNodeId: 'node-c',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
+  (axios as any).post = async (_url: string, body: any) => {
+    if (typeof body?.nodeId === 'string') {
+      computeOrder.push(body.nodeId);
+      return {
+        data: {
+          nodeId: body.nodeId,
+          outputs: { output: 1 },
+          schema: { output: { type: 'number' } },
+          timestamp: Date.now(),
+          version: `v-${body.nodeId}`,
+        },
+      };
+    }
+    throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === 'node-a' ? { ...node, version: 'a-v2' } : node
+      ),
+      updatedAt: Date.now(),
+    });
+
+    await delay(120);
+    assert.deepEqual(computeOrder, ['node-a', 'node-b', 'node-c']);
+  } finally {
+    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });

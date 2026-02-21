@@ -10,6 +10,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Auto-create a new graph when no graph exists.
 - Persist graph edits through `PUT /api/graphs/:id`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
+- Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 
 ## Canvas and Interaction
 
@@ -31,7 +32,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - Edit node display name (card title).
 - Edit inline-code runtime (currently JavaScript VM).
-- Edit inline-code source with debounce.
+- Edit inline-code source with local draft state and persist on blur.
 - Input port management:
   - add input
   - rename input
@@ -65,14 +66,15 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - On graph updates, frontend computes impacted downstream nodes.
 - Nodes with auto-recompute enabled are automatically recomputed when upstream nodes change.
 - Recompute triggers run after successful graph persistence.
+- Auto-recompute uses a single pending batch slot; while recompute is in flight, new graph updates replace the undrained pending batch with the latest impacted nodes.
+- Auto-recompute processes impacted nodes in upstream-to-downstream order.
 
 ## Validation and Safety
 
 - Backend request validation via Zod.
 - Graph validation checks missing node references in connections.
 - Graph cycle rejection for new graphs (`POST`).
-- Graph cycle rejection for connection-changing updates (`PUT`).
-- Legacy cyclic graphs can still be edited for non-connection changes.
+- Graph cycle rejection for all graph updates (`PUT`), including non-connection edits.
 
 ## Runtime and Execution Engine
 

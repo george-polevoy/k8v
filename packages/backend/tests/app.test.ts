@@ -257,7 +257,7 @@ test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
   }
 });
 
-test('PUT /api/graphs/:id allows non-connection edits on legacy cyclic graphs', async () => {
+test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -297,10 +297,9 @@ test('PUT /api/graphs/:id allows non-connection edits on legacy cyclic graphs', 
       }),
     });
 
-    assert.equal(updateResponse.status, 200);
+    assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
-    assert.equal(payload.nodes.length, 3);
-    assert.equal(payload.connections.length, 2);
+    assert.match(payload.error, /circular dependency/i);
   } finally {
     await ctx.close();
   }

@@ -57,6 +57,14 @@ k8v is a flow-based modeling software that enables visual programming through an
 4. **Persistence**: Results are serialized and stored
 5. **Recomputation**: Only recomputes when inputs or node code changes
 
+## Directed Graph Semantics
+
+- Graph edges are directed from `sourceNodeId/sourcePort` (producer) to `targetNodeId/targetPort` (consumer).
+- Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
+- Runtime computation uses topological ordering so dependencies are computed before dependents.
+- Auto-recompute processing also follows upstream-to-downstream topological order.
+- Circular dependencies are rejected for new graphs and all graph updates.
+
 ## Node Types
 
 ### Inline Code Nodes

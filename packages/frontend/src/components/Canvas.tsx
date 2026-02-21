@@ -8,9 +8,12 @@ import {
   Point,
   Rectangle,
   settings,
+  Sprite,
   Text,
+  Texture,
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
+import type { NodeExecutionState } from '../store/graphStore';
 import { GraphNode, Position } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,8 +31,17 @@ const EDGE_HIT_WIDTH = 16;
 const MINIMAP_WIDTH = 220;
 const MINIMAP_HEIGHT = 140;
 const MINIMAP_PADDING = 8;
+const NODE_DRAG_START_THRESHOLD = 2;
+const LIGHTNING_DURATION_MS = 420;
+const NODE_SHOCK_DURATION_MS = 520;
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
 const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
+const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
+  isComputing: false,
+  hasError: false,
+  errorMessage: null,
+  lastRunAt: null,
+};
 
 interface NodeVisual {
   node: GraphNode;
@@ -53,6 +65,8 @@ interface NodeDragState {
   pointerY: number;
   nodeX: number;
   nodeY: number;
+  currentX: number;
+  currentY: number;
   moved: boolean;
 }
 
@@ -87,6 +101,18 @@ interface ConnectionGeometry {
   c2Y: number;
   endX: number;
   endY: number;
+}
+
+interface LightningPulse {
+  connectionId: string;
+  startAt: number;
+  durationMs: number;
+}
+
+interface NodeShock {
+  nodeId: string;
+  startAt: number;
+  durationMs: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -191,6 +217,28 @@ function pointOnBezier(geometry: ConnectionGeometry, t: number): { x: number; y:
       3 * oneMinus * t2 * geometry.c2Y +
       t3 * geometry.endY,
   };
+}
+
+function tangentOnBezier(geometry: ConnectionGeometry, t: number): { x: number; y: number } {
+  const oneMinus = 1 - t;
+  const t2 = t * t;
+  const oneMinus2 = oneMinus * oneMinus;
+
+  return {
+    x:
+      3 * oneMinus2 * (geometry.c1X - geometry.startX) +
+      6 * oneMinus * t * (geometry.c2X - geometry.c1X) +
+      3 * t2 * (geometry.endX - geometry.c2X),
+    y:
+      3 * oneMinus2 * (geometry.c1Y - geometry.startY) +
+      6 * oneMinus * t * (geometry.c2Y - geometry.c1Y) +
+      3 * t2 * (geometry.endY - geometry.c2Y),
+  };
+}
+
+function normalizeVector(x: number, y: number): { x: number; y: number } {
+  const len = Math.hypot(x, y) || 1;
+  return { x: x / len, y: y / len };
 }
 
 function distanceSquaredToSegment(
@@ -310,10 +358,14 @@ function Canvas() {
   const minimapCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapTransformRef = useRef<MinimapTransform | null>(null);
   const appRef = useRef<Application | null>(null);
+  const backgroundSpriteRef = useRef<Sprite | null>(null);
   const viewportRef = useRef<Container | null>(null);
   const nodeLayerRef = useRef<Container | null>(null);
   const edgeLayerRef = useRef<Graphics | null>(null);
+  const effectsLayerRef = useRef<Graphics | null>(null);
   const connectionGeometriesRef = useRef<Map<string, ConnectionGeometry>>(new Map());
+  const lightningPulsesRef = useRef<LightningPulse[]>([]);
+  const nodeShocksRef = useRef<NodeShock[]>([]);
   const nodeVisualsRef = useRef<Map<string, NodeVisual>>(new Map());
   const nodePositionsRef = useRef<Map<string, Position>>(new Map());
   const textNodesRef = useRef<Set<Text>>(new Set());
@@ -327,6 +379,7 @@ function Canvas() {
   const selectedConnectionIdRef = useRef<string | null>(null);
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const nodeExecutionStatesRef = useRef(nodeExecutionStates);
+  const previousNodeExecutionStatesRef = useRef<Record<string, NodeExecutionState>>({});
   const graphRef = useRef(graph);
   const renderGraphRef = useRef<() => void>(() => {});
   const panStateRef = useRef<PanState | null>(null);
@@ -634,6 +687,161 @@ function Canvas() {
 
     edges.lineStyle(2, 0x1d4ed8, 0.95);
     drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
+  }, []);
+
+  const enqueueLightningForConnection = useCallback((connectionId: string) => {
+    const now = performance.now();
+    lightningPulsesRef.current = [
+      ...lightningPulsesRef.current.filter(
+        (pulse) => !(pulse.connectionId === connectionId && now - pulse.startAt < pulse.durationMs * 0.35)
+      ),
+      {
+        connectionId,
+        startAt: now,
+        durationMs: LIGHTNING_DURATION_MS,
+      },
+    ];
+  }, []);
+
+  const enqueueLightningForNodeInputs = useCallback((nodeId: string) => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph) {
+      return;
+    }
+
+    for (const connection of currentGraph.connections) {
+      if (connection.targetNodeId === nodeId) {
+        enqueueLightningForConnection(connection.id);
+      }
+    }
+  }, [enqueueLightningForConnection]);
+
+  const enqueueNodeShock = useCallback((nodeId: string) => {
+    const now = performance.now();
+    nodeShocksRef.current = [
+      ...nodeShocksRef.current.filter(
+        (shock) => !(shock.nodeId === nodeId && now - shock.startAt < shock.durationMs * 0.4)
+      ),
+      {
+        nodeId,
+        startAt: now,
+        durationMs: NODE_SHOCK_DURATION_MS,
+      },
+    ];
+  }, []);
+
+  const drawEffects = useCallback(() => {
+    const effectsLayer = effectsLayerRef.current;
+    if (!effectsLayer) {
+      return;
+    }
+
+    effectsLayer.clear();
+    const now = performance.now();
+
+    lightningPulsesRef.current = lightningPulsesRef.current.filter((pulse) => {
+      const geometry = connectionGeometriesRef.current.get(pulse.connectionId);
+      if (!geometry) {
+        return now - pulse.startAt < pulse.durationMs;
+      }
+
+      const progress = (now - pulse.startAt) / pulse.durationMs;
+      if (progress < 0 || progress >= 1) {
+        return false;
+      }
+
+      const headT = clamp(progress, 0, 1);
+      const tailT = clamp(headT - 0.5, 0, headT);
+      const alpha = 1 - progress;
+      const samples = 20;
+
+      // Draw a soft full-path glow so activity is immediately visible.
+      effectsLayer.lineStyle(8, 0x60a5fa, 0.55 * alpha);
+      drawBezierConnection(
+        effectsLayer,
+        geometry.startX,
+        geometry.startY,
+        geometry.endX,
+        geometry.endY
+      );
+
+      effectsLayer.lineStyle(5.5, 0xfacc15, 1 * alpha);
+      let started = false;
+      for (let i = 0; i <= samples; i += 1) {
+        const ratio = i / samples;
+        const t = tailT + (headT - tailT) * ratio;
+        const point = pointOnBezier(geometry, t);
+        const tangent = tangentOnBezier(geometry, t);
+        const normal = normalizeVector(-tangent.y, tangent.x);
+        const jitter =
+          Math.sin((t * 52) + (progress * 22) + (i * 0.7)) * (2.8 * (1 - ratio * 0.45));
+        const x = point.x + normal.x * jitter;
+        const y = point.y + normal.y * jitter;
+
+        if (!started) {
+          effectsLayer.moveTo(x, y);
+          started = true;
+        } else {
+          effectsLayer.lineTo(x, y);
+        }
+      }
+
+      effectsLayer.lineStyle(2, 0xffffff, 0.95 * alpha);
+      started = false;
+      for (let i = 0; i <= samples; i += 1) {
+        const ratio = i / samples;
+        const t = tailT + (headT - tailT) * ratio;
+        const point = pointOnBezier(geometry, t);
+        if (!started) {
+          effectsLayer.moveTo(point.x, point.y);
+          started = true;
+        } else {
+          effectsLayer.lineTo(point.x, point.y);
+        }
+      }
+
+      const headPoint = pointOnBezier(geometry, headT);
+      effectsLayer.beginFill(0xfef08a, 0.95 * alpha);
+      effectsLayer.drawCircle(headPoint.x, headPoint.y, 4.5);
+      effectsLayer.endFill();
+      effectsLayer.lineStyle(1.4, 0xffffff, 0.8 * alpha);
+      effectsLayer.drawCircle(headPoint.x, headPoint.y, 8.5);
+
+      return true;
+    });
+
+    nodeShocksRef.current = nodeShocksRef.current.filter((shock) => {
+      const visual = nodeVisualsRef.current.get(shock.nodeId);
+      const position = nodePositionsRef.current.get(shock.nodeId);
+      if (!visual || !position) {
+        return now - shock.startAt < shock.durationMs;
+      }
+
+      const progress = (now - shock.startAt) / shock.durationMs;
+      if (progress < 0 || progress >= 1) {
+        return false;
+      }
+
+      const alpha = 1 - progress;
+      const glowExpand = 6 + progress * 10;
+      effectsLayer.lineStyle(2.2, 0xfacc15, 0.75 * alpha);
+      effectsLayer.drawRoundedRect(
+        position.x - glowExpand,
+        position.y - glowExpand,
+        visual.width + glowExpand * 2,
+        visual.height + glowExpand * 2,
+        12 + glowExpand * 0.35
+      );
+
+      const statusX = position.x + visual.width - 14;
+      const statusY = position.y + 14;
+      effectsLayer.lineStyle(1.6, 0xffffff, 0.65 * alpha);
+      effectsLayer.drawCircle(statusX, statusY, 7 + progress * 11);
+      effectsLayer.lineStyle(1, 0xf59e0b, 0.55 * alpha);
+      effectsLayer.drawCircle(statusX, statusY, 4 + progress * 7);
+
+      return true;
+    });
   }, []);
 
   const fitViewportToGraph = useCallback(() => {
@@ -955,6 +1163,8 @@ function Canvas() {
           pointerY: event.global.y,
           nodeX: currentPosition.x,
           nodeY: currentPosition.y,
+          currentX: currentPosition.x,
+          currentY: currentPosition.y,
           moved: false,
         };
         selectedConnectionIdRef.current = null;
@@ -963,6 +1173,11 @@ function Canvas() {
       });
 
       container.on('pointertap', (event: FederatedPointerEvent) => {
+        const dragState = nodeDragStateRef.current;
+        if (dragState?.nodeId === node.id && dragState.moved) {
+          event.stopPropagation();
+          return;
+        }
         event.stopPropagation();
         selectedConnectionIdRef.current = null;
         selectedNodeIdRef.current = node.id;
@@ -1037,7 +1252,7 @@ function Canvas() {
     const app = new Application({
       antialias: true,
       autoDensity: true,
-      backgroundColor: 0xf1f5f9,
+      backgroundAlpha: 0,
       resolution: PIXEL_RATIO,
       resizeTo: host,
     });
@@ -1048,11 +1263,51 @@ function Canvas() {
     const viewport = new Container();
     const edgeLayer = new Graphics();
     const nodeLayer = new Container();
+    const effectsLayer = new Graphics();
+    effectsLayer.eventMode = 'none';
+    const createBackgroundTexture = () => {
+      const width = Math.max(2, Math.round(app.screen.width * PIXEL_RATIO));
+      const height = Math.max(2, Math.round(app.screen.height * PIXEL_RATIO));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return Texture.WHITE;
+      }
+
+      const gradient = ctx.createRadialGradient(
+        width * 0.12,
+        height * 0.08,
+        width * 0.06,
+        width * 0.52,
+        height * 0.56,
+        Math.max(width, height) * 0.9
+      );
+      gradient.addColorStop(0, '#325da3');
+      gradient.addColorStop(0.35, '#1d437e');
+      gradient.addColorStop(0.7, '#112d58');
+      gradient.addColorStop(1, '#08172f');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+      return Texture.from(canvas);
+    };
+
+    const backgroundSprite = new Sprite(createBackgroundTexture());
+    backgroundSpriteRef.current = backgroundSprite;
+    backgroundSprite.position.set(0, 0);
+    backgroundSprite.width = app.screen.width;
+    backgroundSprite.height = app.screen.height;
+    backgroundSprite.eventMode = 'none';
+
     viewportRef.current = viewport;
     edgeLayerRef.current = edgeLayer;
     nodeLayerRef.current = nodeLayer;
+    effectsLayerRef.current = effectsLayer;
+    app.stage.addChild(backgroundSprite);
     viewport.addChild(edgeLayer);
     viewport.addChild(nodeLayer);
+    viewport.addChild(effectsLayer);
     app.stage.addChild(viewport);
 
     app.stage.eventMode = 'static';
@@ -1067,16 +1322,18 @@ function Canvas() {
     canvasElement.tabIndex = 0;
     canvasElement.style.outline = 'none';
 
-    const finishInteraction = () => {
+      const finishInteraction = () => {
       if (connectionDragStateRef.current) {
         endConnectionDrag(true);
       }
 
       const dragState = nodeDragStateRef.current;
       if (dragState) {
-        const nextPosition = nodePositionsRef.current.get(dragState.nodeId);
-        if (dragState.moved && nextPosition) {
-          updateNodePosition(dragState.nodeId, nextPosition);
+        if (dragState.moved) {
+          updateNodePosition(dragState.nodeId, {
+            x: dragState.currentX,
+            y: dragState.currentY,
+          });
         }
         nodeDragStateRef.current = null;
       }
@@ -1088,6 +1345,11 @@ function Canvas() {
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
       if (event.button !== 0) return;
       canvasElement.focus({ preventScroll: true });
+
+      // Only treat direct stage clicks as empty-canvas interactions.
+      if (event.target !== app.stage) {
+        return;
+      }
 
       const pickedConnectionId = pickConnectionAtClientPoint(event.clientX, event.clientY);
       if (pickedConnectionId) {
@@ -1155,11 +1417,22 @@ function Canvas() {
         const nodeVisual = nodeVisualsRef.current.get(dragState.nodeId);
         if (!currentViewport || !nodeVisual) return;
 
+        const deltaX = event.global.x - dragState.pointerX;
+        const deltaY = event.global.y - dragState.pointerY;
+        if (
+          !dragState.moved &&
+          Math.hypot(deltaX, deltaY) < NODE_DRAG_START_THRESHOLD
+        ) {
+          return;
+        }
+
         const scale = currentViewport.scale.x || 1;
         const nextPosition = {
-          x: snapToPixel(dragState.nodeX + (event.global.x - dragState.pointerX) / scale),
-          y: snapToPixel(dragState.nodeY + (event.global.y - dragState.pointerY) / scale),
+          x: snapToPixel(dragState.nodeX + deltaX / scale),
+          y: snapToPixel(dragState.nodeY + deltaY / scale),
         };
+        dragState.currentX = nextPosition.x;
+        dragState.currentY = nextPosition.y;
         nodePositionsRef.current.set(dragState.nodeId, nextPosition);
         nodeVisual.container.position.set(nextPosition.x, nextPosition.y);
         syncNodePortPositions(dragState.nodeId, nextPosition, nodeVisual);
@@ -1217,7 +1490,18 @@ function Canvas() {
 
     const handleResize = () => {
       app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height);
+      const background = backgroundSpriteRef.current;
+      if (background) {
+        const previousTexture = background.texture;
+        background.texture = createBackgroundTexture();
+        background.width = app.screen.width;
+        background.height = app.screen.height;
+        if (previousTexture !== Texture.WHITE) {
+          previousTexture.destroy(true);
+        }
+      }
       drawMinimap();
+      drawEffects();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1267,6 +1551,7 @@ function Canvas() {
     canvasElement.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('pointerup', finishInteraction);
     window.addEventListener('keydown', handleKeyDown);
+    app.ticker.add(drawEffects);
 
     renderGraph();
 
@@ -1279,13 +1564,36 @@ function Canvas() {
       app.stage.off('pointerupoutside', handleStagePointerUp);
       app.renderer.off('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
+      app.ticker.remove(drawEffects);
       app.destroy(true);
+      backgroundSpriteRef.current = null;
       appRef.current = null;
       viewportRef.current = null;
       edgeLayerRef.current = null;
       nodeLayerRef.current = null;
+      effectsLayerRef.current = null;
     };
-  }, [deleteConnection, deleteNode, drawConnections, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, renderGraph, selectNode, setInputPortHighlight, syncNodePortPositions, updateNodePosition, updateTextResolutionForScale]);
+  }, [deleteConnection, deleteNode, drawConnections, drawEffects, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, selectNode, setInputPortHighlight, syncNodePortPositions, updateNodePosition, updateTextResolutionForScale]);
+
+  useEffect(() => {
+    const previous = previousNodeExecutionStatesRef.current;
+    const current = nodeExecutionStates;
+
+    for (const [nodeId, state] of Object.entries(current)) {
+      const previousState = previous[nodeId] ?? FALLBACK_NODE_EXECUTION_STATE;
+
+      if (!previousState.isComputing && state.isComputing) {
+        enqueueLightningForNodeInputs(nodeId);
+      }
+
+      if (previousState.isComputing && !state.isComputing && !state.hasError) {
+        enqueueNodeShock(nodeId);
+      }
+    }
+
+    previousNodeExecutionStatesRef.current = current;
+    renderGraphRef.current();
+  }, [enqueueLightningForNodeInputs, enqueueNodeShock, nodeExecutionStates]);
 
   let overlay: ReactNode = null;
   if (isLoading && !graph) {

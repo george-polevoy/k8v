@@ -88,6 +88,7 @@ npm run dev
 1. Trace data flow from `ARCHITECTURE.md`
 2. Identify affected backend/frontend boundaries
 3. Add regression coverage where practical
+4. For UI/interaction bugs, confirm the fix with a browser test (headless Playwright or equivalent) before closing
 
 ### Test Case Requests
 When the user says: `test case: this should ...`
@@ -115,3 +116,4 @@ When the user says: `feature: x should be working like y...`
 6. Do not introduce new unsafe code-execution paths
 7. For explicit user test-case requests, always verify existing coverage first, add missing tests, and retest before closing
 8. For explicit user feature requests, verify documentation and coverage status first, then implement right away
+9. For bug fixes, always confirm behavior is fixed using a browser test when the bug affects UI/interaction

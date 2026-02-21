@@ -15,13 +15,15 @@ Last reviewed: February 21, 2026.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
 - `A-FE-04` `packages/frontend/tests/nodeFactory.test.ts`: inline node honors explicit runtime.
+- `A-FE-05` `packages/frontend/tests/graphStore.test.ts`: auto-recompute keeps only latest undrained pending batch while compute is in flight.
+- `A-FE-06` `packages/frontend/tests/graphStore.test.ts`: auto-recompute processes impacted nodes in upstream-to-downstream order.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
 - `A-BE-04` `packages/backend/tests/app.test.ts`: compute returns clear error for unknown runtime.
 - `A-BE-05` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects cyclic graphs.
 - `A-BE-06` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects cycle-introducing connection updates.
-- `A-BE-07` `packages/backend/tests/app.test.ts`: legacy cyclic graph allows non-connection edits.
+- `A-BE-07` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates on legacy cyclic graphs (strict DAG enforcement).
 - `A-BE-08` `packages/backend/tests/GraphEngine.test.ts`: downstream recompute after upstream result changes.
 - `A-BE-09` `packages/backend/tests/DataStore.test.ts`: versioned results are preserved for same node.
 - `A-BE-10` `packages/backend/tests/NodeExecutor.test.ts`: default runtime selection.
@@ -46,13 +48,14 @@ Last reviewed: February 21, 2026.
 - `M-CANVAS-09`: Frontend blocks self-loop and cycle-causing edge creation.
 - `M-CANVAS-10`: Minimap click recenters viewport only when clicking minimap (no regular-canvas jump).
 - `M-CANVAS-11`: Canvas text remains sharp across zoom levels with antialiasing enabled.
+- `M-CANVAS-12`: Selecting a node does not reset canvas viewport (no zoom/pan jump).
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
 - `M-PANEL-04`: Reorder input ports and verify layout reflects new order.
 - `M-PANEL-05`: Delete input port and verify inbound connections to that port are removed.
 - `M-PANEL-06`: Toggle auto-recompute and verify node indicator color change.
-- `M-PANEL-07`: Edit inline code and verify debounced update persists.
+- `M-PANEL-07`: Edit inline code, verify draft is stable while typing, and persist on blur.
 - `M-STATUS-01`: Running compute shows amber indicator while executing.
 - `M-STATUS-02`: Runtime error shows red indicator and error message in node panel.
 - `M-STATUS-03`: Auto-recompute enabled and healthy shows green indicator.
@@ -84,9 +87,10 @@ Last reviewed: February 21, 2026.
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
+| Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
-| Edit inline-code source with debounce | `M-PANEL-07` | Manual |
+| Edit inline-code source with stable local draft and save-on-blur | `M-PANEL-07` | Manual |
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
@@ -100,13 +104,15 @@ Last reviewed: February 21, 2026.
 | Persist outputs/schema/text/graphics | `A-BE-09`, `A-BE-13` | Automated |
 | Output panel shows text/graphics for selected node | `M-COMPUTE-01` | Manual |
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
-| Auto-recompute downstream nodes on graph updates | `M-PANEL-06`, `M-COMPUTE-02` | Manual |
-| Auto-recompute triggers after successful persistence | `M-COMPUTE-02` | Manual |
+| Auto-recompute downstream nodes on graph updates | `A-FE-05`, `A-FE-06`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
+| Auto-recompute triggers after successful persistence | `A-FE-05`, `M-COMPUTE-02` | Automated + Manual |
+| Auto-recompute coalesces undrained updates to latest pending batch | `A-FE-05` | Automated |
+| Auto-recompute execution order is upstream to downstream | `A-FE-06` | Automated |
 | Backend request validation via Zod | `A-BE-02`, `A-BE-03` | Automated |
 | Validate missing node references in connections | `M-VALID-01` | Manual |
 | Reject cycles on `POST` | `A-BE-05` | Automated |
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |
-| Allow non-connection edits on legacy cyclic graphs | `A-BE-07` | Automated |
+| Reject updates on legacy cyclic graphs | `A-BE-07` | Automated |
 | NodeExecutor supports inline/library/subgraph/external I/O | `A-BE-10`, `A-BE-11`, `A-BE-12` | Partial Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |

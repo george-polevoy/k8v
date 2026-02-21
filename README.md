@@ -6,6 +6,7 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 
 - **Infinite Canvas**: Create and visualize complex data flow graphs on an unlimited canvas
 - **Graph-Based Data Flow**: Nodes pass data to any other graph node, forming a directional graph
+- **Directed Dependency Model**: Graphs are treated as directed dependencies and computed in topological order
 - **Deterministic Computation**: Nodes recompute only when inputs or the node itself changes
 - **Data Persistence**: All outputs are serialized and persisted in structured format
 - **Type Inference**: System can infer output structure and validate connections

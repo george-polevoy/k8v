@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { GraphNode, NodeType, PortDefinition } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
@@ -33,7 +33,6 @@ function NodePanel() {
   const [nodeNameValue, setNodeNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
-  const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (selectedNode?.config.code !== undefined) {
@@ -55,25 +54,25 @@ function NodePanel() {
     }
 
     setInputValidationError(null);
-  }, [selectedNode]);
+  }, [selectedNode?.id, graph?.id]);
 
-  const debouncedUpdateCode = useCallback((nodeId: string, config: any, newValue: string) => {
-    if (updateTimerRef.current) {
-      clearTimeout(updateTimerRef.current);
+  const commitInlineCode = useCallback(() => {
+    if (!selectedNode || selectedNode.config.type !== NodeType.INLINE_CODE) {
+      return;
     }
 
-    updateTimerRef.current = setTimeout(() => {
-      updateNode(nodeId, { config: { ...config, code: newValue } });
-    }, 300);
-  }, [updateNode]);
+    const currentCode = selectedNode.config.code ?? '';
+    if (codeValue === currentCode) {
+      return;
+    }
 
-  useEffect(() => {
-    return () => {
-      if (updateTimerRef.current) {
-        clearTimeout(updateTimerRef.current);
-      }
-    };
-  }, []);
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        code: codeValue,
+      },
+    });
+  }, [codeValue, selectedNode, updateNode]);
 
   const updateSelectedNodeInputs = useCallback((
     nextInputs: PortDefinition[],
@@ -569,9 +568,16 @@ function NodePanel() {
               <textarea
                 value={codeValue}
                 onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setCodeValue(nextValue);
-                  debouncedUpdateCode(selectedNode.id, selectedNode.config, nextValue);
+                  setCodeValue(event.target.value);
+                }}
+                onBlur={() => {
+                  commitInlineCode();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setCodeValue(selectedNode.config.code ?? '');
+                    event.currentTarget.blur();
+                  }
                 }}
                 style={{
                   width: '100%',

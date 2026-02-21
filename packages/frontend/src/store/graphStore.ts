@@ -164,13 +164,57 @@ function collectAutoRecomputeTargets(previousGraph: Graph, nextGraph: Graph): st
     }
   }
 
-  return nextGraph.nodes
+  const targets = nextGraph.nodes
     .filter((node) => getAutoRecomputeEnabled(node) && impacted.has(node.id))
     .map((node) => node.id);
+
+  if (targets.length <= 1) {
+    return targets;
+  }
+
+  const targetSet = new Set(targets);
+  const nodeOrder = new Map(nextGraph.nodes.map((node, index) => [node.id, index]));
+  const inDegree = new Map<string, number>(targets.map((nodeId) => [nodeId, 0]));
+  const outgoingTargets = new Map<string, string[]>(targets.map((nodeId) => [nodeId, []]));
+
+  for (const connection of nextGraph.connections) {
+    if (!targetSet.has(connection.sourceNodeId) || !targetSet.has(connection.targetNodeId)) {
+      continue;
+    }
+    outgoingTargets.get(connection.sourceNodeId)?.push(connection.targetNodeId);
+    inDegree.set(connection.targetNodeId, (inDegree.get(connection.targetNodeId) || 0) + 1);
+  }
+
+  const topoQueue = targets.filter((nodeId) => (inDegree.get(nodeId) || 0) === 0);
+  topoQueue.sort((left, right) => (nodeOrder.get(left) || 0) - (nodeOrder.get(right) || 0));
+
+  const ordered: string[] = [];
+  while (topoQueue.length > 0) {
+    const nodeId = topoQueue.shift()!;
+    ordered.push(nodeId);
+
+    for (const targetNodeId of outgoingTargets.get(nodeId) || []) {
+      const nextDegree = (inDegree.get(targetNodeId) || 0) - 1;
+      inDegree.set(targetNodeId, nextDegree);
+      if (nextDegree === 0) {
+        topoQueue.push(targetNodeId);
+      }
+    }
+    topoQueue.sort((left, right) => (nodeOrder.get(left) || 0) - (nodeOrder.get(right) || 0));
+  }
+
+  // Fallback for defensive handling of malformed/cyclic target subsets.
+  if (ordered.length !== targets.length) {
+    return targets;
+  }
+
+  return ordered;
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
   let latestUpdateRequestId = 0;
+  let autoRecomputeDrainRunning = false;
+  let pendingAutoRecomputeBatch: string[] | null = null;
 
   const hydrateNodeExecutionStates = async (graph: Graph) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
@@ -208,10 +252,48 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }));
   };
 
-  const triggerAutoRecompute = async (nodeIds: string[]) => {
-    for (const nodeId of nodeIds) {
-      await get().computeNode(nodeId);
+  const runAutoRecomputeDrain = async () => {
+    if (autoRecomputeDrainRunning) {
+      return;
     }
+
+    autoRecomputeDrainRunning = true;
+    try {
+      while (pendingAutoRecomputeBatch && pendingAutoRecomputeBatch.length > 0) {
+        const batch = pendingAutoRecomputeBatch;
+        pendingAutoRecomputeBatch = null;
+
+        const currentGraph = get().graph;
+        if (!currentGraph) {
+          continue;
+        }
+
+        const nodeMap = new Map(currentGraph.nodes.map((node) => [node.id, node]));
+        const validNodeIds = batch.filter((nodeId) => {
+          const node = nodeMap.get(nodeId);
+          return Boolean(node && getAutoRecomputeEnabled(node));
+        });
+
+        for (const nodeId of validNodeIds) {
+          await get().computeNode(nodeId);
+        }
+      }
+    } finally {
+      autoRecomputeDrainRunning = false;
+      if (pendingAutoRecomputeBatch && pendingAutoRecomputeBatch.length > 0) {
+        void runAutoRecomputeDrain();
+      }
+    }
+  };
+
+  const triggerAutoRecompute = (nodeIds: string[]) => {
+    if (nodeIds.length === 0) {
+      return;
+    }
+
+    // Single-slot queue: keep only the latest undrained impacted batch.
+    pendingAutoRecomputeBatch = [...new Set(nodeIds)];
+    void runAutoRecomputeDrain();
   };
 
   return {
@@ -410,9 +492,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           console.warn('Could not save to localStorage:', storageError);
         }
 
-        if (autoRecomputeTargets.length > 0) {
-          void triggerAutoRecompute(autoRecomputeTargets);
-        }
+        triggerAutoRecompute(autoRecomputeTargets);
       } catch (error: any) {
         if (requestId !== latestUpdateRequestId) {
           return;
