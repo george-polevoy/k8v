@@ -24,14 +24,16 @@ export class GraphEngine {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    // Check if recomputation is needed
-    if (this.needsRecomputation(graph, node)) {
-      // Compute dependencies first
-      const dependencies = this.getDependencies(graph, nodeId);
-      for (const depNodeId of dependencies) {
-        await this.computeNode(graph, depNodeId);
-      }
+    // Compute dependencies first so recomputation checks can use fresh dependency results.
+    const dependencies = this.getDependencies(graph, nodeId);
+    for (const depNodeId of dependencies) {
+      await this.computeNode(graph, depNodeId);
+    }
 
+    const currentResult = await this.getCachedOrStoredResult(nodeId);
+
+    // Check if recomputation is needed
+    if (await this.needsRecomputation(graph, node, currentResult)) {
       // Get inputs from connected nodes
       const inputs = await this.getNodeInputs(graph, nodeId);
 
@@ -48,41 +50,31 @@ export class GraphEngine {
       return result;
     }
 
-    // Return cached result
-    const cached = this.computationCache.get(nodeId);
-    if (cached) {
-      return cached;
+    if (currentResult) {
+      return currentResult;
     }
 
-    // Load from store
-    const stored = await this.dataStore.getResult(nodeId);
-    if (stored) {
-      this.computationCache.set(nodeId, stored);
-      return stored;
-    }
-
-    // If no cache, recompute
-    return this.computeNode(graph, nodeId);
+    throw new Error(`No computation result available for node ${nodeId}`);
   }
 
   /**
    * Check if a node needs recomputation
    */
-  private needsRecomputation(graph: Graph, node: GraphNode): boolean {
-    // Check if node itself changed
-    const cached = this.computationCache.get(node.id);
-    if (!cached || cached.version !== node.version) {
+  private async needsRecomputation(
+    graph: Graph,
+    node: GraphNode,
+    currentResult: ComputationResult | null
+  ): Promise<boolean> {
+    // Check if node has never been computed or node definition changed.
+    if (!currentResult || currentResult.version !== node.version) {
       return true;
     }
 
-    // Check if any input changed
+    // If any dependency was computed more recently, inputs may have changed.
     const dependencies = this.getDependencies(graph, node.id);
     for (const depNodeId of dependencies) {
-      const depNode = graph.nodes.find(n => n.id === depNodeId);
-      if (!depNode) continue;
-
-      const depResult = this.computationCache.get(depNodeId);
-      if (!depResult || depResult.version !== depNode.version) {
+      const depResult = await this.getCachedOrStoredResult(depNodeId);
+      if (!depResult || depResult.timestamp > currentResult.timestamp) {
         return true;
       }
     }
@@ -174,5 +166,20 @@ export class GraphEngine {
    */
   clearCache(): void {
     this.computationCache.clear();
+  }
+
+  private async getCachedOrStoredResult(nodeId: string): Promise<ComputationResult | null> {
+    const cached = this.computationCache.get(nodeId);
+    if (cached) {
+      return cached;
+    }
+
+    const stored = await this.dataStore.getResult(nodeId);
+    if (stored) {
+      this.computationCache.set(nodeId, stored);
+      return stored;
+    }
+
+    return null;
   }
 }

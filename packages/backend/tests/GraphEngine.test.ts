@@ -1,0 +1,117 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
+import { DataStore } from '../src/core/DataStore.ts';
+import { GraphEngine } from '../src/core/GraphEngine.ts';
+import { NodeExecutor } from '../src/core/NodeExecutor.ts';
+import { Graph, NodeType } from '../src/types/index.ts';
+
+function createGraph(initialInput: number): Graph {
+  const now = Date.now();
+
+  return {
+    id: 'graph-1',
+    name: 'Dependency Recompute Graph',
+    createdAt: now,
+    updatedAt: now,
+    nodes: [
+      {
+        id: 'input-node',
+        type: NodeType.EXTERNAL_INPUT,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Input',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: NodeType.EXTERNAL_INPUT,
+          config: { output: initialInput },
+        },
+        version: 'input-v1',
+      },
+      {
+        id: 'upstream-node',
+        type: NodeType.INLINE_CODE,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'Upstream',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: NodeType.INLINE_CODE,
+          code: 'outputs.output = (inputs.input ?? 0) + 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'upstream-v1',
+      },
+      {
+        id: 'downstream-node',
+        type: NodeType.INLINE_CODE,
+        position: { x: 400, y: 0 },
+        metadata: {
+          name: 'Downstream',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: NodeType.INLINE_CODE,
+          code: 'outputs.output = (inputs.input ?? 0) * 10;',
+          runtime: 'javascript_vm',
+        },
+        version: 'downstream-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'c1',
+        sourceNodeId: 'input-node',
+        sourcePort: 'output',
+        targetNodeId: 'upstream-node',
+        targetPort: 'input',
+      },
+      {
+        id: 'c2',
+        sourceNodeId: 'upstream-node',
+        sourcePort: 'output',
+        targetNodeId: 'downstream-node',
+        targetPort: 'input',
+      },
+    ],
+  };
+}
+
+test('GraphEngine recomputes downstream node after upstream result changes', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const dataStore = new DataStore(dbPath, dataDir);
+  const graphEngine = new GraphEngine(dataStore, new NodeExecutor(dataStore));
+  const graph = createGraph(1);
+
+  try {
+    const initialDownstream = await graphEngine.computeNode(graph, 'downstream-node');
+    assert.equal(initialDownstream.outputs.output, 20);
+
+    await delay(5);
+
+    const inputNode = graph.nodes.find((node) => node.id === 'input-node');
+    assert.ok(inputNode, 'expected input node to exist');
+    inputNode.config = { ...inputNode.config, config: { output: 2 } };
+    inputNode.version = 'input-v2';
+    graph.updatedAt = Date.now();
+
+    const upstreamAfterInputChange = await graphEngine.computeNode(graph, 'upstream-node');
+    assert.equal(upstreamAfterInputChange.outputs.output, 3);
+
+    const downstreamAfterUpstreamRecompute = await graphEngine.computeNode(graph, 'downstream-node');
+    assert.equal(downstreamAfterUpstreamRecompute.outputs.output, 30);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});

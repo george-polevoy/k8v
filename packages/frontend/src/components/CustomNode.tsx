@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Handle, Position } from 'reactflow';
 import { GraphNode, NodeType } from '../types';
 import { useGraphStore } from '../store/graphStore';
@@ -13,38 +13,48 @@ interface CustomNodeProps {
 function CustomNode({ data }: CustomNodeProps) {
   const { node } = data;
   const isInlineCode = node.type === NodeType.INLINE_CODE;
-  const graphUpdatedAt = useGraphStore((state) => state.graph?.updatedAt);
+  const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
 
   // State for inline result display
   const [textOutput, setTextOutput] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Record<string, any> | null>(null);
-  const [isLoadingResult, setIsLoadingResult] = useState(false);
+  const hasResultRef = useRef(false);
 
-  // Fetch computation result when graph updates
   useEffect(() => {
+    hasResultRef.current = outputs !== null || textOutput !== null;
+  }, [outputs, textOutput]);
+
+  // Fetch computation result on mount and after compute actions
+  useEffect(() => {
+    let cancelled = false;
+
     const fetchResult = async () => {
-      setIsLoadingResult(true);
+      const hadResultBeforeFetch = hasResultRef.current;
       try {
         const response = await axios.get(`/api/nodes/${node.id}/result`);
+        if (cancelled) return;
         if (response.data) {
           setTextOutput(response.data.textOutput || null);
           setOutputs(response.data.outputs || null);
-        } else {
+        } else if (!hadResultBeforeFetch) {
           setTextOutput(null);
           setOutputs(null);
         }
       } catch {
-        // No result yet or error - silently ignore
-        setTextOutput(null);
-        setOutputs(null);
-      } finally {
-        setIsLoadingResult(false);
+        if (!cancelled && !hadResultBeforeFetch) {
+          // No result yet or error - silently ignore on first load.
+          setTextOutput(null);
+          setOutputs(null);
+        }
       }
     };
 
-    // Fetch initially and when graph updates
+    // Fetch initially and when a compute action completes
     fetchResult();
-  }, [node.id, graphUpdatedAt]);
+    return () => {
+      cancelled = true;
+    };
+  }, [node.id, resultRefreshKey]);
 
   const handleDeleteInput = (inputName: string) => {
     const graph = useGraphStore.getState().graph;
@@ -247,7 +257,7 @@ function CustomNode({ data }: CustomNodeProps) {
       </div>
 
       {/* Inline Result Display */}
-      {(hasResult || isLoadingResult) && (
+      {hasResult && (
         <div
           style={{
             marginTop: '8px',
@@ -261,37 +271,33 @@ function CustomNode({ data }: CustomNodeProps) {
             overflow: 'hidden',
           }}
         >
-          {isLoadingResult ? (
-            <span style={{ color: '#888', fontStyle: 'italic' }}>Loading...</span>
-          ) : (
-            <>
-              {/* Output port values */}
-              {outputs && Object.keys(outputs).length > 0 && (
-                <div style={{ marginBottom: textOutput ? '4px' : '0' }}>
-                  {Object.entries(outputs).map(([key, value]) => (
-                    <div key={key} style={{ display: 'flex', gap: '4px' }}>
-                      <span style={{ color: '#9cdcfe' }}>{key}:</span>
-                      <span style={{ color: '#ce9178' }}>{formatOutputValue(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Text output (stdout/stderr) */}
-              {textOutput && (
-                <div
-                  style={{
-                    borderTop: outputs && Object.keys(outputs).length > 0 ? '1px solid #444' : 'none',
-                    paddingTop: outputs && Object.keys(outputs).length > 0 ? '4px' : '0',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    color: '#dcdcaa',
-                  }}
-                >
-                  {formatTextOutput(textOutput)}
-                </div>
-              )}
-            </>
-          )}
+          <>
+            {/* Output port values */}
+            {outputs && Object.keys(outputs).length > 0 && (
+              <div style={{ marginBottom: textOutput ? '4px' : '0' }}>
+                {Object.entries(outputs).map(([key, value]) => (
+                  <div key={key} style={{ display: 'flex', gap: '4px' }}>
+                    <span style={{ color: '#9cdcfe' }}>{key}:</span>
+                    <span style={{ color: '#ce9178' }}>{formatOutputValue(value)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Text output (stdout/stderr) */}
+            {textOutput && (
+              <div
+                style={{
+                  borderTop: outputs && Object.keys(outputs).length > 0 ? '1px solid #444' : 'none',
+                  paddingTop: outputs && Object.keys(outputs).length > 0 ? '4px' : '0',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  color: '#dcdcaa',
+                }}
+              >
+                {formatTextOutput(textOutput)}
+              </div>
+            )}
+          </>
         </div>
       )}
     </div>

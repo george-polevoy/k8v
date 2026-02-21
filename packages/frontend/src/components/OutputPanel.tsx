@@ -1,27 +1,42 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import axios from 'axios';
 
 function OutputPanel() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
-  const graph = useGraphStore((state) => state.graph);
+  const selectedNodeName = useGraphStore((state) => {
+    if (!state.selectedNodeId) return null;
+    return state.graph?.nodes.find((n) => n.id === state.selectedNodeId)?.metadata.name || null;
+  });
+  const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
   const [textOutput, setTextOutput] = useState<string>('');
   const [graphicsOutput, setGraphicsOutput] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [textExpanded, setTextExpanded] = useState(true);
   const [graphicsExpanded, setGraphicsExpanded] = useState(true);
+  const hasAnyOutput = Boolean(textOutput) || Boolean(graphicsOutput);
+  const hasAnyOutputRef = useRef(false);
 
   useEffect(() => {
+    hasAnyOutputRef.current = hasAnyOutput;
+  }, [hasAnyOutput]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const fetchResult = async () => {
       if (!selectedNodeId) {
         setTextOutput('');
         setGraphicsOutput(null);
+        setIsRefreshing(false);
         return;
       }
 
       setIsLoading(true);
       try {
         const response = await axios.get(`/api/nodes/${selectedNodeId}/result`);
+        if (cancelled) return;
         if (response.data) {
           setTextOutput(response.data.textOutput || '');
           setGraphicsOutput(response.data.graphicsOutput || null);
@@ -30,6 +45,7 @@ function OutputPanel() {
           setGraphicsOutput(null);
         }
       } catch (error: any) {
+        if (cancelled) return;
         if (error.response?.status === 404) {
           // No result yet
           setTextOutput('No output yet. Run the graph to see results.');
@@ -39,32 +55,43 @@ function OutputPanel() {
           setGraphicsOutput(null);
         }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchResult();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedNodeId]);
 
-  // Also refresh when graph is computed
+  // Refresh after compute while keeping currently displayed output in place.
   useEffect(() => {
     if (selectedNodeId) {
+      let cancelled = false;
+
       const fetchResult = async () => {
+        setIsRefreshing(true);
         try {
           const response = await axios.get(`/api/nodes/${selectedNodeId}/result`);
+          if (cancelled) return;
           if (response.data) {
             setTextOutput(response.data.textOutput || '');
             setGraphicsOutput(response.data.graphicsOutput || null);
-          } else {
-            setTextOutput('No output yet. Run the graph to see results.');
-            setGraphicsOutput(null);
           }
         } catch (error: any) {
-          if (error.response?.status === 404) {
-            setTextOutput('No output yet. Run the graph to see results.');
+          if (cancelled) return;
+          // During refresh retries, keep previous output mounted on transient misses.
+          if (error.response?.status !== 404 && !hasAnyOutputRef.current) {
+            setTextOutput(`Error loading result: ${error.message}`);
             setGraphicsOutput(null);
           }
-          // Ignore other errors
+        } finally {
+          if (!cancelled) {
+            setIsRefreshing(false);
+          }
         }
       };
       // Delay to allow backend to save result, with retries
@@ -72,12 +99,13 @@ function OutputPanel() {
       const timeout2 = setTimeout(fetchResult, 1500);
       const timeout3 = setTimeout(fetchResult, 3000);
       return () => {
+        cancelled = true;
         clearTimeout(timeout1);
         clearTimeout(timeout2);
         clearTimeout(timeout3);
       };
     }
-  }, [graph?.updatedAt, selectedNodeId]);
+  }, [resultRefreshKey, selectedNodeId]);
 
   if (!selectedNodeId) {
     return (
@@ -98,8 +126,6 @@ function OutputPanel() {
     );
   }
 
-  const selectedNode = graph?.nodes.find((n) => n.id === selectedNodeId);
-
   return (
     <div
       style={{
@@ -114,7 +140,7 @@ function OutputPanel() {
       }}
     >
       <h3 style={{ marginBottom: '16px' }}>
-        Output: {selectedNode?.metadata.name || 'Unknown Node'}
+        Output: {selectedNodeName || 'Unknown Node'}
       </h3>
 
       {/* Text Output Section */}
@@ -139,7 +165,10 @@ function OutputPanel() {
           onClick={() => setTextExpanded(!textExpanded)}
         >
           <strong>Text Output</strong>
-          <span>{textExpanded ? '▼' : '▶'}</span>
+          <span>
+            {isRefreshing ? 'Refreshing... ' : ''}
+            {textExpanded ? '▼' : '▶'}
+          </span>
         </div>
         {textExpanded && (
           <div
@@ -155,7 +184,7 @@ function OutputPanel() {
               color: '#d4d4d4',
             }}
           >
-            {isLoading ? (
+            {isLoading && !hasAnyOutput ? (
               <div style={{ color: '#888' }}>Loading...</div>
             ) : textOutput ? (
               textOutput
@@ -208,7 +237,7 @@ function OutputPanel() {
               minHeight: '200px',
             }}
           >
-            {isLoading ? (
+            {isLoading && !hasAnyOutput ? (
               <div style={{ color: '#888' }}>Loading...</div>
             ) : graphicsOutput ? (
               <img

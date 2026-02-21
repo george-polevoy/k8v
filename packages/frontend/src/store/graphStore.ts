@@ -7,6 +7,7 @@ interface GraphStore {
   selectedNodeId: string | null;
   isLoading: boolean;
   error: string | null;
+  resultRefreshKey: number;
 
   // Actions
   loadGraph: (id: string) => Promise<void>;
@@ -31,6 +32,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   selectedNodeId: null,
   isLoading: false,
   error: null,
+  resultRefreshKey: 0,
 
   loadGraph: async (id: string) => {
     set({ isLoading: true, error: null });
@@ -325,7 +327,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await axios.post(`/api/graphs/${graph.id}/compute`, { nodeId });
-      set({ isLoading: false });
+      set({ isLoading: false, resultRefreshKey: Date.now() });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
@@ -338,12 +340,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await axios.post(`/api/graphs/${graph.id}/compute`, {});
-      set({ isLoading: false });
-      // Update graph to trigger refresh in OutputPanel
-      // The updatedAt timestamp will change, causing OutputPanel to refetch
-      if (graph) {
-        set({ graph: { ...graph, updatedAt: Date.now() } });
-      }
+      set({ isLoading: false, resultRefreshKey: Date.now() });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }

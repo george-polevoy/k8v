@@ -275,7 +275,7 @@ function Canvas() {
     [onEdgesChange, graph]
   );
 
-  if (isLoading) {
+  if (isLoading && !graph) {
     return (
       <div style={{ 
         display: 'flex', 
