@@ -7,14 +7,16 @@ import { spawnSync } from 'node:child_process';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { ExecutionRuntime, ExecutionRequest, ExecutionResult } from '../src/core/execution/types.ts';
-import { GraphNode, NodeType } from '../src/types/index.ts';
+import { Graph, GraphNode, NodeType } from '../src/types/index.ts';
 
 class StubRuntime implements ExecutionRuntime {
   calls = 0;
+  lastRequest: ExecutionRequest | null = null;
   constructor(private readonly result: ExecutionResult) {}
 
-  async execute(_request: ExecutionRequest): Promise<ExecutionResult> {
+  async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     this.calls += 1;
+    this.lastRequest = request;
     return this.result;
   }
 }
@@ -43,6 +45,26 @@ function hasPythonAvailable(): boolean {
     encoding: 'utf8',
   });
   return result.status === 0;
+}
+
+function createGraphWithPythonEnv(node: GraphNode): Graph {
+  const now = Date.now();
+  return {
+    id: 'graph-1',
+    name: 'Graph with envs',
+    nodes: [node],
+    connections: [],
+    pythonEnvs: [
+      {
+        name: 'analytics',
+        pythonPath: '/tmp/fake-python',
+        cwd: '/tmp/fake-workdir',
+      },
+    ],
+    drawings: [],
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 test('NodeExecutor uses default runtime when node runtime is not set', async () => {
@@ -118,6 +140,88 @@ test('NodeExecutor can execute inline node with python_process runtime', { skip:
   try {
     const result = await executor.execute(pythonNode, { input: 7 });
     assert.equal(result.outputs.output, 21);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor passes graph-scoped python env pythonPath and cwd to runtime', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const pythonRuntime = new StubRuntime({ outputs: { output: 99 } });
+  const executor = new NodeExecutor(dataStore, {
+    python_process: pythonRuntime,
+  });
+  const pythonNode: GraphNode = {
+    ...createInlineNode('python_process'),
+    config: {
+      ...createInlineNode('python_process').config,
+      pythonEnv: 'analytics',
+      code: 'outputs.output = inputs.input;',
+    },
+  };
+
+  try {
+    const graph = createGraphWithPythonEnv(pythonNode);
+    const result = await executor.execute(pythonNode, { input: 1 }, graph);
+
+    assert.equal(result.outputs.output, 99);
+    assert.equal(pythonRuntime.calls, 1);
+    assert.equal(pythonRuntime.lastRequest?.pythonBin, '/tmp/fake-python');
+    assert.equal(pythonRuntime.lastRequest?.cwd, '/tmp/fake-workdir');
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor throws when python env name is missing from graph', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const pythonRuntime = new StubRuntime({ outputs: { output: 1 } });
+  const executor = new NodeExecutor(dataStore, {
+    python_process: pythonRuntime,
+  });
+  const pythonNode: GraphNode = {
+    ...createInlineNode('python_process'),
+    config: {
+      ...createInlineNode('python_process').config,
+      pythonEnv: 'missing-env',
+    },
+  };
+
+  try {
+    const graph = createGraphWithPythonEnv(pythonNode);
+    graph.pythonEnvs = [];
+
+    await assert.rejects(
+      () => executor.execute(pythonNode, { input: 2 }, graph),
+      /unknown python environment/i
+    );
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor throws when python env is set on non-python runtime node', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const executor = new NodeExecutor(dataStore);
+  const jsNode: GraphNode = {
+    ...createInlineNode('javascript_vm'),
+    config: {
+      ...createInlineNode('javascript_vm').config,
+      pythonEnv: 'analytics',
+    },
+  };
+
+  try {
+    await assert.rejects(
+      () => executor.execute(jsNode, { input: 2 }),
+      /runtime .* is not 'python_process'/i
+    );
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

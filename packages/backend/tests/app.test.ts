@@ -86,6 +86,25 @@ async function createGraph(baseUrl: string, payload?: Record<string, unknown>) {
   });
 }
 
+function createSampleDrawing(id: string) {
+  return {
+    id,
+    name: `Drawing ${id}`,
+    position: { x: 100, y: 120 },
+    paths: [
+      {
+        id: `${id}-path-1`,
+        color: 'green',
+        thickness: 3,
+        points: [
+          { x: 0, y: 0 },
+          { x: 20, y: 10 },
+        ],
+      },
+    ],
+  };
+}
+
 test('POST /api/graphs accepts runtime in node config', async () => {
   const ctx = await setupTestServer();
 
@@ -114,6 +133,158 @@ test('POST /api/graphs accepts python_process runtime in node config', async () 
     assert.equal(response.status, 200);
     const graph = await response.json();
     assert.equal(graph.nodes[0].config.runtime, 'python_process');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs accepts graph python env definitions and node env references', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.config.runtime = 'python_process';
+    node.config.pythonEnv = 'analytics';
+    node.config.code = 'outputs.output = inputs.input * 2';
+    node.metadata.inputs = [{ name: 'input', schema: { type: 'number' } }];
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+      pythonEnvs: [
+        {
+          name: 'analytics',
+          pythonPath: '/tmp/python-a',
+          cwd: '/tmp/work-a',
+        },
+      ],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.equal(graph.pythonEnvs.length, 1);
+    assert.equal(graph.nodes[0].config.pythonEnv, 'analytics');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects duplicate graph python env names', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      pythonEnvs: [
+        { name: 'dup', pythonPath: '/tmp/python-a', cwd: '/tmp/work-a' },
+        { name: 'dup', pythonPath: '/tmp/python-b', cwd: '/tmp/work-b' },
+      ],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /must be unique/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects python env references that do not exist on graph', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.config.runtime = 'python_process';
+    node.config.pythonEnv = 'missing';
+    node.config.code = 'outputs.output = inputs.input * 2';
+    node.metadata.inputs = [{ name: 'input', schema: { type: 'number' } }];
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+      pythonEnvs: [],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /unknown pythonEnv/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects python env name on non-python runtime node', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.config.runtime = 'javascript_vm';
+    node.config.pythonEnv = 'analytics';
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+      pythonEnvs: [
+        { name: 'analytics', pythonPath: '/tmp/python-a', cwd: '/tmp/work-a' },
+      ],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /runtime "javascript_vm" is not "python_process"/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs accepts persisted drawings payload', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      drawings: [createSampleDrawing('drawing-1')],
+    });
+
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.equal(graph.drawings.length, 1);
+    assert.equal(graph.drawings[0].paths.length, 1);
+    assert.equal(graph.drawings[0].paths[0].points.length, 2);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects duplicate drawing ids', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      drawings: [createSampleDrawing('dup-drawing'), createSampleDrawing('dup-drawing')],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /drawing ids must be unique/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects duplicate drawing path ids within a drawing', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const drawing = createSampleDrawing('drawing-with-dup-path');
+    drawing.paths.push({
+      id: drawing.paths[0].id,
+      color: 'red',
+      thickness: 1,
+      points: [{ x: 1, y: 1 }],
+    });
+
+    const response = await createGraph(ctx.baseUrl, {
+      drawings: [drawing],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /path ids must be unique/i);
   } finally {
     await ctx.close();
   }

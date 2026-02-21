@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { GraphNode, NodeType, PortDefinition } from '../types';
+import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -20,8 +20,20 @@ function formatGraphOptionLabel(name: string, id: string): string {
   return `${name} (${id.slice(0, 8)})`;
 }
 
+function getNextPythonEnvName(envs: PythonEnvironment[]): string {
+  const existing = new Set(envs.map((env) => env.name));
+  let index = 1;
+  let candidate = `python_env_${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `python_env_${index}`;
+  }
+  return candidate;
+}
+
 function NodePanel() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const graph = useGraphStore((state) => state.graph);
   const graphSummaries = useGraphStore((state) => state.graphSummaries);
   const loadGraph = useGraphStore((state) => state.loadGraph);
@@ -30,19 +42,25 @@ function NodePanel() {
   const updateNode = useGraphStore((state) => state.updateNode);
   const updateGraph = useGraphStore((state) => state.updateGraph);
   const addNode = useGraphStore((state) => state.addNode);
+  const updateDrawing = useGraphStore((state) => state.updateDrawing);
+  const deleteDrawing = useGraphStore((state) => state.deleteDrawing);
   const computeNode = useGraphStore((state) => state.computeNode);
   const nodeExecutionState = useGraphStore((state) =>
     selectedNodeId ? state.nodeExecutionStates[selectedNodeId] : null
   );
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) || null;
+  const selectedDrawing = graph?.drawings?.find((drawing) => drawing.id === selectedDrawingId) || null;
 
   const [codeValue, setCodeValue] = useState('');
   const [graphNameValue, setGraphNameValue] = useState('');
   const [newGraphName, setNewGraphName] = useState('Untitled Graph');
   const [nodeNameValue, setNodeNameValue] = useState('');
+  const [drawingNameValue, setDrawingNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
+  const [pythonEnvDrafts, setPythonEnvDrafts] = useState<PythonEnvironment[]>([]);
+  const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
 
   useEffect(() => {
@@ -72,11 +90,22 @@ function NodePanel() {
   }, [selectedNode, graph]);
 
   useEffect(() => {
+    if (selectedDrawing) {
+      setDrawingNameValue(selectedDrawing.name);
+    } else {
+      setDrawingNameValue('');
+    }
+  }, [selectedDrawing]);
+
+  useEffect(() => {
     if (graph) {
       setGraphNameValue(graph.name);
+      setPythonEnvDrafts(graph.pythonEnvs ?? []);
     } else {
       setGraphNameValue('');
+      setPythonEnvDrafts([]);
     }
+    setPythonEnvValidationError(null);
   }, [graph]);
 
   const commitInlineCode = useCallback(() => {
@@ -154,6 +183,22 @@ function NodePanel() {
       });
     }
   }, [nodeNameValue, selectedNode, updateNode]);
+
+  const commitDrawingName = useCallback(() => {
+    if (!selectedDrawing) {
+      return;
+    }
+
+    const trimmedName = drawingNameValue.trim();
+    if (!trimmedName) {
+      setDrawingNameValue(selectedDrawing.name);
+      return;
+    }
+
+    if (trimmedName !== selectedDrawing.name) {
+      updateDrawing(selectedDrawing.id, { name: trimmedName });
+    }
+  }, [drawingNameValue, selectedDrawing, updateDrawing]);
 
   const setAutoRecompute = useCallback((enabled: boolean) => {
     if (!selectedNode) {
@@ -379,7 +424,102 @@ function NodePanel() {
     }
   }, [createGraph, newGraphName, refreshGraphSummaries]);
 
+  const updatePythonEnvDraftField = useCallback((
+    index: number,
+    field: keyof PythonEnvironment,
+    value: string
+  ) => {
+    setPythonEnvDrafts((current) =>
+      current.map((env, envIndex) =>
+        envIndex === index
+          ? {
+              ...env,
+              [field]: value,
+            }
+          : env
+      )
+    );
+    setPythonEnvValidationError(null);
+  }, []);
+
+  const addPythonEnvDraft = useCallback(() => {
+    setPythonEnvDrafts((current) => [
+      ...current,
+      {
+        name: getNextPythonEnvName(current),
+        pythonPath: '',
+        cwd: '',
+      },
+    ]);
+    setPythonEnvValidationError(null);
+  }, []);
+
+  const deletePythonEnvDraft = useCallback((index: number) => {
+    setPythonEnvDrafts((current) => current.filter((_, envIndex) => envIndex !== index));
+    setPythonEnvValidationError(null);
+  }, []);
+
+  const commitPythonEnvs = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const normalizedEnvs = pythonEnvDrafts.map((env) => ({
+      name: env.name.trim(),
+      pythonPath: env.pythonPath.trim(),
+      cwd: env.cwd.trim(),
+    }));
+
+    for (const env of normalizedEnvs) {
+      if (!env.name || !env.pythonPath || !env.cwd) {
+        setPythonEnvValidationError('Each Python env requires name, python path, and working directory.');
+        return;
+      }
+    }
+
+    const uniqueNames = new Set(normalizedEnvs.map((env) => env.name));
+    if (uniqueNames.size !== normalizedEnvs.length) {
+      setPythonEnvValidationError('Python env names must be unique within a graph.');
+      return;
+    }
+
+    const envNames = new Set(normalizedEnvs.map((env) => env.name));
+    const nextNodes = graph.nodes.map((node) => {
+      if (!node.config.pythonEnv || envNames.has(node.config.pythonEnv)) {
+        return node;
+      }
+
+      const configWithoutPythonEnv = {
+        ...node.config,
+        pythonEnv: undefined,
+      };
+      return {
+        ...node,
+        config: configWithoutPythonEnv,
+        version: `${Date.now()}-${node.id}`,
+      };
+    });
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({
+        nodes: nextNodes,
+        pythonEnvs: normalizedEnvs,
+        updatedAt: Date.now(),
+      });
+      await refreshGraphSummaries();
+      setPythonEnvValidationError(null);
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, pythonEnvDrafts, refreshGraphSummaries, updateGraph]);
+
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
+  const graphPythonEnvs = graph?.pythonEnvs ?? [];
+  const selectedPythonEnvExists = Boolean(
+    selectedNode?.config.pythonEnv &&
+      graphPythonEnvs.some((env) => env.name === selectedNode.config.pythonEnv)
+  );
   const statusLightColor = nodeExecutionState?.hasError
     ? '#ef4444'
     : nodeExecutionState?.isComputing
@@ -514,6 +654,146 @@ function NodePanel() {
           >
             Create
           </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '8px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
+            Python Environments
+          </div>
+          {pythonEnvDrafts.length === 0 ? (
+            <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '8px' }}>
+              No graph-level Python envs defined.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+              {pythonEnvDrafts.map((env, index) => (
+                <div
+                  key={`${env.name}-${index}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr',
+                    gap: '6px',
+                    padding: '8px',
+                    border: '1px solid #dbe4ef',
+                    borderRadius: '4px',
+                    background: '#ffffff',
+                  }}
+                >
+                  <input
+                    data-testid={`python-env-name-${index}`}
+                    type="text"
+                    value={env.name}
+                    placeholder="Env name"
+                    onChange={(event) => updatePythonEnvDraftField(index, 'name', event.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <input
+                    data-testid={`python-env-path-${index}`}
+                    type="text"
+                    value={env.pythonPath}
+                    placeholder="/path/to/python"
+                    onChange={(event) => updatePythonEnvDraftField(index, 'pythonPath', event.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <input
+                    data-testid={`python-env-cwd-${index}`}
+                    type="text"
+                    value={env.cwd}
+                    placeholder="/working/directory"
+                    onChange={(event) => updatePythonEnvDraftField(index, 'cwd', event.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <button
+                    data-testid={`python-env-delete-${index}`}
+                    onClick={() => deletePythonEnvDraft(index)}
+                    style={{
+                      justifySelf: 'end',
+                      padding: '4px 8px',
+                      border: '1px solid #fecaca',
+                      background: '#fff1f2',
+                      color: '#b91c1c',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              data-testid="python-env-add"
+              disabled={isGraphActionInFlight}
+              onClick={addPythonEnvDraft}
+              style={{
+                flex: 1,
+                padding: '7px 8px',
+                background: '#e2e8f0',
+                border: '1px solid #cbd5e1',
+                borderRadius: '4px',
+                fontSize: '11px',
+                cursor: isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Add Env
+            </button>
+            <button
+              data-testid="python-env-save"
+              disabled={isGraphActionInFlight || !graph}
+              onClick={() => {
+                void commitPythonEnvs();
+              }}
+              style={{
+                flex: 1,
+                padding: '7px 8px',
+                background: '#0f766e',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '11px',
+                cursor: isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Save Envs
+            </button>
+          </div>
+          {pythonEnvValidationError && (
+            <div style={{ marginTop: '6px', color: '#b91c1c', fontSize: '11px' }}>
+              {pythonEnvValidationError}
+            </div>
+          )}
         </div>
         {graph && (
           <div style={{ marginTop: '8px', fontSize: '10px', color: '#64748b' }}>
@@ -738,11 +1018,18 @@ function NodePanel() {
               <select
                 value={selectedNode.config.runtime || 'javascript_vm'}
                 onChange={(event) => {
+                  const nextRuntime = event.target.value;
+                  const nextConfig = {
+                    ...selectedNode.config,
+                    runtime: nextRuntime,
+                    pythonEnv:
+                      nextRuntime === 'python_process'
+                        ? selectedNode.config.pythonEnv
+                        : undefined,
+                  };
+
                   updateNode(selectedNode.id, {
-                    config: {
-                      ...selectedNode.config,
-                      runtime: event.target.value,
-                    },
+                    config: nextConfig,
                   });
                 }}
                 style={{
@@ -756,6 +1043,44 @@ function NodePanel() {
                 <option value="javascript_vm">JavaScript VM</option>
                 <option value="python_process">Python Process</option>
               </select>
+              {selectedNode.config.runtime === 'python_process' && (
+                <>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                    Python Env:
+                  </label>
+                  <select
+                    value={selectedNode.config.pythonEnv || ''}
+                    onChange={(event) => {
+                      const nextEnv = event.target.value;
+                      updateNode(selectedNode.id, {
+                        config: {
+                          ...selectedNode.config,
+                          pythonEnv: nextEnv || undefined,
+                        },
+                      });
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      marginBottom: '10px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    <option value="">Default backend Python</option>
+                    {graphPythonEnvs.map((env) => (
+                      <option key={env.name} value={env.name}>
+                        {env.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedNode.config.pythonEnv && !selectedPythonEnvExists && (
+                    <div style={{ marginBottom: '10px', color: '#b91c1c', fontSize: '11px' }}>
+                      Selected env "{selectedNode.config.pythonEnv}" no longer exists on this graph.
+                    </div>
+                  )}
+                </>
+              )}
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
                 Code:
               </label>
@@ -787,9 +1112,75 @@ function NodePanel() {
             </div>
           )}
         </div>
+      ) : selectedDrawing ? (
+        <div>
+          <h4 style={{ marginBottom: '12px' }}>{selectedDrawing.name}</h4>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
+              Drawing Name:
+            </label>
+            <input
+              data-testid="drawing-name-input"
+              type="text"
+              value={drawingNameValue}
+              onChange={(event) => setDrawingNameValue(event.target.value)}
+              onBlur={commitDrawingName}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.currentTarget.blur();
+                }
+                if (event.key === 'Escape') {
+                  setDrawingNameValue(selectedDrawing.name);
+                  event.currentTarget.blur();
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '8px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+              fontSize: '12px',
+              color: '#334155',
+            }}
+          >
+            <div>Paths: {selectedDrawing.paths.length}</div>
+            <div>Position: ({Math.round(selectedDrawing.position.x)}, {Math.round(selectedDrawing.position.y)})</div>
+          </div>
+
+          <button
+            data-testid="delete-selected-drawing-button"
+            onClick={() => deleteDrawing(selectedDrawing.id)}
+            style={{
+              width: '100%',
+              padding: '10px',
+              background: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              marginBottom: '8px',
+              fontSize: '12px',
+            }}
+          >
+            Delete Selected Drawing
+          </button>
+        </div>
       ) : (
         <div>
-          <p style={{ color: '#666', marginBottom: '16px' }}>Select a node to edit</p>
+          <p style={{ color: '#666', marginBottom: '16px' }}>Select a node or drawing to edit</p>
           <button
             onClick={handleAddInlineCodeNode}
             style={{

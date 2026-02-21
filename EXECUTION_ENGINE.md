@@ -242,6 +242,7 @@ Current implementation status:
 - `JavaScriptVmRuntime` (`node:vm`) provides interim execution with timeout support
 - `PythonProcessRuntime` (`python_process`) provides interim Python execution via spawned process with timeout support
 - Runtime can be selected per node via `node.config.runtime` (defaults to `javascript_vm`)
+- Python execution can resolve per-node graph env bindings via `graph.pythonEnvs[]` + `node.config.pythonEnv` (`pythonPath` and `cwd`)
 - Backend rejects unregistered runtime identifiers during execution
 - Next security milestone is `isolated-vm` or stronger isolation runtime
 

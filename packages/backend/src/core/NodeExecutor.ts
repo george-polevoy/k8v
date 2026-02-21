@@ -1,4 +1,4 @@
-import { GraphNode, NodeType, ComputationResult, DataSchema } from '../types/index.js';
+import { GraphNode, Graph, NodeType, ComputationResult, DataSchema } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
@@ -25,14 +25,18 @@ export class NodeExecutor {
   /**
    * Execute a node with given inputs
    */
-  async execute(node: GraphNode, inputs: Record<string, any>): Promise<ComputationResult> {
+  async execute(
+    node: GraphNode,
+    inputs: Record<string, any>,
+    graph?: Graph
+  ): Promise<ComputationResult> {
     let outputs: Record<string, any> = {};
     let textOutput: string | undefined;
     let graphicsOutput: string | undefined;
 
     switch (node.config.type) {
       case NodeType.INLINE_CODE: {
-        const result = await this.executeInlineCode(node, inputs);
+        const result = await this.executeInlineCode(node, inputs, graph);
         outputs = result.outputs;
         textOutput = result.textOutput;
         graphicsOutput = result.graphicsOutput;
@@ -71,7 +75,11 @@ export class NodeExecutor {
   /**
    * Execute inline code node
    */
-  private async executeInlineCode(node: GraphNode, inputs: Record<string, any>): Promise<{
+  private async executeInlineCode(
+    node: GraphNode,
+    inputs: Record<string, any>,
+    graph?: Graph
+  ): Promise<{
     outputs: Record<string, any>;
     textOutput?: string;
     graphicsOutput?: string;
@@ -80,10 +88,12 @@ export class NodeExecutor {
       throw new Error(`Inline code node ${node.id} has no code`);
     }
     const runtime = this.resolveRuntime(node);
+    const pythonExecutionContext = this.resolvePythonExecutionContext(node, graph);
     const runtimeResult = await runtime.execute({
       code: node.config.code,
       inputs,
       timeoutMs: this.resolveTimeoutMs(node),
+      ...pythonExecutionContext,
     });
 
     return {
@@ -272,6 +282,13 @@ export class NodeExecutor {
 
   private resolveRuntime(node: GraphNode): ExecutionRuntime {
     const runtimeId = node.config.runtime ?? this.defaultRuntimeId;
+
+    if (node.config.pythonEnv && runtimeId !== PYTHON_RUNTIME_ID) {
+      throw new Error(
+        `Node ${node.id} sets pythonEnv '${node.config.pythonEnv}' but runtime '${runtimeId}' is not '${PYTHON_RUNTIME_ID}'`
+      );
+    }
+
     const runtime = this.runtimes.get(runtimeId);
 
     if (!runtime) {
@@ -279,5 +296,35 @@ export class NodeExecutor {
     }
 
     return runtime;
+  }
+
+  private resolvePythonExecutionContext(
+    node: GraphNode,
+    graph?: Graph
+  ): { pythonBin?: string; cwd?: string } {
+    if ((node.config.runtime ?? this.defaultRuntimeId) !== PYTHON_RUNTIME_ID) {
+      return {};
+    }
+
+    const envName = node.config.pythonEnv;
+    if (!envName) {
+      return {};
+    }
+
+    if (!graph) {
+      throw new Error(
+        `Node ${node.id} references python environment '${envName}' but no graph context was provided`
+      );
+    }
+
+    const pythonEnvironment = (graph.pythonEnvs ?? []).find((candidate) => candidate.name === envName);
+    if (!pythonEnvironment) {
+      throw new Error(`Node ${node.id} references unknown python environment '${envName}'`);
+    }
+
+    return {
+      pythonBin: pythonEnvironment.pythonPath,
+      cwd: pythonEnvironment.cwd,
+    };
   }
 }

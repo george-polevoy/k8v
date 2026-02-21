@@ -18,3 +18,14 @@ test('createInlineCodeNode honors explicit runtime option', () => {
 
   assert.equal(node.config.runtime, 'custom_runtime');
 });
+
+test('createInlineCodeNode stores explicit python env name when provided', () => {
+  const node = createInlineCodeNode({
+    position: { x: 5, y: 5 },
+    runtime: 'python_process',
+    pythonEnv: 'analytics',
+  });
+
+  assert.equal(node.config.runtime, 'python_process');
+  assert.equal(node.config.pythonEnv, 'analytics');
+});

@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
-import { Connection, Graph, GraphNode } from './types/index.js';
+import { Connection, Graph, GraphDrawing, GraphNode, PythonEnvironment } from './types/index.js';
+import { DEFAULT_RUNTIME_ID, PYTHON_RUNTIME_ID } from './core/execution/types.js';
 import { v4 as uuidv4 } from 'uuid';
 
 interface AppDependencies {
@@ -16,12 +17,16 @@ const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
+  pythonEnvs: z.array(PythonEnvironment).optional().default([]),
+  drawings: z.array(GraphDrawing).optional().default([]),
 });
 
 const UpdateGraphSchema = z.object({
   name: z.string().optional(),
   nodes: z.array(GraphNode).optional(),
   connections: z.array(Connection).optional(),
+  pythonEnvs: z.array(PythonEnvironment).optional(),
+  drawings: z.array(GraphDrawing).optional(),
 });
 
 const ComputeRequestSchema = z.object({
@@ -51,6 +56,30 @@ const validate = <T extends z.ZodType>(schema: T) => {
 
 function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const drawingIds = new Set<string>();
+  const pythonEnvNames = new Set<string>();
+
+  for (const pythonEnv of graph.pythonEnvs ?? []) {
+    if (pythonEnvNames.has(pythonEnv.name)) {
+      return `Graph python environment names must be unique. Duplicate name: ${pythonEnv.name}`;
+    }
+    pythonEnvNames.add(pythonEnv.name);
+  }
+
+  for (const drawing of graph.drawings ?? []) {
+    if (drawingIds.has(drawing.id)) {
+      return `Graph drawing ids must be unique. Duplicate id: ${drawing.id}`;
+    }
+    drawingIds.add(drawing.id);
+
+    const pathIds = new Set<string>();
+    for (const path of drawing.paths) {
+      if (pathIds.has(path.id)) {
+        return `Drawing ${drawing.id} path ids must be unique. Duplicate id: ${path.id}`;
+      }
+      pathIds.add(path.id);
+    }
+  }
 
   for (const connection of graph.connections) {
     if (!nodeIds.has(connection.sourceNodeId)) {
@@ -95,6 +124,22 @@ function validateGraphStructure(graph: Graph): string | null {
   for (const nodeId of nodeIds) {
     if (dfs(nodeId)) {
       return 'Graph contains a circular dependency';
+    }
+  }
+
+  for (const node of graph.nodes) {
+    const pythonEnvName = node.config.pythonEnv;
+    if (!pythonEnvName) {
+      continue;
+    }
+
+    const runtimeId = node.config.runtime ?? DEFAULT_RUNTIME_ID;
+    if (runtimeId !== PYTHON_RUNTIME_ID) {
+      return `Node ${node.id} references pythonEnv "${pythonEnvName}" but runtime "${runtimeId}" is not "${PYTHON_RUNTIME_ID}"`;
+    }
+
+    if (!pythonEnvNames.has(pythonEnvName)) {
+      return `Node ${node.id} references unknown pythonEnv "${pythonEnvName}"`;
     }
   }
 
@@ -150,6 +195,8 @@ export function createApp(deps?: AppDependencies) {
         name: req.body.name,
         nodes: req.body.nodes,
         connections: req.body.connections,
+        pythonEnvs: req.body.pythonEnvs,
+        drawings: req.body.drawings,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -177,6 +224,8 @@ export function createApp(deps?: AppDependencies) {
         ...existing,
         ...req.body,
         id: req.params.id,
+        pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],
+        drawings: req.body.drawings ?? existing.drawings ?? [],
         updatedAt: Date.now(),
       };
 

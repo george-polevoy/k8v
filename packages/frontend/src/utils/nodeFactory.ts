@@ -6,6 +6,7 @@ export interface CreateNodeOptions {
   position: { x: number; y: number };
   code?: string;
   runtime?: RuntimeId | string;
+  pythonEnv?: string;
 }
 
 /**
@@ -26,6 +27,7 @@ export function createInlineCodeNode(options: CreateNodeOptions): GraphNode {
       type: NodeType.INLINE_CODE,
       code: options.code || 'outputs.output = inputs.input;',
       runtime: options.runtime || 'javascript_vm',
+      ...(options.pythonEnv ? { pythonEnv: options.pythonEnv } : {}),
     },
     version: Date.now().toString(),
   };

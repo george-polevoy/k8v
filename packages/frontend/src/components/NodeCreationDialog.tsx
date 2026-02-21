@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GraphNode, NodeType } from '../types';
+import { useGraphStore } from '../store/graphStore';
 import { 
   createInlineCodeNode, 
   createLibraryNode, 
@@ -14,10 +15,13 @@ interface NodeCreationDialogProps {
 }
 
 function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProps) {
+  const graph = useGraphStore((state) => state.graph);
   const [nodeType, setNodeType] = useState<NodeType>(NodeType.INLINE_CODE);
   const [name, setName] = useState('');
   const [code, setCode] = useState('outputs.output = inputs.input;');
   const [runtime, setRuntime] = useState('javascript_vm');
+  const [pythonEnv, setPythonEnv] = useState('');
+  const pythonEnvs = graph?.pythonEnvs ?? [];
 
   const handleCreate = () => {
     let newNode: GraphNode;
@@ -29,6 +33,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
           name: name || undefined,
           code: code || undefined,
           runtime,
+          pythonEnv: runtime === 'python_process' && pythonEnv ? pythonEnv : undefined,
         });
         break;
       case NodeType.LIBRARY:
@@ -142,6 +147,31 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
             <option value="javascript_vm">JavaScript VM</option>
             <option value="python_process">Python Process</option>
           </select>
+          {runtime === 'python_process' && (
+            <>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                Python Env:
+              </label>
+              <select
+                value={pythonEnv}
+                onChange={(e) => setPythonEnv(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  marginBottom: '12px',
+                }}
+              >
+                <option value="">Default backend Python</option>
+                {pythonEnvs.map((env) => (
+                  <option key={env.name} value={env.name}>
+                    {env.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
             Code:
           </label>

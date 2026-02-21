@@ -17,6 +17,8 @@ function createGraph(initialInput: number): Graph {
     name: 'Dependency Recompute Graph',
     createdAt: now,
     updatedAt: now,
+    pythonEnvs: [],
+    drawings: [],
     nodes: [
       {
         id: 'input-node',

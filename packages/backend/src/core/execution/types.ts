@@ -2,6 +2,8 @@ export interface ExecutionRequest {
   code: string;
   inputs: Record<string, any>;
   timeoutMs?: number;
+  pythonBin?: string;
+  cwd?: string;
 }
 
 export interface ExecutionResult {

@@ -26,6 +26,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Delegates inline code execution to runtime implementations (`packages/backend/src/core/execution/`)
 - Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout)
 - Additional runtime: `PythonProcessRuntime` (`python_process`) via spawned `python3` process with timeout
+- Resolves graph-scoped named Python environments (`name`, `pythonPath`, `cwd`) for per-node Python execution when `node.config.pythonEnv` is set
 
 #### Execution Engine (`packages/backend/src/core/execution/`)
 - **Pluggable runtime architecture** for secure code execution
@@ -47,15 +48,17 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Infinite canvas rendered with Pixi.js
 - Viewport navigation supports wheel zoom, wheel scroll (modifier), and drag-to-pan
 - Visual node and edge rendering from graph store state
-- Freehand pencil drawing layer rendered in Pixi viewport
+- Persistent drawing-object layer (named handles + stored freehand paths) rendered in Pixi viewport
 - Drag-and-drop node positioning with persisted coordinates
 - Node status indicators (error/computing/stale/auto-recompute/idle)
 - Error-state smoke animation rendered as part of the Pixi effects layer
+- Pixi ticker is demand-driven and pauses when there are no active interactions/effects to render
 
 #### Graph Store (`packages/frontend/src/store/graphStore.ts`)
 - Zustand state management for graph data
 - API integration with backend
 - Node and connection management
+- Persistent drawing object management (create/select/rename/move/delete/path append)
 - Optimistic persistence for graph edits
 - Node execution state tracking (computing/error/stale/last-run)
 - Auto-recompute propagation for opted-in downstream nodes

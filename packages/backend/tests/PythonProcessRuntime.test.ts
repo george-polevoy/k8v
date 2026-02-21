@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import { PythonProcessRuntime } from '../src/core/execution/PythonProcessRuntime.js';
+
+const PNG_1X1_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z8S8AAAAASUVORK5CYII=';
 
 function hasPythonAvailable(): boolean {
   const result = spawnSync(process.env.K8V_PYTHON_BIN || 'python3', ['--version'], {
@@ -56,4 +62,56 @@ while True:
 
   assert.deepEqual(result.outputs, {});
   assert.match(result.textOutput ?? '', /timed out/i);
+});
+
+test('PythonProcessRuntime supports request-level pythonBin and cwd overrides', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime('python-does-not-exist');
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-python-runtime-cwd-'));
+  const pythonBin = process.env.K8V_PYTHON_BIN || 'python3';
+
+  try {
+    const result = await runtime.execute({
+      code: `
+import os
+outputs.cwd = os.getcwd()
+`,
+      inputs: {},
+      timeoutMs: 1000,
+      pythonBin,
+      cwd: tmpDir,
+    });
+
+    const expectedCwd = await fs.realpath(tmpDir);
+    const actualCwd = await fs.realpath(result.outputs.cwd);
+    assert.equal(actualCwd, expectedCwd);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('PythonProcessRuntime converts bytes passed to outputGraphics into PNG data URL', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime();
+  const result = await runtime.execute({
+    code: `
+import base64
+outputGraphics(base64.b64decode("${PNG_1X1_BASE64}"))
+`,
+    inputs: {},
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.graphicsOutput, `data:image/png;base64,${PNG_1X1_BASE64}`);
+});
+
+test('PythonProcessRuntime accepts raw PNG base64 via outputPng helper', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime();
+  const result = await runtime.execute({
+    code: `
+outputPng("${PNG_1X1_BASE64}")
+`,
+    inputs: {},
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.graphicsOutput, `data:image/png;base64,${PNG_1X1_BASE64}`);
 });

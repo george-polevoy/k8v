@@ -38,7 +38,7 @@ export class GraphEngine {
       const inputs = await this.getNodeInputs(graph, nodeId);
 
       // Execute node
-      const result = await this.nodeExecutor.execute(node, inputs);
+      const result = await this.nodeExecutor.execute(node, inputs, graph);
 
       // Store result
       await this.dataStore.storeResult(nodeId, result);

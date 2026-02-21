@@ -30,6 +30,33 @@ interface PortDefinition {
   description?: string;
 }
 
+interface PythonEnvironment {
+  name: string;
+  pythonPath: string;
+  cwd: string;
+}
+
+interface DrawingPoint {
+  x: number;
+  y: number;
+}
+
+type DrawingColor = 'white' | 'green' | 'red';
+
+interface DrawingPath {
+  id: string;
+  color: DrawingColor;
+  thickness: number;
+  points: DrawingPoint[];
+}
+
+interface GraphDrawing {
+  id: string;
+  name: string;
+  position: { x: number; y: number };
+  paths: DrawingPath[];
+}
+
 interface GraphNode {
   id: string;
   type: NodeType;
@@ -48,6 +75,7 @@ interface GraphNode {
     libraryId?: string;
     subgraphId?: string;
     runtime?: RuntimeId;
+    pythonEnv?: string;
     config?: Record<string, unknown>;
   };
   version: string;
@@ -67,6 +95,8 @@ interface Graph {
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
+  pythonEnvs?: PythonEnvironment[];
+  drawings?: GraphDrawing[];
   createdAt: number;
   updatedAt: number;
 }
@@ -250,6 +280,80 @@ const RENDERER_HTML = String.raw`<!doctype html>
           }
         }
 
+        function resolveDrawingColor(color) {
+          if (color === 'green') return '#22c55e';
+          if (color === 'red') return '#ef4444';
+          return '#ffffff';
+        }
+
+        function drawDrawings(ctx, graph, region, bitmap) {
+          const scaleX = bitmap.width / Math.max(region.width, 1);
+          const scaleY = bitmap.height / Math.max(region.height, 1);
+          const scaleRef = Math.min(scaleX, scaleY);
+          const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
+
+          for (const drawing of drawings) {
+            const drawingOrigin = drawing.position || { x: 0, y: 0 };
+
+            for (const path of drawing.paths || []) {
+              const points = Array.isArray(path.points) ? path.points : [];
+              if (points.length === 0) {
+                continue;
+              }
+
+              const lineWidth = Math.max(0.5, (path.thickness || 1) * scaleRef);
+              ctx.strokeStyle = resolveDrawingColor(path.color);
+              ctx.fillStyle = resolveDrawingColor(path.color);
+              ctx.lineWidth = lineWidth;
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+
+              const first = mapPoint(
+                drawingOrigin.x + points[0].x,
+                drawingOrigin.y + points[0].y,
+                region,
+                bitmap
+              );
+
+              if (points.length === 1) {
+                ctx.beginPath();
+                ctx.arc(first.x, first.y, Math.max(lineWidth * 0.5, 1.25), 0, Math.PI * 2);
+                ctx.fill();
+                continue;
+              }
+
+              ctx.beginPath();
+              ctx.moveTo(first.x, first.y);
+              for (let i = 1; i < points.length; i += 1) {
+                const mapped = mapPoint(
+                  drawingOrigin.x + points[i].x,
+                  drawingOrigin.y + points[i].y,
+                  region,
+                  bitmap
+                );
+                ctx.lineTo(mapped.x, mapped.y);
+              }
+              ctx.stroke();
+            }
+
+            const handlePoint = mapPoint(drawingOrigin.x, drawingOrigin.y, region, bitmap);
+            const handleWidth = Math.max(56 * scaleX, (String(drawing.name || '').length + 2) * 8 * scaleRef);
+            const handleHeight = Math.max(20 * scaleY, 16 * scaleRef);
+            drawRoundedRect(ctx, handlePoint.x, handlePoint.y, handleWidth, handleHeight, 6 * scaleRef);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fill();
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = Math.max(1, 1.2 * scaleRef);
+            ctx.stroke();
+
+            ctx.fillStyle = '#0f172a';
+            ctx.font = '700 ' + Math.max(7, Math.round(10 * scaleRef)) + 'px Arial';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(drawing.name || 'Drawing'), handlePoint.x + (8 * scaleX), handlePoint.y + handleHeight / 2);
+          }
+        }
+
         function drawNodes(ctx, graph, region, bitmap, nodeNumbers) {
           const scaleX = bitmap.width / Math.max(region.width, 1);
           const scaleY = bitmap.height / Math.max(region.height, 1);
@@ -372,6 +476,7 @@ const RENDERER_HTML = String.raw`<!doctype html>
 
           const nodeMap = new Map(payload.graph.nodes.map((node) => [node.id, node]));
           drawConnections(ctx, payload.graph, nodeMap, payload.region, payload.bitmap);
+          drawDrawings(ctx, payload.graph, payload.region, payload.bitmap);
           drawNodes(ctx, payload.graph, payload.region, payload.bitmap, payload.nodeNumbers);
 
           window.__graphRenderReady = true;
@@ -435,8 +540,17 @@ function resolveBackendUrl(explicitUrl?: string): string {
   return sanitizeBaseUrl(explicitUrl ?? DEFAULT_BACKEND_URL);
 }
 
+function normalizeGraph(graph: Graph): Graph {
+  return {
+    ...graph,
+    drawings: Array.isArray(graph.drawings) ? graph.drawings : [],
+    pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
+  };
+}
+
 async function getGraph(backendUrl: string, graphId: string): Promise<Graph> {
-  return requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`);
+  const graph = await requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`);
+  return normalizeGraph(graph);
 }
 
 async function updateGraph(
@@ -445,17 +559,18 @@ async function updateGraph(
   mutate: (graph: Graph) => Graph
 ): Promise<Graph> {
   const currentGraph = await getGraph(backendUrl, graphId);
-  const nextGraph = mutate(structuredClone(currentGraph));
+  const nextGraph = normalizeGraph(mutate(structuredClone(currentGraph)));
   const body = {
     ...nextGraph,
     id: graphId,
     updatedAt: Date.now(),
   };
 
-  return requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`, {
+  const persisted = await requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`, {
     method: 'PUT',
     body: JSON.stringify(body),
   });
+  return normalizeGraph(persisted);
 }
 
 function getNode(graph: Graph, nodeId: string): GraphNode {
@@ -595,11 +710,8 @@ server.registerTool(
   async ({ graphId, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
     const graph = graphId
-      ? await requestJson<Graph>(
-          resolvedBackendUrl,
-          `/api/graphs/${encodeURIComponent(graphId)}`
-        )
-      : await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest');
+      ? await getGraph(resolvedBackendUrl, graphId)
+      : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
 
     return textResult(graph);
   }
@@ -616,10 +728,10 @@ server.registerTool(
   },
   async ({ name, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-    const graph = await requestJson<Graph>(resolvedBackendUrl, '/api/graphs', {
+    const graph = normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs', {
       method: 'POST',
       body: JSON.stringify({ name: name ?? 'Untitled Graph' }),
-    });
+    }));
 
     return textResult(graph);
   }
@@ -647,6 +759,333 @@ server.registerTool(
 );
 
 server.registerTool(
+  'graph_python_env_add',
+  {
+    description: 'Add a named Python environment definition to a graph.',
+    inputSchema: {
+      graphId: z.string(),
+      name: z.string().trim().min(1),
+      pythonPath: z.string().trim().min(1),
+      cwd: z.string().trim().min(1),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, name, pythonPath, cwd, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const existingEnvs = current.pythonEnvs ?? [];
+      if (existingEnvs.some((env) => env.name === name)) {
+        throw new Error(`Python environment "${name}" already exists in graph ${graphId}`);
+      }
+
+      return {
+        ...current,
+        pythonEnvs: [
+          ...existingEnvs,
+          {
+            name,
+            pythonPath,
+            cwd,
+          },
+        ],
+      };
+    });
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'graph_python_env_edit',
+  {
+    description:
+      'Edit an existing graph Python environment by name (rename and/or update pythonPath/cwd).',
+    inputSchema: {
+      graphId: z.string(),
+      envName: z.string().trim().min(1),
+      name: z.string().trim().min(1).optional(),
+      pythonPath: z.string().trim().min(1).optional(),
+      cwd: z.string().trim().min(1).optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, envName, name, pythonPath, cwd, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const existingEnvs = current.pythonEnvs ?? [];
+      const envIndex = existingEnvs.findIndex((env) => env.name === envName);
+      if (envIndex === -1) {
+        throw new Error(`Python environment "${envName}" was not found in graph ${graphId}`);
+      }
+
+      const existingEnv = existingEnvs[envIndex];
+      const nextEnvName = name ?? existingEnv.name;
+      const nextEnv: PythonEnvironment = {
+        name: nextEnvName,
+        pythonPath: pythonPath ?? existingEnv.pythonPath,
+        cwd: cwd ?? existingEnv.cwd,
+      };
+
+      const duplicateName = existingEnvs.some(
+        (env, index) => index !== envIndex && env.name === nextEnv.name
+      );
+      if (duplicateName) {
+        throw new Error(`Python environment "${nextEnv.name}" already exists in graph ${graphId}`);
+      }
+
+      const nextNodes =
+        nextEnvName === envName
+          ? current.nodes
+          : current.nodes.map((node) =>
+              node.config.pythonEnv === envName
+                ? {
+                    ...node,
+                    config: {
+                      ...node.config,
+                      pythonEnv: nextEnvName,
+                    },
+                    version: ensureNodeVersion(node),
+                  }
+                : node
+            );
+
+      return {
+        ...current,
+        pythonEnvs: existingEnvs.map((env, index) => (index === envIndex ? nextEnv : env)),
+        nodes: nextNodes,
+      };
+    });
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'graph_python_env_delete',
+  {
+    description:
+      'Delete a graph Python environment by name and clear pythonEnv bindings from nodes that referenced it.',
+    inputSchema: {
+      graphId: z.string(),
+      envName: z.string().trim().min(1),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, envName, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const existingEnvs = current.pythonEnvs ?? [];
+      const hasEnv = existingEnvs.some((env) => env.name === envName);
+      if (!hasEnv) {
+        throw new Error(`Python environment "${envName}" was not found in graph ${graphId}`);
+      }
+
+      return {
+        ...current,
+        pythonEnvs: existingEnvs.filter((env) => env.name !== envName),
+        nodes: current.nodes.map((node) =>
+          node.config.pythonEnv === envName
+            ? {
+                ...node,
+                config: {
+                  ...node.config,
+                  pythonEnv: undefined,
+                },
+                version: ensureNodeVersion(node),
+              }
+            : node
+        ),
+      };
+    });
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'drawing_create',
+  {
+    description: 'Create a persistent drawing object with a draggable handle/title.',
+    inputSchema: {
+      graphId: z.string(),
+      name: z.string().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, name, x, y, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const drawingId = randomUUID();
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+      ...current,
+      drawings: [
+        ...(current.drawings ?? []),
+        {
+          id: drawingId,
+          name: name ?? `Drawing ${((current.drawings ?? []).length + 1)}`,
+          position: {
+            x: x ?? 0,
+            y: y ?? 0,
+          },
+          paths: [],
+        },
+      ],
+    }));
+
+    return textResult({ graphId, drawingId, graph });
+  }
+);
+
+server.registerTool(
+  'drawing_add_path',
+  {
+    description: 'Append a path to an existing drawing object.',
+    inputSchema: {
+      graphId: z.string(),
+      drawingId: z.string(),
+      points: z.array(z.object({ x: z.number(), y: z.number() })).min(1),
+      color: z.enum(['white', 'green', 'red']).optional(),
+      thickness: z.number().positive().optional(),
+      pathId: z.string().optional(),
+      coordinateSpace: z.enum(['world', 'local']).optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({
+    graphId,
+    drawingId,
+    points,
+    color,
+    thickness,
+    pathId,
+    coordinateSpace,
+    backendUrl,
+  }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const drawing = (current.drawings ?? []).find((candidate) => candidate.id === drawingId);
+      if (!drawing) {
+        throw new Error(`Drawing ${drawingId} not found in graph ${graphId}`);
+      }
+
+      const localPoints = (coordinateSpace ?? 'world') === 'local'
+        ? points
+        : points.map((point) => ({
+            x: point.x - drawing.position.x,
+            y: point.y - drawing.position.y,
+          }));
+
+      return {
+        ...current,
+        drawings: (current.drawings ?? []).map((candidate) =>
+          candidate.id === drawingId
+            ? {
+                ...candidate,
+                paths: [
+                  ...candidate.paths,
+                  {
+                    id: pathId ?? randomUUID(),
+                    color: color ?? 'white',
+                    thickness: thickness ?? 3,
+                    points: localPoints,
+                  },
+                ],
+              }
+            : candidate
+        ),
+      };
+    });
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'drawing_move',
+  {
+    description: 'Move a drawing handle (and all of its paths) to a new world position.',
+    inputSchema: {
+      graphId: z.string(),
+      drawingId: z.string(),
+      x: z.number(),
+      y: z.number(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, drawingId, x, y, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+      ...current,
+      drawings: (current.drawings ?? []).map((drawing) =>
+        drawing.id === drawingId
+          ? {
+              ...drawing,
+              position: { x, y },
+            }
+          : drawing
+      ),
+    }));
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'drawing_set_name',
+  {
+    description: 'Rename a drawing object.',
+    inputSchema: {
+      graphId: z.string(),
+      drawingId: z.string(),
+      name: z.string(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, drawingId, name, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+      ...current,
+      drawings: (current.drawings ?? []).map((drawing) =>
+        drawing.id === drawingId
+          ? {
+              ...drawing,
+              name,
+            }
+          : drawing
+      ),
+    }));
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'drawing_delete',
+  {
+    description: 'Delete a drawing object and all stored paths.',
+    inputSchema: {
+      graphId: z.string(),
+      drawingId: z.string(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, drawingId, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+      ...current,
+      drawings: (current.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
+    }));
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
   'node_add_inline',
   {
     description: 'Add an inline code node to a graph.',
@@ -659,6 +1098,7 @@ server.registerTool(
       outputNames: z.array(z.string()).optional(),
       code: z.string().optional(),
       runtime: z.string().optional(),
+      pythonEnv: z.string().optional(),
       autoRecompute: z.boolean().optional(),
       backendUrl: z.string().optional(),
     },
@@ -672,6 +1112,7 @@ server.registerTool(
     outputNames,
     code,
     runtime,
+    pythonEnv,
     autoRecompute,
     backendUrl,
   }) => {
@@ -711,6 +1152,7 @@ server.registerTool(
       config: {
         type: 'inline_code',
         runtime: runtime ?? 'javascript_vm',
+        ...(pythonEnv ? { pythonEnv } : {}),
         code: code ?? 'outputs.output = inputs.input;',
         config: {
           autoRecompute: autoRecompute ?? false,
@@ -800,10 +1242,11 @@ server.registerTool(
       nodeId: z.string(),
       code: z.string(),
       runtime: z.string().optional(),
+      pythonEnv: z.string().optional(),
       backendUrl: z.string().optional(),
     },
   },
-  async ({ graphId, nodeId, code, runtime, backendUrl }) => {
+  async ({ graphId, nodeId, code, runtime, pythonEnv, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
     const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
       ...current,
@@ -815,6 +1258,7 @@ server.registerTool(
                 ...node.config,
                 code,
                 ...(runtime ? { runtime } : {}),
+                ...(pythonEnv ? { pythonEnv } : {}),
               },
               version: ensureNodeVersion(node),
             }
@@ -1237,10 +1681,10 @@ server.registerTool(
   }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
     const graphData = graph
-      ? (graph as Graph)
+      ? normalizeGraph(graph as Graph)
       : graphId
         ? await getGraph(resolvedBackendUrl, graphId)
-        : await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest');
+        : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
     const nodeNumbers = getStableNodeNumbers(graphData);
 
     const result = await renderGraphRegionScreenshot({

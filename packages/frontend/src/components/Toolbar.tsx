@@ -17,6 +17,8 @@ const DRAW_THICKNESSES: Array<{ id: 1 | 3 | 9; label: string }> = [
 function Toolbar() {
   const computeGraph = useGraphStore((state) => state.computeGraph);
   const addNode = useGraphStore((state) => state.addNode);
+  const requestCreateDrawing = useGraphStore((state) => state.requestCreateDrawing);
+  const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const drawingEnabled = useGraphStore((state) => state.drawingEnabled);
   const drawingColor = useGraphStore((state) => state.drawingColor);
   const drawingThickness = useGraphStore((state) => state.drawingThickness);
@@ -78,6 +80,20 @@ function Toolbar() {
           +
         </button>
         <button
+          onClick={() => requestCreateDrawing()}
+          style={{
+            padding: '8px',
+            background: '#0ea5e9',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+          title="Create Drawing Object"
+        >
+          ⊕
+        </button>
+        <button
           onClick={() => setDrawingEnabled(!drawingEnabled)}
           style={{
             padding: '8px',
@@ -104,6 +120,11 @@ function Toolbar() {
           <div style={{ fontSize: '9px', color: '#475569', marginBottom: '4px', textAlign: 'center' }}>
             Color
           </div>
+          {!selectedDrawingId && (
+            <div style={{ fontSize: '9px', color: '#b91c1c', marginBottom: '6px', textAlign: 'center' }}>
+              Create/select drawing
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'center', gap: '4px', marginBottom: '6px' }}>
             {DRAW_COLORS.map((color) => (
               <button

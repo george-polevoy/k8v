@@ -40,6 +40,46 @@ export enum NodeType {
   EXTERNAL_OUTPUT = 'external_output',
 }
 
+// Graph-scoped Python environment definition
+export const PythonEnvironment = z.object({
+  name: z.string().trim().min(1),
+  pythonPath: z.string().trim().min(1),
+  cwd: z.string().trim().min(1),
+});
+
+export type PythonEnvironment = z.infer<typeof PythonEnvironment>;
+
+// Persistent freehand drawing primitives
+export const DrawingColor = z.enum(['white', 'green', 'red']);
+export type DrawingColor = z.infer<typeof DrawingColor>;
+
+export const DrawingPath = z.object({
+  id: z.string(),
+  color: DrawingColor,
+  thickness: z.number().positive(),
+  // Path points are local to drawing.position
+  points: z.array(
+    z.object({
+      x: z.number(),
+      y: z.number(),
+    })
+  ),
+});
+
+export type DrawingPath = z.infer<typeof DrawingPath>;
+
+export const GraphDrawing = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1),
+  position: z.object({
+    x: z.number(),
+    y: z.number(),
+  }),
+  paths: z.array(DrawingPath).default([]),
+});
+
+export type GraphDrawing = z.infer<typeof GraphDrawing>;
+
 // Node configuration
 export const NodeConfig = z.object({
   type: z.nativeEnum(NodeType),
@@ -47,6 +87,7 @@ export const NodeConfig = z.object({
   libraryId: z.string().optional(), // For library nodes
   subgraphId: z.string().optional(), // For subgraph nodes
   runtime: z.string().min(1).optional(), // Runtime identifier for executable nodes
+  pythonEnv: z.string().trim().min(1).optional(), // Named graph-level Python env for python_process runtime
   config: z.record(z.any()).optional(), // Additional configuration
 });
 
@@ -85,6 +126,8 @@ export const Graph = z.object({
   name: z.string(),
   nodes: z.array(GraphNode),
   connections: z.array(Connection),
+  pythonEnvs: z.array(PythonEnvironment).default([]),
+  drawings: z.array(GraphDrawing).default([]),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -3,6 +3,8 @@ export interface Position {
   y: number;
 }
 
+export type DrawingColor = 'white' | 'green' | 'red';
+
 export interface PortDefinition {
   name: string;
   schema: DataSchema;
@@ -41,7 +43,14 @@ export interface NodeConfig {
   libraryId?: string;
   subgraphId?: string;
   runtime?: RuntimeId | string;
+  pythonEnv?: string;
   config?: Record<string, any>;
+}
+
+export interface PythonEnvironment {
+  name: string;
+  pythonPath: string;
+  cwd: string;
 }
 
 export interface GraphNode {
@@ -62,11 +71,28 @@ export interface Connection {
   targetPort: string;
 }
 
+export interface DrawingPath {
+  id: string;
+  color: DrawingColor;
+  thickness: number;
+  // Path points are local to drawing.position
+  points: Position[];
+}
+
+export interface GraphDrawing {
+  id: string;
+  name: string;
+  position: Position;
+  paths: DrawingPath[];
+}
+
 export interface Graph {
   id: string;
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
+  pythonEnvs?: PythonEnvironment[];
+  drawings?: GraphDrawing[];
   createdAt: number;
   updatedAt: number;
 }
