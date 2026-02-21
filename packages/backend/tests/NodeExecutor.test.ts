@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { ExecutionRuntime, ExecutionRequest, ExecutionResult } from '../src/core/execution/types.ts';
@@ -35,6 +36,13 @@ function createInlineNode(runtime?: string): GraphNode {
     },
     version: '1',
   };
+}
+
+function hasPythonAvailable(): boolean {
+  const result = spawnSync(process.env.K8V_PYTHON_BIN || 'python3', ['--version'], {
+    encoding: 'utf8',
+  });
+  return result.status === 0;
 }
 
 test('NodeExecutor uses default runtime when node runtime is not set', async () => {
@@ -89,6 +97,27 @@ test('NodeExecutor throws for unknown runtime in node config', async () => {
       () => executor.execute(createInlineNode('missing_runtime'), { input: 5 }),
       /not registered/
     );
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor can execute inline node with python_process runtime', { skip: !hasPythonAvailable() }, async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const executor = new NodeExecutor(dataStore);
+  const pythonNode: GraphNode = {
+    ...createInlineNode('python_process'),
+    config: {
+      ...createInlineNode('python_process').config,
+      code: 'outputs.output = inputs.input * 3',
+    },
+  };
+
+  try {
+    const result = await executor.execute(pythonNode, { input: 7 });
+    assert.equal(result.outputs.output, 21);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

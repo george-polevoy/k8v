@@ -15,3 +15,4 @@ export interface ExecutionRuntime {
 }
 
 export const DEFAULT_RUNTIME_ID = 'javascript_vm';
+export const PYTHON_RUNTIME_ID = 'python_process';

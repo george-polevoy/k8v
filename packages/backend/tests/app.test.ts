@@ -99,6 +99,26 @@ test('POST /api/graphs accepts runtime in node config', async () => {
   }
 });
 
+test('POST /api/graphs accepts python_process runtime in node config', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.config.runtime = 'python_process';
+    node.config.code = 'outputs.output = inputs.input * 2';
+    node.metadata.inputs = [{ name: 'input', schema: { type: 'number' } }];
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.equal(graph.nodes[0].config.runtime, 'python_process');
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs rejects malformed node config', async () => {
   const ctx = await setupTestServer();
 

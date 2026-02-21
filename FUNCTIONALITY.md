@@ -11,6 +11,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Persist graph edits through `PUT /api/graphs/:id`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
+- Node panel graph management: select existing graph, create new graph, and rename current graph.
+- Current graph ID is shown in node panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
 
@@ -27,6 +29,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drag from output port to input port to create connection.
 - Frontend cycle-prevention during connection creation.
 - Minimap/navigation assistant with click-to-center behavior.
+- Pencil draw mode on canvas (toggle from toolbar).
+- Draw tool options: colors `white`/`green`/`red`.
+- Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
 
 ## Node Editing (Node Panel)
 
@@ -48,9 +53,11 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Card status light:
   - red: last compute errored
   - amber: computing now
+  - brown: stale because an upstream dependency is currently errored
   - green: auto-recompute enabled and no current error
   - gray: default/idle
 - Node panel shows execution error text when available.
+- Error nodes emit subtle black smoke from the status-light area on the canvas.
 
 ## Computation and Outputs
 
@@ -68,6 +75,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Recompute triggers run after successful graph persistence.
 - Auto-recompute uses a single pending batch slot; while recompute is in flight, new graph updates replace the undrained pending batch with the latest impacted nodes.
 - Auto-recompute processes impacted nodes in upstream-to-downstream order.
+- Auto-recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
 
 ## Validation and Safety
 
@@ -80,9 +88,19 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - NodeExecutor supports inline code, library, subgraph, external input, external output node types.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
+- Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
+- Python runtime supports `inputs`, `outputs`, `print`/`log`, `outputGraphics`/`outputImage`, timeout, and error capture.
 - Pluggable runtime architecture is in place for future runtimes.
 
 ## Debugging and Tooling
 
 - Playwright-based canvas snapshot script for headless visual debugging.
 - Backend/frontend build and test scripts wired at workspace root.
+
+## MCP and Agent API
+
+- MCP server package at `packages/mcp-server`.
+- MCP graph-edit tools for node creation, moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
+- Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.
+- Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
+- Screenshot render overlays stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.

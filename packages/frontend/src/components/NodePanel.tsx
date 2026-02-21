@@ -16,9 +16,17 @@ function getNextInputName(inputs: PortDefinition[]): string {
   return candidate;
 }
 
+function formatGraphOptionLabel(name: string, id: string): string {
+  return `${name} (${id.slice(0, 8)})`;
+}
+
 function NodePanel() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const graph = useGraphStore((state) => state.graph);
+  const graphSummaries = useGraphStore((state) => state.graphSummaries);
+  const loadGraph = useGraphStore((state) => state.loadGraph);
+  const createGraph = useGraphStore((state) => state.createGraph);
+  const refreshGraphSummaries = useGraphStore((state) => state.refreshGraphSummaries);
   const updateNode = useGraphStore((state) => state.updateNode);
   const updateGraph = useGraphStore((state) => state.updateGraph);
   const addNode = useGraphStore((state) => state.addNode);
@@ -30,9 +38,16 @@ function NodePanel() {
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) || null;
 
   const [codeValue, setCodeValue] = useState('');
+  const [graphNameValue, setGraphNameValue] = useState('');
+  const [newGraphName, setNewGraphName] = useState('Untitled Graph');
   const [nodeNameValue, setNodeNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
+  const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
+
+  useEffect(() => {
+    void refreshGraphSummaries();
+  }, [refreshGraphSummaries]);
 
   useEffect(() => {
     if (selectedNode?.config.code !== undefined) {
@@ -54,7 +69,15 @@ function NodePanel() {
     }
 
     setInputValidationError(null);
-  }, [selectedNode?.id, graph?.id]);
+  }, [selectedNode, graph]);
+
+  useEffect(() => {
+    if (graph) {
+      setGraphNameValue(graph.name);
+    } else {
+      setGraphNameValue('');
+    }
+  }, [graph]);
 
   const commitInlineCode = useCallback(() => {
     if (!selectedNode || selectedNode.config.type !== NodeType.INLINE_CODE) {
@@ -307,11 +330,62 @@ function NodePanel() {
     addNode(newNode);
   };
 
+  const commitGraphName = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const trimmed = graphNameValue.trim();
+    if (!trimmed) {
+      setGraphNameValue(graph.name);
+      return;
+    }
+    if (trimmed === graph.name) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({ name: trimmed });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, graphNameValue, refreshGraphSummaries, updateGraph]);
+
+  const handleSelectGraph = useCallback(async (graphId: string) => {
+    if (!graphId || (graph && graph.id === graphId)) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await loadGraph(graphId);
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, loadGraph, refreshGraphSummaries]);
+
+  const handleCreateGraph = useCallback(async () => {
+    const name = newGraphName.trim() || 'Untitled Graph';
+    setIsGraphActionInFlight(true);
+    try {
+      await createGraph(name);
+      await refreshGraphSummaries();
+      setNewGraphName('Untitled Graph');
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [createGraph, newGraphName, refreshGraphSummaries]);
+
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
   const statusLightColor = nodeExecutionState?.hasError
     ? '#ef4444'
     : nodeExecutionState?.isComputing
       ? '#f59e0b'
+      : nodeExecutionState?.isStale
+        ? '#8b5a2b'
       : autoRecomputeEnabled
         ? '#22c55e'
         : '#94a3b8';
@@ -328,6 +402,125 @@ function NodePanel() {
       }}
     >
       <h3 style={{ marginBottom: '16px' }}>Node Panel</h3>
+      <div
+        style={{
+          marginBottom: '16px',
+          padding: '10px',
+          border: '1px solid #dbe4ef',
+          borderRadius: '6px',
+          background: '#fff',
+        }}
+      >
+        <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#334155' }}>
+          Graph
+        </div>
+
+        <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+          Select graph
+        </label>
+        <select
+          data-testid="graph-select"
+          value={graph?.id ?? ''}
+          disabled={isGraphActionInFlight}
+          onChange={(event) => {
+            void handleSelectGraph(event.target.value);
+          }}
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginBottom: '8px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+          }}
+        >
+          {graphSummaries.length === 0 && <option value="">No graphs available</option>}
+          {graphSummaries.map((summary) => (
+            <option key={summary.id} value={summary.id}>
+              {formatGraphOptionLabel(summary.name, summary.id)}
+            </option>
+          ))}
+        </select>
+
+        <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+          Rename current graph
+        </label>
+        <input
+          data-testid="graph-name-input"
+          type="text"
+          value={graphNameValue}
+          disabled={!graph || isGraphActionInFlight}
+          onChange={(event) => setGraphNameValue(event.target.value)}
+          onBlur={() => {
+            void commitGraphName();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape' && graph) {
+              setGraphNameValue(graph.name);
+              event.currentTarget.blur();
+            }
+          }}
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginBottom: '8px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+          }}
+        />
+
+        <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+          New graph
+        </label>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            data-testid="new-graph-name-input"
+            type="text"
+            value={newGraphName}
+            disabled={isGraphActionInFlight}
+            onChange={(event) => setNewGraphName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                void handleCreateGraph();
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: '8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+            }}
+          />
+          <button
+            data-testid="create-graph-button"
+            disabled={isGraphActionInFlight}
+            onClick={() => {
+              void handleCreateGraph();
+            }}
+            style={{
+              padding: '8px 10px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            Create
+          </button>
+        </div>
+        {graph && (
+          <div style={{ marginTop: '8px', fontSize: '10px', color: '#64748b' }}>
+            Current graph ID: <code>{graph.id}</code>
+          </div>
+        )}
+      </div>
 
       {selectedNode ? (
         <div>
@@ -561,6 +754,7 @@ function NodePanel() {
                 }}
               >
                 <option value="javascript_vm">JavaScript VM</option>
+                <option value="python_process">Python Process</option>
               </select>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
                 Code:

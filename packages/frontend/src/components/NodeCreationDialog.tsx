@@ -121,7 +121,16 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
           </label>
           <select
             value={runtime}
-            onChange={(e) => setRuntime(e.target.value)}
+            onChange={(e) => {
+              const nextRuntime = e.target.value;
+              setRuntime(nextRuntime);
+              if (nextRuntime === 'python_process' && code.trim() === 'outputs.output = inputs.input;') {
+                setCode('outputs.output = inputs.input');
+              }
+              if (nextRuntime === 'javascript_vm' && code.trim() === 'outputs.output = inputs.input') {
+                setCode('outputs.output = inputs.input;');
+              }
+            }}
             style={{
               width: '100%',
               padding: '8px',
@@ -131,6 +140,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
             }}
           >
             <option value="javascript_vm">JavaScript VM</option>
+            <option value="python_process">Python Process</option>
           </select>
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
             Code:

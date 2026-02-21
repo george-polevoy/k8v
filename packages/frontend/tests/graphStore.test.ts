@@ -368,3 +368,159 @@ test('auto recompute runs impacted nodes in upstream-to-downstream order', async
     (axios as any).post = originalPost;
   }
 });
+
+test('auto recompute marks downstream nodes stale when an upstream node errors', async () => {
+  const originalPut = axios.put;
+  const originalPost = axios.post;
+
+  let failUpstream = true;
+  const computeOrder: string[] = [];
+
+  const graph: Graph = {
+    id: 'g-stale',
+    name: 'Stale Graph',
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'a-v1',
+      },
+      {
+        id: 'node-b',
+        type: 'inline_code' as any,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'B',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'b-v1',
+      },
+      {
+        id: 'node-c',
+        type: 'inline_code' as any,
+        position: { x: 400, y: 0 },
+        metadata: {
+          name: 'C',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'c-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'ab',
+        sourceNodeId: 'node-a',
+        sourcePort: 'output',
+        targetNodeId: 'node-b',
+        targetPort: 'input',
+      },
+      {
+        id: 'bc',
+        sourceNodeId: 'node-b',
+        sourcePort: 'output',
+        targetNodeId: 'node-c',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
+  (axios as any).post = async (_url: string, body: any) => {
+    if (typeof body?.nodeId !== 'string') {
+      throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+    }
+
+    computeOrder.push(body.nodeId);
+    if (body.nodeId === 'node-a' && failUpstream) {
+      throw new Error('Upstream failure');
+    }
+
+    return {
+      data: {
+        nodeId: body.nodeId,
+        outputs: { output: 1 },
+        schema: { output: { type: 'number' } },
+        timestamp: Date.now(),
+        version: `v-${body.nodeId}-${Date.now()}`,
+      },
+    };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === 'node-a' ? { ...node, version: 'a-v2' } : node
+      ),
+      updatedAt: Date.now(),
+    });
+
+    await delay(120);
+
+    let state = useGraphStore.getState();
+    assert.equal(state.nodeExecutionStates['node-a']?.hasError, true);
+    assert.equal(state.nodeExecutionStates['node-b']?.isStale, true);
+    assert.equal(state.nodeExecutionStates['node-c']?.isStale, true);
+    assert.deepEqual(computeOrder, ['node-a']);
+
+    failUpstream = false;
+    await useGraphStore.getState().updateGraph({
+      ...state.graph!,
+      nodes: state.graph!.nodes.map((node) =>
+        node.id === 'node-a' ? { ...node, version: 'a-v3' } : node
+      ),
+      updatedAt: Date.now(),
+    });
+
+    await delay(120);
+
+    state = useGraphStore.getState();
+    assert.equal(state.nodeExecutionStates['node-a']?.hasError, false);
+    assert.equal(state.nodeExecutionStates['node-a']?.isStale, false);
+    assert.equal(state.nodeExecutionStates['node-b']?.hasError, false);
+    assert.equal(state.nodeExecutionStates['node-b']?.isStale, false);
+    assert.equal(state.nodeExecutionStates['node-c']?.hasError, false);
+    assert.equal(state.nodeExecutionStates['node-c']?.isStale, false);
+    assert.deepEqual(computeOrder, ['node-a', 'node-a', 'node-b', 'node-c']);
+  } finally {
+    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
+  }
+});

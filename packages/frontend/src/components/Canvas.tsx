@@ -13,7 +13,7 @@ import {
   Texture,
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
-import type { NodeExecutionState } from '../store/graphStore';
+import type { NodeExecutionState, PencilColor, PencilThickness } from '../store/graphStore';
 import { GraphNode, Position } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -32,13 +32,19 @@ const MINIMAP_WIDTH = 220;
 const MINIMAP_HEIGHT = 140;
 const MINIMAP_PADDING = 8;
 const NODE_DRAG_START_THRESHOLD = 2;
-const LIGHTNING_DURATION_MS = 420;
-const NODE_SHOCK_DURATION_MS = 520;
+const LIGHTNING_DURATION_MS = 900;
+const NODE_SHOCK_DURATION_MS = 1200;
+const DRAW_SMOOTHING_STEP = 1;
+const SMOKE_EMIT_INTERVAL_MS = 140;
+const SMOKE_MIN_DURATION_MS = 720;
+const SMOKE_MAX_DURATION_MS = 1320;
+const SMOKE_MAX_PARTICLES = 96;
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
 const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
 const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
   isComputing: false,
   hasError: false,
+  isStale: false,
   errorMessage: null,
   lastRunAt: null,
 };
@@ -115,6 +121,26 @@ interface NodeShock {
   durationMs: number;
 }
 
+interface FreehandStroke {
+  id: string;
+  color: PencilColor;
+  thickness: PencilThickness;
+  points: Position[];
+}
+
+interface SmokePuff {
+  nodeId: string;
+  startAt: number;
+  durationMs: number;
+  originX: number;
+  originY: number;
+  driftX: number;
+  driftY: number;
+  startRadius: number;
+  startAlpha: number;
+  wobblePhase: number;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -151,6 +177,16 @@ function drawOutputPortMarker(marker: Graphics, highlighted: boolean): void {
   marker.beginFill(highlighted ? 0x22c55e : 0x16a34a);
   marker.drawCircle(0, 0, highlighted ? PORT_RADIUS + 2 : PORT_RADIUS);
   marker.endFill();
+}
+
+function resolvePencilColor(color: PencilColor): number {
+  if (color === 'green') {
+    return 0x22c55e;
+  }
+  if (color === 'red') {
+    return 0xef4444;
+  }
+  return 0xffffff;
 }
 
 function getNodeHeight(node: GraphNode): number {
@@ -353,6 +389,9 @@ function Canvas() {
   const createGraph = useGraphStore((state) => state.createGraph);
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
+  const drawingEnabled = useGraphStore((state) => state.drawingEnabled);
+  const drawingColor = useGraphStore((state) => state.drawingColor);
+  const drawingThickness = useGraphStore((state) => state.drawingThickness);
 
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -362,10 +401,15 @@ function Canvas() {
   const viewportRef = useRef<Container | null>(null);
   const nodeLayerRef = useRef<Container | null>(null);
   const edgeLayerRef = useRef<Graphics | null>(null);
+  const drawLayerRef = useRef<Graphics | null>(null);
   const effectsLayerRef = useRef<Graphics | null>(null);
   const connectionGeometriesRef = useRef<Map<string, ConnectionGeometry>>(new Map());
   const lightningPulsesRef = useRef<LightningPulse[]>([]);
   const nodeShocksRef = useRef<NodeShock[]>([]);
+  const freehandStrokesRef = useRef<FreehandStroke[]>([]);
+  const activeFreehandStrokeIdRef = useRef<string | null>(null);
+  const smokePuffsRef = useRef<SmokePuff[]>([]);
+  const lastSmokeEmitAtRef = useRef<Map<string, number>>(new Map());
   const nodeVisualsRef = useRef<Map<string, NodeVisual>>(new Map());
   const nodePositionsRef = useRef<Map<string, Position>>(new Map());
   const textNodesRef = useRef<Set<Text>>(new Set());
@@ -379,6 +423,9 @@ function Canvas() {
   const selectedConnectionIdRef = useRef<string | null>(null);
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const nodeExecutionStatesRef = useRef(nodeExecutionStates);
+  const drawingEnabledRef = useRef(drawingEnabled);
+  const drawingColorRef = useRef(drawingColor);
+  const drawingThicknessRef = useRef(drawingThickness);
   const previousNodeExecutionStatesRef = useRef<Record<string, NodeExecutionState>>({});
   const graphRef = useRef(graph);
   const renderGraphRef = useRef<() => void>(() => {});
@@ -388,6 +435,9 @@ function Canvas() {
   const viewportInitializedRef = useRef(false);
   selectedNodeIdRef.current = selectedNodeId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
+  drawingEnabledRef.current = drawingEnabled;
+  drawingColorRef.current = drawingColor;
+  drawingThicknessRef.current = drawingThickness;
 
   const drawMinimap = useCallback(() => {
     const canvas = minimapCanvasRef.current;
@@ -689,6 +739,39 @@ function Canvas() {
     drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
   }, []);
 
+  const drawFreehandStrokes = useCallback(() => {
+    const drawLayer = drawLayerRef.current;
+    const viewport = viewportRef.current;
+    if (!drawLayer || !viewport) {
+      return;
+    }
+
+    drawLayer.clear();
+    const viewportScale = Math.max(viewport.scale.x, 0.1);
+
+    for (const stroke of freehandStrokesRef.current) {
+      if (stroke.points.length === 0) {
+        continue;
+      }
+
+      const lineWidth = Math.max(stroke.thickness / viewportScale, 0.5 / viewportScale);
+      drawLayer.lineStyle(lineWidth, resolvePencilColor(stroke.color), 0.95, 0.5, false);
+
+      if (stroke.points.length === 1) {
+        const point = stroke.points[0];
+        drawLayer.beginFill(resolvePencilColor(stroke.color), 0.95);
+        drawLayer.drawCircle(point.x, point.y, lineWidth * 0.5);
+        drawLayer.endFill();
+        continue;
+      }
+
+      drawLayer.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i += 1) {
+        drawLayer.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+    }
+  }, []);
+
   const enqueueLightningForConnection = useCallback((connectionId: string) => {
     const now = performance.now();
     lightningPulsesRef.current = [
@@ -738,6 +821,73 @@ function Canvas() {
 
     effectsLayer.clear();
     const now = performance.now();
+    const currentGraph = graphRef.current;
+
+    if (currentGraph) {
+      const erroredNodeIds = new Set<string>();
+      for (const [nodeId, state] of Object.entries(nodeExecutionStatesRef.current)) {
+        if (state?.hasError) {
+          erroredNodeIds.add(nodeId);
+        }
+      }
+
+      for (const nodeId of erroredNodeIds) {
+        const visual = nodeVisualsRef.current.get(nodeId);
+        const position = nodePositionsRef.current.get(nodeId);
+        if (!visual || !position) {
+          continue;
+        }
+
+        const lastEmittedAt = lastSmokeEmitAtRef.current.get(nodeId) ?? (now - SMOKE_EMIT_INTERVAL_MS);
+        if (now - lastEmittedAt >= SMOKE_EMIT_INTERVAL_MS) {
+          smokePuffsRef.current.push({
+            nodeId,
+            startAt: now,
+            durationMs: SMOKE_MIN_DURATION_MS + Math.random() * (SMOKE_MAX_DURATION_MS - SMOKE_MIN_DURATION_MS),
+            originX: position.x + visual.width - 14 + (Math.random() - 0.5) * 5,
+            originY: position.y + 12 + (Math.random() - 0.5) * 3,
+            driftX: (Math.random() - 0.5) * 18,
+            driftY: -24 - Math.random() * 24,
+            startRadius: 2.8 + Math.random() * 2.2,
+            startAlpha: 0.2 + Math.random() * 0.18,
+            wobblePhase: Math.random() * Math.PI * 2,
+          });
+          lastSmokeEmitAtRef.current.set(nodeId, now);
+        }
+      }
+
+      for (const nodeId of Array.from(lastSmokeEmitAtRef.current.keys())) {
+        if (!erroredNodeIds.has(nodeId)) {
+          lastSmokeEmitAtRef.current.delete(nodeId);
+        }
+      }
+    }
+
+    smokePuffsRef.current = smokePuffsRef.current.filter((puff) => {
+      const age = (now - puff.startAt) / puff.durationMs;
+      if (age < 0 || age >= 1) {
+        return false;
+      }
+
+      const fade = 1 - age;
+      const radius = puff.startRadius + (age * 7.5);
+      const x = puff.originX + (puff.driftX * age) + Math.sin((age * 10) + puff.wobblePhase) * (1 + age * 1.8);
+      const y = puff.originY + (puff.driftY * age);
+      const alpha = puff.startAlpha * fade * fade;
+
+      effectsLayer.beginFill(0x020617, alpha);
+      effectsLayer.drawCircle(x, y, radius);
+      effectsLayer.endFill();
+      effectsLayer.beginFill(0x0f172a, alpha * 0.55);
+      effectsLayer.drawCircle(x - (radius * 0.15), y - (radius * 0.25), radius * 0.58);
+      effectsLayer.endFill();
+
+      return true;
+    });
+
+    if (smokePuffsRef.current.length > SMOKE_MAX_PARTICLES) {
+      smokePuffsRef.current.splice(0, smokePuffsRef.current.length - SMOKE_MAX_PARTICLES);
+    }
 
     lightningPulsesRef.current = lightningPulsesRef.current.filter((pulse) => {
       const geometry = connectionGeometriesRef.current.get(pulse.connectionId);
@@ -756,7 +906,7 @@ function Canvas() {
       const samples = 20;
 
       // Draw a soft full-path glow so activity is immediately visible.
-      effectsLayer.lineStyle(8, 0x60a5fa, 0.55 * alpha);
+      effectsLayer.lineStyle(8, 0x93c5fd, 0.55 * alpha);
       drawBezierConnection(
         effectsLayer,
         geometry.startX,
@@ -765,7 +915,7 @@ function Canvas() {
         geometry.endY
       );
 
-      effectsLayer.lineStyle(5.5, 0xfacc15, 1 * alpha);
+      effectsLayer.lineStyle(5.5, 0xe0f2fe, 1 * alpha);
       let started = false;
       for (let i = 0; i <= samples; i += 1) {
         const ratio = i / samples;
@@ -801,10 +951,10 @@ function Canvas() {
       }
 
       const headPoint = pointOnBezier(geometry, headT);
-      effectsLayer.beginFill(0xfef08a, 0.95 * alpha);
+      effectsLayer.beginFill(0xf8fbff, 0.95 * alpha);
       effectsLayer.drawCircle(headPoint.x, headPoint.y, 4.5);
       effectsLayer.endFill();
-      effectsLayer.lineStyle(1.4, 0xffffff, 0.8 * alpha);
+      effectsLayer.lineStyle(1.4, 0xbfdbfe, 0.8 * alpha);
       effectsLayer.drawCircle(headPoint.x, headPoint.y, 8.5);
 
       return true;
@@ -824,7 +974,7 @@ function Canvas() {
 
       const alpha = 1 - progress;
       const glowExpand = 6 + progress * 10;
-      effectsLayer.lineStyle(2.2, 0xfacc15, 0.75 * alpha);
+      effectsLayer.lineStyle(2.2, 0xe2f0ff, 0.75 * alpha);
       effectsLayer.drawRoundedRect(
         position.x - glowExpand,
         position.y - glowExpand,
@@ -837,7 +987,7 @@ function Canvas() {
       const statusY = position.y + 14;
       effectsLayer.lineStyle(1.6, 0xffffff, 0.65 * alpha);
       effectsLayer.drawCircle(statusX, statusY, 7 + progress * 11);
-      effectsLayer.lineStyle(1, 0xf59e0b, 0.55 * alpha);
+      effectsLayer.lineStyle(1, 0x93c5fd, 0.55 * alpha);
       effectsLayer.drawCircle(statusX, statusY, 4 + progress * 7);
 
       return true;
@@ -963,6 +1113,7 @@ function Canvas() {
 
     if (!currentGraph) {
       drawConnections();
+      drawFreehandStrokes();
       return;
     }
 
@@ -990,6 +1141,8 @@ function Canvas() {
         ? 0xef4444
         : nodeExecutionState?.isComputing
           ? 0xf59e0b
+          : nodeExecutionState?.isStale
+            ? 0x8b5a2b
           : autoRecomputeEnabled
             ? 0x22c55e
             : 0x94a3b8;
@@ -1040,6 +1193,9 @@ function Canvas() {
         marker.hitArea = new Circle(0, 0, PORT_RADIUS + 8);
         marker.position.set(0, y);
         marker.on('pointerover', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
           event.stopPropagation();
           hoveredInputPortKeyRef.current = portKey;
           drawInputPortMarker(marker, true);
@@ -1050,6 +1206,9 @@ function Canvas() {
           }
         });
         marker.on('pointerout', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
           event.stopPropagation();
           if (hoveredInputPortKeyRef.current === portKey) {
             hoveredInputPortKeyRef.current = null;
@@ -1092,11 +1251,17 @@ function Canvas() {
         marker.hitArea = new Circle(0, 0, PORT_RADIUS + 8);
         marker.position.set(width, y);
         marker.on('pointerover', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
           event.stopPropagation();
           hoveredOutputPortKeyRef.current = portKey;
           drawOutputPortMarker(marker, true);
         });
         marker.on('pointerout', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
           event.stopPropagation();
           if (hoveredOutputPortKeyRef.current === portKey) {
             hoveredOutputPortKeyRef.current = null;
@@ -1106,6 +1271,9 @@ function Canvas() {
           }
         });
         marker.on('pointerdown', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
           if (event.button !== 0) return;
           event.stopPropagation();
           const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
@@ -1147,6 +1315,9 @@ function Canvas() {
       }
 
       container.on('pointerdown', (event: FederatedPointerEvent) => {
+        if (drawingEnabledRef.current) {
+          return;
+        }
         if (event.button !== 0) return;
         event.stopPropagation();
         const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
@@ -1173,6 +1344,9 @@ function Canvas() {
       });
 
       container.on('pointertap', (event: FederatedPointerEvent) => {
+        if (drawingEnabledRef.current) {
+          return;
+        }
         const dragState = nodeDragStateRef.current;
         if (dragState?.nodeId === node.id && dragState.moved) {
           event.stopPropagation();
@@ -1205,6 +1379,7 @@ function Canvas() {
     }
 
     drawConnections();
+    drawFreehandStrokes();
 
     if (!viewportInitializedRef.current) {
       fitViewportToGraph();
@@ -1215,7 +1390,7 @@ function Canvas() {
       updateTextResolutionForScale(viewport.scale.x);
     }
     drawMinimap();
-  }, [drawConnections, drawMinimap, fitViewportToGraph, selectNode, selectedNodeId, syncNodePortPositions, updateTextResolutionForScale]);
+  }, [drawConnections, drawFreehandStrokes, drawMinimap, fitViewportToGraph, selectNode, selectedNodeId, syncNodePortPositions, updateTextResolutionForScale]);
 
   useEffect(() => {
     renderGraphRef.current = renderGraph;
@@ -1237,12 +1412,33 @@ function Canvas() {
       selectedConnectionIdRef.current = null;
     }
 
-    renderGraph();
+    renderGraphRef.current();
   }, [graph, renderGraph]);
 
   useEffect(() => {
     renderGraphRef.current();
   }, [selectedNodeId, renderGraph]);
+
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app) {
+      return;
+    }
+
+    const canvasElement = app.view as HTMLCanvasElement;
+    canvasElement.style.cursor = drawingEnabled ? 'crosshair' : 'grab';
+
+    if (drawingEnabled) {
+      panStateRef.current = null;
+      nodeDragStateRef.current = null;
+      if (connectionDragStateRef.current) {
+        endConnectionDrag(false);
+      }
+    }
+
+    drawFreehandStrokes();
+    renderGraphRef.current();
+  }, [drawingEnabled, drawFreehandStrokes, endConnectionDrag]);
 
   useEffect(() => {
     const host = canvasHostRef.current;
@@ -1263,6 +1459,8 @@ function Canvas() {
     const viewport = new Container();
     const edgeLayer = new Graphics();
     const nodeLayer = new Container();
+    const drawLayer = new Graphics();
+    drawLayer.eventMode = 'none';
     const effectsLayer = new Graphics();
     effectsLayer.eventMode = 'none';
     const createBackgroundTexture = () => {
@@ -1303,10 +1501,12 @@ function Canvas() {
     viewportRef.current = viewport;
     edgeLayerRef.current = edgeLayer;
     nodeLayerRef.current = nodeLayer;
+    drawLayerRef.current = drawLayer;
     effectsLayerRef.current = effectsLayer;
     app.stage.addChild(backgroundSprite);
     viewport.addChild(edgeLayer);
     viewport.addChild(nodeLayer);
+    viewport.addChild(drawLayer);
     viewport.addChild(effectsLayer);
     app.stage.addChild(viewport);
 
@@ -1327,6 +1527,11 @@ function Canvas() {
         endConnectionDrag(true);
       }
 
+      if (activeFreehandStrokeIdRef.current) {
+        activeFreehandStrokeIdRef.current = null;
+        drawFreehandStrokes();
+      }
+
       const dragState = nodeDragStateRef.current;
       if (dragState) {
         if (dragState.moved) {
@@ -1339,12 +1544,26 @@ function Canvas() {
       }
 
       panStateRef.current = null;
-      canvasElement.style.cursor = 'grab';
+      canvasElement.style.cursor = drawingEnabledRef.current ? 'crosshair' : 'grab';
     };
 
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
       if (event.button !== 0) return;
       canvasElement.focus({ preventScroll: true });
+
+      if (drawingEnabledRef.current) {
+        const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
+        const strokeId = uuidv4();
+        freehandStrokesRef.current.push({
+          id: strokeId,
+          color: drawingColorRef.current,
+          thickness: drawingThicknessRef.current,
+          points: [{ x: worldPoint.x, y: worldPoint.y }],
+        });
+        activeFreehandStrokeIdRef.current = strokeId;
+        drawFreehandStrokes();
+        return;
+      }
 
       // Only treat direct stage clicks as empty-canvas interactions.
       if (event.target !== app.stage) {
@@ -1411,6 +1630,30 @@ function Canvas() {
         return;
       }
 
+      const activeStrokeId = activeFreehandStrokeIdRef.current;
+      if (activeStrokeId) {
+        const currentViewport = viewportRef.current;
+        if (!currentViewport) {
+          return;
+        }
+        const worldPoint = currentViewport.toLocal(new Point(event.global.x, event.global.y));
+        const currentStroke = freehandStrokesRef.current.find((stroke) => stroke.id === activeStrokeId);
+        if (!currentStroke) {
+          activeFreehandStrokeIdRef.current = null;
+          return;
+        }
+
+        const previousPoint = currentStroke.points[currentStroke.points.length - 1];
+        if (
+          !previousPoint ||
+          Math.hypot(worldPoint.x - previousPoint.x, worldPoint.y - previousPoint.y) >= DRAW_SMOOTHING_STEP
+        ) {
+          currentStroke.points.push({ x: worldPoint.x, y: worldPoint.y });
+          drawFreehandStrokes();
+        }
+        return;
+      }
+
       const dragState = nodeDragStateRef.current;
       if (dragState) {
         const currentViewport = viewportRef.current;
@@ -1454,6 +1697,10 @@ function Canvas() {
 
     const handleStagePointerUp = (event: FederatedPointerEvent) => {
       if (event.button !== 0) return;
+      if (activeFreehandStrokeIdRef.current) {
+        activeFreehandStrokeIdRef.current = null;
+        drawFreehandStrokes();
+      }
       finishInteraction();
     };
 
@@ -1481,6 +1728,7 @@ function Canvas() {
 
       currentViewport.scale.set(nextScale);
       updateTextResolutionForScale(nextScale);
+      drawFreehandStrokes();
       currentViewport.position.set(
         snapToPixel(pointer.x - worldPointBefore.x * nextScale),
         snapToPixel(pointer.y - worldPointBefore.y * nextScale)
@@ -1502,6 +1750,7 @@ function Canvas() {
       }
       drawMinimap();
       drawEffects();
+      drawFreehandStrokes();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1553,7 +1802,7 @@ function Canvas() {
     window.addEventListener('keydown', handleKeyDown);
     app.ticker.add(drawEffects);
 
-    renderGraph();
+    renderGraphRef.current();
 
     return () => {
       window.removeEventListener('pointerup', finishInteraction);
@@ -1571,9 +1820,10 @@ function Canvas() {
       viewportRef.current = null;
       edgeLayerRef.current = null;
       nodeLayerRef.current = null;
+      drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [deleteConnection, deleteNode, drawConnections, drawEffects, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, selectNode, setInputPortHighlight, syncNodePortPositions, updateNodePosition, updateTextResolutionForScale]);
+  }, [deleteConnection, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, selectNode, setInputPortHighlight, syncNodePortPositions, updateNodePosition, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;

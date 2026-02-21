@@ -33,7 +33,7 @@ export enum NodeType {
   EXTERNAL_OUTPUT = 'external_output',
 }
 
-export type RuntimeId = 'javascript_vm';
+export type RuntimeId = 'javascript_vm' | 'python_process';
 
 export interface NodeConfig {
   type: NodeType;

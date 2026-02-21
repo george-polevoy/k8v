@@ -25,6 +25,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Infers data schemas from outputs
 - Delegates inline code execution to runtime implementations (`packages/backend/src/core/execution/`)
 - Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout)
+- Additional runtime: `PythonProcessRuntime` (`python_process`) via spawned `python3` process with timeout
 
 #### Execution Engine (`packages/backend/src/core/execution/`)
 - **Pluggable runtime architecture** for secure code execution
@@ -32,22 +33,33 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Supports multiple languages: JavaScript, TypeScript, Python, etc.
 - See [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) for detailed design
 
+#### MCP Server (`packages/mcp-server/src/index.ts`)
+- Exposes graph-editing operations for agent clients over MCP stdio transport
+- Delegates graph mutations to existing backend REST API (`/api/graphs/*`)
+- Provides internal Playwright-based screenshot rendering for agents
+- Uses an internal standalone render page (no app chrome/panels) for deterministic captures
+- Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions
+- Adds stable per-graph concise node-number overlays to improve OCR/agent node targeting
+
 ### Frontend
 
 #### Canvas (`packages/frontend/src/components/Canvas.tsx`)
 - Infinite canvas rendered with Pixi.js
 - Viewport navigation supports wheel zoom, wheel scroll (modifier), and drag-to-pan
 - Visual node and edge rendering from graph store state
+- Freehand pencil drawing layer rendered in Pixi viewport
 - Drag-and-drop node positioning with persisted coordinates
-- Node status indicators (error/computing/auto-recompute/idle)
+- Node status indicators (error/computing/stale/auto-recompute/idle)
+- Error-state smoke animation rendered as part of the Pixi effects layer
 
 #### Graph Store (`packages/frontend/src/store/graphStore.ts`)
 - Zustand state management for graph data
 - API integration with backend
 - Node and connection management
 - Optimistic persistence for graph edits
-- Node execution state tracking (computing/error/last-run)
+- Node execution state tracking (computing/error/stale/last-run)
 - Auto-recompute propagation for opted-in downstream nodes
+- Downstream stale propagation from upstream error states
 
 ## Data Flow
 
@@ -63,6 +75,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
 - Runtime computation uses topological ordering so dependencies are computed before dependents.
 - Auto-recompute processing also follows upstream-to-downstream topological order.
+- When an upstream node is errored, auto-recompute skips affected downstream nodes and marks them stale.
 - Circular dependencies are rejected for new graphs and all graph updates.
 
 ## Node Types

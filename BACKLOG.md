@@ -52,18 +52,20 @@ Status: TODO
 - Add schema type editing for ports.
 
 ### B-005 Compute Observability
-Status: TODO
+Status: IN PROGRESS
 
 - Add per-node compute history view (timestamp, status, duration).
 - Distinguish runtime error vs transport/API error in UI.
-- Provide clear stale-result vs fresh-result indicator.
+- Provide clear stale-result vs fresh-result indicator. (DONE: downstream stale state + brown indicator on upstream error propagation)
+- Add visual error-state cue for fast scanning. (DONE: subtle black smoke emission from errored nodes)
 
 ### B-006 Canvas UX Quality
-Status: TODO
+Status: IN PROGRESS
 
 - Add marquee node selection and multi-select operations.
 - Add keyboard shortcuts reference and discoverability.
 - Add optional edge reroute handles.
+- Add pencil freehand annotations with limited style presets. (DONE: white/green/red and hairline/3px/9px options in toolbar)
 
 ### B-007 Automated UI Regression Coverage
 Status: TODO
@@ -73,3 +75,19 @@ Status: TODO
 - Add Playwright e2e coverage for node panel editing: rename node, add/rename/reorder/delete inputs.
 - Add automated checks for auto-recompute toggle and status indicator transitions.
 - Add backend API test for missing-node-reference connection validation.
+
+### B-008 MCP Agent Editing + Screenshot API
+Status: IN PROGRESS
+
+- Expose graph-editing operations via MCP for agent-driven node and connection changes. (DONE)
+- Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
+- Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
+- Add automated MCP integration tests for graph edit operations and screenshot size/region assertions.
+
+### B-009 Python Backend Runtime
+Status: DONE
+
+- Add backend `python_process` execution runtime for inline nodes. (DONE)
+- Wire runtime registry so NodeExecutor resolves Python runtime by id. (DONE)
+- Add runtime selection options in frontend node creation and node panel runtime selector. (DONE)
+- Add backend regression tests for python runtime execution, errors, timeout, and API acceptance. (DONE)

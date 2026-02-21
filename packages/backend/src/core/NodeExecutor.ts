@@ -1,7 +1,8 @@
 import { GraphNode, NodeType, ComputationResult, DataSchema } from '../types/index.js';
 import { DataStore } from './DataStore.js';
-import { DEFAULT_RUNTIME_ID, ExecutionRuntime } from './execution/types.js';
+import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
+import { PythonProcessRuntime } from './execution/PythonProcessRuntime.js';
 
 /**
  * Executes nodes and produces computation results
@@ -13,7 +14,7 @@ export class NodeExecutor {
 
   constructor(
     dataStore: DataStore,
-    runtimeOrRegistry: ExecutionRuntime | Record<string, ExecutionRuntime> = new JavaScriptVmRuntime(),
+    runtimeOrRegistry?: ExecutionRuntime | Record<string, ExecutionRuntime>,
     defaultRuntimeId: string = DEFAULT_RUNTIME_ID
   ) {
     this.dataStore = dataStore;
@@ -236,14 +237,28 @@ export class NodeExecutor {
   }
 
   private initializeRuntimes(
-    runtimeOrRegistry: ExecutionRuntime | Record<string, ExecutionRuntime>
+    runtimeOrRegistry?: ExecutionRuntime | Record<string, ExecutionRuntime>
   ): Map<string, ExecutionRuntime> {
+    const builtInRuntimes: Record<string, ExecutionRuntime> = {
+      [DEFAULT_RUNTIME_ID]: new JavaScriptVmRuntime(),
+      [PYTHON_RUNTIME_ID]: new PythonProcessRuntime(),
+    };
+
+    if (!runtimeOrRegistry) {
+      return new Map(Object.entries(builtInRuntimes));
+    }
+
     if (this.isExecutionRuntime(runtimeOrRegistry)) {
-      return new Map([[this.defaultRuntimeId, runtimeOrRegistry]]);
+      return new Map(
+        Object.entries({
+          ...builtInRuntimes,
+          [this.defaultRuntimeId]: runtimeOrRegistry,
+        })
+      );
     }
 
     const runtimeRegistry: Record<string, ExecutionRuntime> = {
-      [this.defaultRuntimeId]: new JavaScriptVmRuntime(),
+      ...builtInRuntimes,
       ...runtimeOrRegistry,
     };
     return new Map(Object.entries(runtimeRegistry));
