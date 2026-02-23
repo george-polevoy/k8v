@@ -11,6 +11,12 @@ export interface CanvasBackgroundSettings {
   baseColor: string;
 }
 
+export interface GraphProjection {
+  id: string;
+  name: string;
+  nodePositions: Record<string, Position>;
+}
+
 export interface PortDefinition {
   name: string;
   schema: DataSchema;
@@ -99,6 +105,8 @@ export interface Graph {
   nodes: GraphNode[];
   connections: Connection[];
   canvasBackground?: CanvasBackgroundSettings;
+  projections?: GraphProjection[];
+  activeProjectionId?: string;
   pythonEnvs?: PythonEnvironment[];
   drawings?: GraphDrawing[];
   createdAt: number;

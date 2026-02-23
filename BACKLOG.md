@@ -83,6 +83,7 @@ Status: IN PROGRESS
 
 - Expose graph-editing operations via MCP for agent-driven node and connection changes. (DONE)
 - Expose graph-level Python env add/edit/delete operations via MCP. (DONE)
+- Expose projection add/select operations via MCP, including clone-from-active creation behavior. (DONE)
 - Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
 - Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
 - Add automated MCP integration tests for graph edit operations and screenshot size/region assertions.

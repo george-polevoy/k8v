@@ -12,6 +12,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
+- Graph panel projection management: select active 2D projection and add new projections.
+- New projections clone node coordinates from the currently selected projection.
+- Graph stores per-projection node coordinates and active projection id; default projection is always present.
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Graph panel canvas background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog.
 - Current graph ID is shown in graph panel for explicit graph-target confirmation.
@@ -25,6 +28,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Shift/Alt wheel directional scroll.
 - Drag-to-pan on empty canvas.
 - Drag-to-move nodes with persisted positions.
+- Node position persistence is projection-aware: moving a node updates coordinates only for the active projection.
+- Switching active projection repositions all nodes to that projection's stored coordinates.
 - Edge rendering with Bezier curves.
 - Edge hit-testing and selection.
 - Delete selected edge with `Delete`/`Backspace`.
@@ -128,6 +133,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - MCP server package at `packages/mcp-server`.
 - MCP graph-edit tools for node creation, moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
+- MCP graph-edit tools for projections: add a projection (cloned from current active by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.

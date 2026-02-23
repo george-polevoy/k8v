@@ -300,6 +300,81 @@ test('PUT /api/graphs persists canvas background mode and base color updates', a
   }
 });
 
+test('POST /api/graphs initializes default projection metadata when omitted', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+
+    assert.equal(graph.activeProjectionId, 'default');
+    assert.ok(Array.isArray(graph.projections));
+    assert.equal(graph.projections.length, 1);
+    assert.equal(graph.projections[0].id, 'default');
+    assert.equal(graph.projections[0].name, 'Default');
+    assert.equal(graph.projections[0].nodePositions['node-1'].x, 0);
+    assert.equal(graph.projections[0].nodePositions['node-1'].y, 0);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs switches active projection and applies projected node coordinates', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const altProjectionId = 'alt-projection';
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projections: [
+          {
+            id: 'default',
+            name: 'Default',
+            nodePositions: {
+              'node-1': { x: 0, y: 0 },
+            },
+          },
+          {
+            id: altProjectionId,
+            name: 'Projection 2',
+            nodePositions: {
+              'node-1': { x: 320, y: 180 },
+            },
+          },
+        ],
+        activeProjectionId: altProjectionId,
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.activeProjectionId, altProjectionId);
+    assert.equal(updatedGraph.nodes[0].position.x, 320);
+    assert.equal(updatedGraph.nodes[0].position.y, 180);
+    assert.equal(
+      updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodePositions['node-1'].x,
+      320
+    );
+    assert.equal(
+      updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodePositions['node-1'].y,
+      180
+    );
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('DELETE /api/graphs/:id deletes graph and subsequent fetch returns 404', async () => {
   const ctx = await setupTestServer();
 

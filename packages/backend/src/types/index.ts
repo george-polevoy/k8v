@@ -115,6 +115,22 @@ export const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
   baseColor: '#1d437e',
 };
 
+export const DEFAULT_GRAPH_PROJECTION_ID = 'default';
+export const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
+
+export const GraphProjection = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  nodePositions: z.record(
+    z.object({
+      x: z.number(),
+      y: z.number(),
+    })
+  ).default({}),
+});
+
+export type GraphProjection = z.infer<typeof GraphProjection>;
+
 // Node configuration
 export const NodeConfig = z.object({
   type: z.nativeEnum(NodeType),
@@ -162,6 +178,8 @@ export const Graph = z.object({
   nodes: z.array(GraphNode),
   connections: z.array(Connection),
   canvasBackground: CanvasBackground.optional(),
+  projections: z.array(GraphProjection).optional(),
+  activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).default([]),
   drawings: z.array(GraphDrawing).default([]),
   createdAt: z.number(),

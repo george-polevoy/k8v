@@ -38,6 +38,8 @@ Last reviewed: February 23, 2026.
 - `A-FE-18` `packages/frontend/tests/diagnostics.test.ts`: diagnostics formatter converts technical backend error strings into user-readable messages.
 - `A-FE-19` `packages/frontend/tests/canvasBackground.test.ts`: canvas background normalization applies safe defaults and deterministic gradient stop derivation.
 - `A-FE-20` `packages/frontend/tests/color.test.ts`: drawing color normalization supports hex values, legacy names, and fallback conversion.
+- `A-FE-21` `packages/frontend/tests/projections.test.ts`: projection utilities normalize default projection state and apply projection coordinates to nodes.
+- `A-FE-22` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` writes node coordinates to the active projection map.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -77,6 +79,8 @@ Last reviewed: February 23, 2026.
 - `A-BE-37` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` accepts graph updates with payloads larger than 100KB (large drawings + node additions).
 - `A-BE-38` `packages/backend/tests/app.test.ts`: graph API applies default canvas background settings and persists canvas background updates.
 - `A-BE-39` `packages/backend/tests/app.test.ts`: graph API normalizes drawing path colors to hex format.
+- `A-BE-40` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default projection metadata when omitted.
+- `A-BE-41` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` switches active projection and applies that projection's node coordinates.
 
 ## Manual Regression Test Cases
 
@@ -89,6 +93,7 @@ Last reviewed: February 23, 2026.
 - `M-GRAPH-07`: Graph panel Python env editor add/edit/delete/save persists graph-level env definitions and reloads correctly.
 - `M-GRAPH-08`: Graph panel delete-graph action removes the selected graph and automatically switches to latest remaining graph (or creates a new graph if none remain).
 - `M-GRAPH-09`: Graph panel canvas background controls persist mode (`solid`/`gradient`) and selected base color.
+- `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates and switch active projection.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift/Alt + wheel performs directional scroll without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
@@ -141,6 +146,7 @@ Last reviewed: February 23, 2026.
 - `M-MCP-05`: MCP drawing tools can create/move/rename/delete drawings and append drawing paths that appear in `graph_get`.
 - `M-MCP-06`: MCP screenshot renderer includes persisted drawing paths and drawing handle labels.
 - `M-MCP-07`: MCP Python env tools can add/edit/delete graph env definitions, and env renames/deletes keep node `pythonEnv` references consistent.
+- `M-MCP-08`: MCP projection tools can add a projection (cloned from active projection by default) and switch active projection coordinates.
 
 ## Feature Coverage Map
 
@@ -155,6 +161,8 @@ Last reviewed: February 23, 2026.
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
+| Graph panel projection management (add + select active projection) | `M-GRAPH-10` | Manual |
+| New projection coordinates clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Graph panel canvas background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-FE-19`, `M-GRAPH-09` | Automated + Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
@@ -168,7 +176,8 @@ Last reviewed: February 23, 2026.
 | Mouse wheel zoom | `M-CANVAS-01` | Manual |
 | Shift/Alt wheel directional scroll | `M-CANVAS-02` | Manual |
 | Drag-to-pan on empty canvas | `M-CANVAS-03` | Manual |
-| Drag-to-move nodes with persisted positions | `A-FE-02`, `M-CANVAS-04` | Automated + Manual |
+| Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `M-CANVAS-04` | Automated + Manual |
+| Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Edge rendering with Bezier curves | `M-CANVAS-07` | Manual |
 | Edge hit-testing and selection | `M-CANVAS-07` | Manual |
 | Delete selected edge with `Delete`/`Backspace` | `M-CANVAS-07` | Manual |
@@ -225,7 +234,7 @@ Last reviewed: February 23, 2026.
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
-| MCP graph-edit API coverage | `M-MCP-04`, `M-MCP-07` | Manual |
+| MCP graph-edit API coverage | `M-MCP-04`, `M-MCP-07`, `M-MCP-08` | Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
 | MCP screenshot node-number overlay (stable unique identifiers) | `M-MCP-03` | Manual |

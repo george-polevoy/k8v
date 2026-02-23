@@ -2,9 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { CanvasBackgroundSettings, PythonEnvironment } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import {
+  applyProjectionToNodes,
+  cloneProjectionNodePositions,
+  DEFAULT_GRAPH_PROJECTION_ID,
+  normalizeGraphProjectionState,
+} from '../utils/projections';
 import ColorSelectionDialog from './ColorSelectionDialog';
+import { v4 as uuidv4 } from 'uuid';
 
 function formatGraphOptionLabel(name: string, id: string): string {
+  return `${name} (${id.slice(0, 8)})`;
+}
+
+function formatProjectionOptionLabel(name: string, id: string): string {
+  if (id === DEFAULT_GRAPH_PROJECTION_ID) {
+    return `${name} (${id})`;
+  }
   return `${name} (${id.slice(0, 8)})`;
 }
 
@@ -15,6 +29,17 @@ function getNextPythonEnvName(envs: PythonEnvironment[]): string {
   while (existing.has(candidate)) {
     index += 1;
     candidate = `python_env_${index}`;
+  }
+  return candidate;
+}
+
+function getNextProjectionName(existingNames: string[]): string {
+  const existing = new Set(existingNames);
+  let index = 1;
+  let candidate = `Projection ${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `Projection ${index}`;
   }
   return candidate;
 }
@@ -244,6 +269,84 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     }
   }, [graph, pythonEnvDrafts, refreshGraphSummaries, updateGraph]);
 
+  const handleSelectProjection = useCallback(async (projectionId: string) => {
+    if (!graph || !projectionId.trim()) {
+      return;
+    }
+
+    const projectionState = normalizeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId
+    );
+    if (projectionState.activeProjectionId === projectionId) {
+      return;
+    }
+
+    const selectedProjection = projectionState.projections.find(
+      (projection) => projection.id === projectionId
+    );
+    if (!selectedProjection) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({
+        projections: projectionState.projections,
+        activeProjectionId: selectedProjection.id,
+        nodes: applyProjectionToNodes(graph.nodes, selectedProjection),
+        updatedAt: Date.now(),
+      });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, refreshGraphSummaries, updateGraph]);
+
+  const handleAddProjection = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const projectionState = normalizeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId
+    );
+    const sourceProjection = projectionState.projections.find(
+      (projection) => projection.id === projectionState.activeProjectionId
+    );
+    const projectionId = uuidv4();
+    const projectionName = getNextProjectionName(
+      projectionState.projections.map((projection) => projection.name)
+    );
+    const newProjection = {
+      id: projectionId,
+      name: projectionName,
+      nodePositions: cloneProjectionNodePositions(graph.nodes, sourceProjection),
+    };
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({
+        projections: [...projectionState.projections, newProjection],
+        activeProjectionId: newProjection.id,
+        nodes: applyProjectionToNodes(graph.nodes, newProjection),
+        updatedAt: Date.now(),
+      });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, refreshGraphSummaries, updateGraph]);
+
+  const projectionState = graph
+    ? normalizeGraphProjectionState(graph.nodes, graph.projections, graph.activeProjectionId)
+    : null;
+  const projectionOptions = projectionState?.projections ?? [];
+  const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+
   return (
     <div
       data-testid="graph-panel"
@@ -444,6 +547,64 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
             }}
           >
             Create
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '8px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
+            Projections
+          </div>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Active projection
+          </label>
+          <select
+            data-testid="projection-select"
+            value={graph ? activeProjectionId : ''}
+            disabled={!graph || isGraphActionInFlight}
+            onChange={(event) => {
+              void handleSelectProjection(event.target.value);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px',
+              marginBottom: '8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+            }}
+          >
+            {projectionOptions.map((projection) => (
+              <option key={projection.id} value={projection.id}>
+                {formatProjectionOptionLabel(projection.name, projection.id)}
+              </option>
+            ))}
+          </select>
+          <button
+            data-testid="projection-add"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              void handleAddProjection();
+            }}
+            style={{
+              width: '100%',
+              padding: '7px 8px',
+              background: '#475569',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Add Projection
           </button>
         </div>
 

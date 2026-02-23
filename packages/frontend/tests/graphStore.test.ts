@@ -250,6 +250,91 @@ test('updateNodePosition persists position without changing node version', async
   }
 });
 
+test('updateNodePosition persists position to active projection nodePositions', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const initialGraph: Graph = {
+    id: 'g-projections',
+    name: 'Graph projections',
+    nodes: [
+      {
+        id: 'n1',
+        type: 'inline_code' as any,
+        position: { x: 10, y: 20 },
+        metadata: {
+          name: 'Node',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'node-version-1',
+      },
+    ],
+    connections: [],
+    projections: [
+      {
+        id: 'default',
+        name: 'Default',
+        nodePositions: {
+          n1: { x: 10, y: 20 },
+        },
+      },
+      {
+        id: 'alt',
+        name: 'Alt',
+        nodePositions: {
+          n1: { x: 40, y: 50 },
+        },
+      },
+    ],
+    activeProjectionId: 'alt',
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    useGraphStore.getState().updateNodePosition('n1', { x: 111, y: 222 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = useGraphStore.getState();
+    assert.ok(capturedPayload, 'expected updateGraph payload');
+    assert.equal(capturedPayload.nodes[0].position.x, 111);
+    assert.equal(capturedPayload.nodes[0].position.y, 222);
+
+    const defaultProjection = capturedPayload.projections.find((projection: any) => projection.id === 'default');
+    const altProjection = capturedPayload.projections.find((projection: any) => projection.id === 'alt');
+    assert.ok(defaultProjection);
+    assert.ok(altProjection);
+    assert.equal(defaultProjection.nodePositions.n1.x, 10);
+    assert.equal(defaultProjection.nodePositions.n1.y, 20);
+    assert.equal(altProjection.nodePositions.n1.x, 111);
+    assert.equal(altProjection.nodePositions.n1.y, 222);
+
+    assert.equal(state.graph?.activeProjectionId, 'alt');
+    assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.x, 111);
+    assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.y, 222);
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
 test('updateNodeCardSize persists dimensions without changing node version', async () => {
   const originalPut = axios.put;
   let capturedPayload: any = null;

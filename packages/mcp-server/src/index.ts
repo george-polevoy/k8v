@@ -10,6 +10,8 @@ import { z } from 'zod';
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+const DEFAULT_GRAPH_PROJECTION_ID = 'default';
+const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
 
 function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
   const fallbackColor = HEX_COLOR_PATTERN.test(String(fallback)) ? String(fallback).toLowerCase() : '#ffffff';
@@ -115,12 +117,20 @@ interface CanvasBackground {
   baseColor: string;
 }
 
+interface GraphProjection {
+  id: string;
+  name: string;
+  nodePositions: Record<string, { x: number; y: number }>;
+}
+
 interface Graph {
   id: string;
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
   canvasBackground?: CanvasBackground;
+  projections?: GraphProjection[];
+  activeProjectionId?: string;
   pythonEnvs?: PythonEnvironment[];
   drawings?: GraphDrawing[];
   createdAt: number;
@@ -704,6 +714,121 @@ function resolveBackendUrl(explicitUrl?: string): string {
   return sanitizeBaseUrl(explicitUrl ?? DEFAULT_BACKEND_URL);
 }
 
+function clonePosition(position: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: position.x,
+    y: position.y,
+  };
+}
+
+function buildNodePositionMap(nodes: GraphNode[]): Record<string, { x: number; y: number }> {
+  const map: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    map[node.id] = clonePosition(node.position);
+  }
+  return map;
+}
+
+function cloneProjectionNodePositions(
+  nodes: GraphNode[],
+  sourceProjection?: GraphProjection
+): Record<string, { x: number; y: number }> {
+  const fallbackPositions = buildNodePositionMap(nodes);
+  const cloned: Record<string, { x: number; y: number }> = {};
+
+  for (const [nodeId, fallbackPosition] of Object.entries(fallbackPositions)) {
+    const candidate = sourceProjection?.nodePositions?.[nodeId];
+    if (
+      candidate &&
+      Number.isFinite(candidate.x) &&
+      Number.isFinite(candidate.y)
+    ) {
+      cloned[nodeId] = clonePosition(candidate);
+      continue;
+    }
+    cloned[nodeId] = clonePosition(fallbackPosition);
+  }
+
+  return cloned;
+}
+
+function normalizeGraphProjectionState(
+  nodes: GraphNode[],
+  projections: GraphProjection[] | undefined,
+  activeProjectionId: string | undefined
+): { projections: GraphProjection[]; activeProjectionId: string } {
+  const fallbackNodePositions = buildNodePositionMap(nodes);
+  const deduped: GraphProjection[] = [];
+  const seen = new Set<string>();
+
+  for (const projection of projections ?? []) {
+    const projectionId = projection.id.trim();
+    if (!projectionId || seen.has(projectionId)) {
+      continue;
+    }
+    seen.add(projectionId);
+
+    const nodePositions: Record<string, { x: number; y: number }> = {};
+    for (const [nodeId, fallbackPosition] of Object.entries(fallbackNodePositions)) {
+      const candidate = projection.nodePositions?.[nodeId];
+      if (
+        candidate &&
+        Number.isFinite(candidate.x) &&
+        Number.isFinite(candidate.y)
+      ) {
+        nodePositions[nodeId] = clonePosition(candidate);
+      } else {
+        nodePositions[nodeId] = clonePosition(fallbackPosition);
+      }
+    }
+
+    deduped.push({
+      id: projectionId,
+      name: projection.name.trim() || projectionId,
+      nodePositions,
+    });
+  }
+
+  if (!seen.has(DEFAULT_GRAPH_PROJECTION_ID)) {
+    deduped.unshift({
+      id: DEFAULT_GRAPH_PROJECTION_ID,
+      name: DEFAULT_GRAPH_PROJECTION_NAME,
+      nodePositions: fallbackNodePositions,
+    });
+  }
+
+  const selectedActiveProjectionId =
+    typeof activeProjectionId === 'string' && activeProjectionId.trim()
+      ? activeProjectionId.trim()
+      : DEFAULT_GRAPH_PROJECTION_ID;
+  const normalizedActiveProjectionId = deduped.some(
+    (projection) => projection.id === selectedActiveProjectionId
+  )
+    ? selectedActiveProjectionId
+    : DEFAULT_GRAPH_PROJECTION_ID;
+
+  return {
+    projections: deduped,
+    activeProjectionId: normalizedActiveProjectionId,
+  };
+}
+
+function applyProjectionToNodes(nodes: GraphNode[], projection: GraphProjection): GraphNode[] {
+  return nodes.map((node) => {
+    const projected = projection.nodePositions[node.id];
+    if (!projected) {
+      return node;
+    }
+    if (node.position.x === projected.x && node.position.y === projected.y) {
+      return node;
+    }
+    return {
+      ...node,
+      position: clonePosition(projected),
+    };
+  });
+}
+
 function normalizeGraph(graph: Graph): Graph {
   const canvasBackground =
     graph.canvasBackground &&
@@ -718,10 +843,24 @@ function normalizeGraph(graph: Graph): Graph {
           baseColor: '#1d437e',
         };
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
+  const projectionState = normalizeGraphProjectionState(
+    graph.nodes,
+    graph.projections,
+    graph.activeProjectionId
+  );
+  const activeProjection = projectionState.projections.find(
+    (projection) => projection.id === projectionState.activeProjectionId
+  ) ?? projectionState.projections[0];
+  const projectedNodes = activeProjection
+    ? applyProjectionToNodes(graph.nodes, activeProjection)
+    : graph.nodes;
 
   return {
     ...graph,
+    nodes: projectedNodes,
     canvasBackground,
+    projections: projectionState.projections,
+    activeProjectionId: projectionState.activeProjectionId,
     drawings: drawings.map((drawing) => ({
       ...drawing,
       paths: (drawing.paths ?? []).map((path) => ({
@@ -863,6 +1002,17 @@ function inferOutputPortNamesFromCode(code: string): string[] {
 
 function ensureNodeVersion(node: GraphNode): string {
   return `${Date.now()}-${node.id}`;
+}
+
+function getNextProjectionName(existingProjections: GraphProjection[]): string {
+  const existingNames = new Set(existingProjections.map((projection) => projection.name));
+  let index = 1;
+  let candidate = `Projection ${index}`;
+  while (existingNames.has(candidate)) {
+    index += 1;
+    candidate = `Projection ${index}`;
+  }
+  return candidate;
 }
 
 function resolveOutputPath(explicitPath?: string): string {
@@ -1025,6 +1175,104 @@ server.registerTool(
       ...current,
       name,
     }));
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'graph_projection_add',
+  {
+    description:
+      'Add a new graph projection. Node coordinates are cloned from the currently selected projection unless sourceProjectionId is provided.',
+    inputSchema: {
+      graphId: z.string(),
+      projectionId: z.string().trim().min(1).optional(),
+      name: z.string().trim().min(1).optional(),
+      sourceProjectionId: z.string().trim().min(1).optional(),
+      activate: z.boolean().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, projectionId, name, sourceProjectionId, activate, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId
+      );
+
+      const sourceId = sourceProjectionId?.trim() || projectionState.activeProjectionId;
+      const sourceProjection = projectionState.projections.find((projection) => projection.id === sourceId);
+      if (!sourceProjection) {
+        throw new Error(`Projection "${sourceId}" was not found in graph ${graphId}`);
+      }
+
+      const nextProjectionId = projectionId?.trim() || randomUUID();
+      if (projectionState.projections.some((projection) => projection.id === nextProjectionId)) {
+        throw new Error(`Projection "${nextProjectionId}" already exists in graph ${graphId}`);
+      }
+
+      const newProjection: GraphProjection = {
+        id: nextProjectionId,
+        name: name?.trim() || getNextProjectionName(projectionState.projections),
+        nodePositions: cloneProjectionNodePositions(current.nodes, sourceProjection),
+      };
+
+      const nextActiveProjectionId = activate === false
+        ? projectionState.activeProjectionId
+        : newProjection.id;
+      const activeProjection = nextActiveProjectionId === newProjection.id
+        ? newProjection
+        : projectionState.projections.find(
+            (projection) => projection.id === nextActiveProjectionId
+          ) ?? newProjection;
+
+      return {
+        ...current,
+        projections: [...projectionState.projections, newProjection],
+        activeProjectionId: nextActiveProjectionId,
+        nodes: applyProjectionToNodes(current.nodes, activeProjection),
+      };
+    });
+
+    return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'graph_projection_select',
+  {
+    description: 'Set the active graph projection and apply its stored node coordinates to the canvas nodes.',
+    inputSchema: {
+      graphId: z.string(),
+      projectionId: z.string().trim().min(1),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, projectionId, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId
+      );
+      const selectedProjection = projectionState.projections.find(
+        (projection) => projection.id === projectionId
+      );
+      if (!selectedProjection) {
+        throw new Error(`Projection "${projectionId}" was not found in graph ${graphId}`);
+      }
+
+      return {
+        ...current,
+        projections: projectionState.projections,
+        activeProjectionId: selectedProjection.id,
+        nodes: applyProjectionToNodes(current.nodes, selectedProjection),
+      };
+    });
 
     return textResult(graph);
   }
@@ -1465,17 +1713,40 @@ server.registerTool(
   },
   async ({ graphId, nodeId, x, y, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
-      ...current,
-      nodes: current.nodes.map((node) =>
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      getNode(current, nodeId);
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId
+      );
+      const updatedNodes = current.nodes.map((node) =>
         node.id === nodeId
           ? {
               ...node,
               position: { x, y },
             }
           : node
-      ),
-    }));
+      );
+      const updatedProjections = projectionState.projections.map((projection) =>
+        projection.id === projectionState.activeProjectionId
+          ? {
+              ...projection,
+              nodePositions: {
+                ...projection.nodePositions,
+                [nodeId]: { x, y },
+              },
+            }
+          : projection
+      );
+
+      return {
+        ...current,
+        nodes: updatedNodes,
+        projections: updatedProjections,
+        activeProjectionId: projectionState.activeProjectionId,
+      };
+    });
 
     return textResult(graph);
   }

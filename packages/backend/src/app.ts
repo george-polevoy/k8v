@@ -8,8 +8,11 @@ import {
   CanvasBackground,
   Connection,
   DEFAULT_CANVAS_BACKGROUND,
+  DEFAULT_GRAPH_PROJECTION_ID,
+  DEFAULT_GRAPH_PROJECTION_NAME,
   Graph,
   GraphDrawing,
+  GraphProjection,
   GraphNode,
   PythonEnvironment,
 } from './types/index.js';
@@ -28,6 +31,8 @@ const CreateGraphSchema = z.object({
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
   canvasBackground: CanvasBackground.optional().default(DEFAULT_CANVAS_BACKGROUND),
+  projections: z.array(GraphProjection).optional(),
+  activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).optional().default([]),
   drawings: z.array(GraphDrawing).optional().default([]),
 });
@@ -37,6 +42,8 @@ const UpdateGraphSchema = z.object({
   nodes: z.array(GraphNode).optional(),
   connections: z.array(Connection).optional(),
   canvasBackground: CanvasBackground.optional(),
+  projections: z.array(GraphProjection).optional(),
+  activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).optional(),
   drawings: z.array(GraphDrawing).optional(),
 });
@@ -70,10 +77,117 @@ const validate = <T extends z.ZodType>(schema: T) => {
   };
 };
 
+function buildProjectionNodePositionMap(nodes: GraphNode[]): Record<string, { x: number; y: number }> {
+  const map: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    map[node.id] = {
+      x: node.position.x,
+      y: node.position.y,
+    };
+  }
+  return map;
+}
+
+function normalizeGraphProjections(
+  nodes: GraphNode[],
+  projections: GraphProjection[] | undefined,
+  activeProjectionId: string | undefined
+): { projections: GraphProjection[]; activeProjectionId: string; nodes: GraphNode[] } {
+  const fallbackNodePositions = buildProjectionNodePositionMap(nodes);
+  const deduped: GraphProjection[] = [];
+  const seenProjectionIds = new Set<string>();
+
+  for (const projection of projections ?? []) {
+    const projectionId = projection.id.trim();
+    if (!projectionId || seenProjectionIds.has(projectionId)) {
+      continue;
+    }
+    seenProjectionIds.add(projectionId);
+
+    const normalizedNodePositions: Record<string, { x: number; y: number }> = {};
+    for (const [nodeId, fallbackPosition] of Object.entries(fallbackNodePositions)) {
+      const candidate = projection.nodePositions?.[nodeId];
+      if (
+        candidate &&
+        Number.isFinite(candidate.x) &&
+        Number.isFinite(candidate.y)
+      ) {
+        normalizedNodePositions[nodeId] = {
+          x: candidate.x,
+          y: candidate.y,
+        };
+      } else {
+        normalizedNodePositions[nodeId] = {
+          x: fallbackPosition.x,
+          y: fallbackPosition.y,
+        };
+      }
+    }
+
+    deduped.push({
+      ...projection,
+      id: projectionId,
+      name: projection.name.trim() || projectionId,
+      nodePositions: normalizedNodePositions,
+    });
+  }
+
+  if (!seenProjectionIds.has(DEFAULT_GRAPH_PROJECTION_ID)) {
+    deduped.unshift({
+      id: DEFAULT_GRAPH_PROJECTION_ID,
+      name: DEFAULT_GRAPH_PROJECTION_NAME,
+      nodePositions: fallbackNodePositions,
+    });
+  }
+
+  const selectedActiveProjectionId =
+    typeof activeProjectionId === 'string' && activeProjectionId.trim()
+      ? activeProjectionId.trim()
+      : DEFAULT_GRAPH_PROJECTION_ID;
+  const normalizedActiveProjectionId = deduped.some(
+    (projection) => projection.id === selectedActiveProjectionId
+  )
+    ? selectedActiveProjectionId
+    : DEFAULT_GRAPH_PROJECTION_ID;
+
+  const activeProjection =
+    deduped.find((projection) => projection.id === normalizedActiveProjectionId) ?? deduped[0];
+  const projectedNodes = nodes.map((node) => ({
+    ...node,
+    position: activeProjection?.nodePositions[node.id] ?? node.position,
+  }));
+
+  return {
+    projections: deduped,
+    activeProjectionId: normalizedActiveProjectionId,
+    nodes: projectedNodes,
+  };
+}
+
 function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
   const drawingIds = new Set<string>();
   const pythonEnvNames = new Set<string>();
+  const projectionIds = new Set<string>();
+
+  if (!Array.isArray(graph.projections) || graph.projections.length === 0) {
+    return 'Graph must include at least one projection';
+  }
+  if (!graph.activeProjectionId) {
+    return 'Graph must include activeProjectionId';
+  }
+  for (const projection of graph.projections) {
+    if (projectionIds.has(projection.id)) {
+      return `Graph projection ids must be unique. Duplicate id: ${projection.id}`;
+    }
+    projectionIds.add(projection.id);
+  }
+  if (!projectionIds.has(DEFAULT_GRAPH_PROJECTION_ID)) {
+    return `Graph must include "${DEFAULT_GRAPH_PROJECTION_ID}" projection`;
+  }
+  if (!projectionIds.has(graph.activeProjectionId)) {
+    return `Graph active projection "${graph.activeProjectionId}" does not exist`;
+  }
 
   for (const pythonEnv of graph.pythonEnvs ?? []) {
     if (pythonEnvNames.has(pythonEnv.name)) {
@@ -94,6 +208,14 @@ function validateGraphStructure(graph: Graph): string | null {
         return `Drawing ${drawing.id} path ids must be unique. Duplicate id: ${path.id}`;
       }
       pathIds.add(path.id);
+    }
+  }
+
+  for (const projection of graph.projections ?? []) {
+    for (const nodeId of Object.keys(projection.nodePositions ?? {})) {
+      if (!nodeIds.has(nodeId)) {
+        return `Projection ${projection.id} references missing node ${nodeId}`;
+      }
     }
   }
 
@@ -206,12 +328,19 @@ export function createApp(deps?: AppDependencies) {
 
   app.post('/api/graphs', validate(CreateGraphSchema), async (req, res) => {
     try {
+      const projectionState = normalizeGraphProjections(
+        req.body.nodes,
+        req.body.projections,
+        req.body.activeProjectionId
+      );
       const graph: Graph = {
         id: uuidv4(),
         name: req.body.name,
-        nodes: req.body.nodes,
+        nodes: projectionState.nodes,
         connections: req.body.connections,
         canvasBackground: req.body.canvasBackground,
+        projections: projectionState.projections,
+        activeProjectionId: projectionState.activeProjectionId,
         pythonEnvs: req.body.pythonEnvs,
         drawings: req.body.drawings,
         createdAt: Date.now(),
@@ -237,11 +366,20 @@ export function createApp(deps?: AppDependencies) {
         return res.status(404).json({ error: 'Graph not found' });
       }
 
+      const mergedNodes = req.body.nodes ?? existing.nodes;
+      const projectionState = normalizeGraphProjections(
+        mergedNodes,
+        req.body.projections ?? existing.projections,
+        req.body.activeProjectionId ?? existing.activeProjectionId
+      );
       const graph: Graph = {
         ...existing,
         ...req.body,
         id: req.params.id,
+        nodes: projectionState.nodes,
         canvasBackground: req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND,
+        projections: projectionState.projections,
+        activeProjectionId: projectionState.activeProjectionId,
         pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],
         drawings: req.body.drawings ?? existing.drawings ?? [],
         updatedAt: Date.now(),

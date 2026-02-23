@@ -12,6 +12,12 @@ import {
 import axios from 'axios';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import { normalizeHexColor } from '../utils/color';
+import {
+  applyProjectionToNodes,
+  DEFAULT_GRAPH_PROJECTION_ID,
+  normalizeGraphProjectionState,
+  withNodePositionInProjection,
+} from '../utils/projections';
 
 const DEFAULT_DRAWING_COLOR = '#ffffff';
 
@@ -115,9 +121,22 @@ function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
 
 function normalizeGraph(graph: Graph): Graph {
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
+  const projectionState = normalizeGraphProjectionState(
+    graph.nodes,
+    graph.projections,
+    graph.activeProjectionId
+  );
+  const activeProjection = projectionState.projections.find(
+    (projection) => projection.id === projectionState.activeProjectionId
+  ) ?? projectionState.projections[0];
+  const projectedNodes = activeProjection ? applyProjectionToNodes(graph.nodes, activeProjection) : graph.nodes;
+
   return {
     ...graph,
+    nodes: projectedNodes,
     canvasBackground: normalizeCanvasBackground(graph.canvasBackground),
+    projections: projectionState.projections,
+    activeProjectionId: projectionState.activeProjectionId,
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
     drawings: drawings.map((drawing) => ({
       ...drawing,
@@ -937,13 +956,20 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const { graph } = get();
       if (!graph) return;
 
+      const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
       const updatedNodes = graph.nodes.map((node) =>
         node.id === nodeId ? { ...node, position } : node
+      );
+      const updatedProjections = (graph.projections ?? []).map((projection) =>
+        projection.id === activeProjectionId
+          ? withNodePositionInProjection(projection, nodeId, position)
+          : projection
       );
 
       const updatedGraph = {
         ...graph,
         nodes: updatedNodes,
+        projections: updatedProjections,
         updatedAt: Date.now(),
       };
       get().updateGraph(updatedGraph);
