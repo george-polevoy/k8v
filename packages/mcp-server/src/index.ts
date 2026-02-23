@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { chromium } from 'playwright';
@@ -1146,7 +1147,109 @@ function getNextProjectionName(existingProjections: GraphProjection[]): string {
   return candidate;
 }
 
-const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
+interface NumericInputConfig {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+interface NumericInputNodeOptions {
+  nodeId?: string;
+  name?: string;
+  x: number;
+  y: number;
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  autoRecompute?: boolean;
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function countStepDecimals(step: number): number {
+  const text = step.toString().toLowerCase();
+  if (text.includes('e-')) {
+    const exponent = Number.parseInt(text.split('e-')[1] ?? '0', 10);
+    return Number.isFinite(exponent) ? exponent : 0;
+  }
+
+  const decimalIndex = text.indexOf('.');
+  if (decimalIndex === -1) {
+    return 0;
+  }
+
+  return text.length - decimalIndex - 1;
+}
+
+function snapNumericInputValue(value: number, min: number, max: number, step: number): number {
+  if (max <= min) {
+    return min;
+  }
+
+  const clamped = clamp(value, min, max);
+  const steps = Math.round((clamped - min) / step);
+  const snapped = min + (steps * step);
+  const decimals = countStepDecimals(step);
+  const rounded = Number(snapped.toFixed(decimals));
+  return clamp(rounded, min, max);
+}
+
+function normalizeNumericInputConfig(config: {
+  value?: unknown;
+  min?: unknown;
+  max?: unknown;
+  step?: unknown;
+}): NumericInputConfig {
+  const min = toFiniteNumber(config.min, 0);
+  const maxCandidate = toFiniteNumber(config.max, 100);
+  const max = maxCandidate >= min ? maxCandidate : min;
+  const stepCandidate = toFiniteNumber(config.step, 1);
+  const step = stepCandidate > 0 ? stepCandidate : 1;
+  const valueCandidate = toFiniteNumber(config.value, min);
+  const value = snapNumericInputValue(valueCandidate, min, max, step);
+  return { value, min, max, step };
+}
+
+function createNumericInputNode(options: NumericInputNodeOptions): GraphNode {
+  const nodeId = options.nodeId?.trim() || randomUUID();
+  const nowVersion = `${Date.now()}-${nodeId}`;
+  const numericConfig = normalizeNumericInputConfig({
+    value: options.value,
+    min: options.min,
+    max: options.max,
+    step: options.step,
+  });
+
+  return {
+    id: nodeId,
+    type: 'numeric_input',
+    position: { x: options.x, y: options.y },
+    metadata: {
+      name: options.name ?? 'Numeric Input',
+      inputs: [],
+      outputs: [{ name: 'value', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'numeric_input',
+      config: {
+        value: numericConfig.value,
+        min: numericConfig.min,
+        max: numericConfig.max,
+        step: numericConfig.step,
+        ...(typeof options.autoRecompute === 'boolean'
+          ? { autoRecompute: options.autoRecompute }
+          : {}),
+      },
+    },
+    version: nowVersion,
+  };
+}
+
+export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('graph_set_name'),
     name: z.string(),
@@ -1224,6 +1327,18 @@ const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
     autoRecompute: z.boolean().optional(),
   }),
   z.object({
+    op: z.literal('node_add_numeric_input'),
+    nodeId: z.string().trim().min(1).optional(),
+    name: z.string().optional(),
+    x: z.number(),
+    y: z.number(),
+    value: z.number().optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    step: z.number().optional(),
+    autoRecompute: z.boolean().optional(),
+  }),
+  z.object({
     op: z.literal('node_move'),
     nodeId: z.string(),
     x: z.number(),
@@ -1293,7 +1408,7 @@ type BulkEditOperationResult = {
   details?: Record<string, unknown>;
 };
 
-function applyBulkEditOperation(current: Graph, operation: BulkEditOperation): BulkEditOperationResult {
+export function applyBulkEditOperation(current: Graph, operation: BulkEditOperation): BulkEditOperationResult {
   switch (operation.op) {
     case 'graph_set_name':
       return {
@@ -1638,6 +1753,30 @@ function applyBulkEditOperation(current: Graph, operation: BulkEditOperation): B
           nodes: [...current.nodes, node],
         },
         details: { nodeId },
+      };
+    }
+    case 'node_add_numeric_input': {
+      const node = createNumericInputNode({
+        nodeId: operation.nodeId,
+        name: operation.name,
+        x: operation.x,
+        y: operation.y,
+        value: operation.value,
+        min: operation.min,
+        max: operation.max,
+        step: operation.step,
+        autoRecompute: operation.autoRecompute,
+      });
+      if (current.nodes.some((candidate) => candidate.id === node.id)) {
+        throw new Error(`Node ${node.id} already exists in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          nodes: [...current.nodes, node],
+        },
+        details: { nodeId: node.id },
       };
     }
     case 'node_move': {
@@ -2676,6 +2815,45 @@ server.registerTool(
 );
 
 server.registerTool(
+  'node_add_numeric_input',
+  {
+    description: 'Add a numeric input slider node to a graph.',
+    inputSchema: {
+      graphId: z.string(),
+      name: z.string().optional(),
+      x: z.number(),
+      y: z.number(),
+      value: z.number().optional(),
+      min: z.number().optional(),
+      max: z.number().optional(),
+      step: z.number().optional(),
+      autoRecompute: z.boolean().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, name, x, y, value, min, max, step, autoRecompute, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const node = createNumericInputNode({
+      name,
+      x,
+      y,
+      value,
+      min,
+      max,
+      step,
+      autoRecompute,
+    });
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+      ...current,
+      nodes: [...current.nodes, node],
+    }));
+
+    return textResult({ graphId, nodeId: node.id, graph });
+  }
+);
+
+server.registerTool(
   'node_move',
   {
     description: 'Move a node to a new canvas position.',
@@ -3342,12 +3520,19 @@ server.registerTool(
   }
 );
 
-async function main() {
+export async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exit(1);
-});
+const directRunCandidate = process.argv[1];
+const isDirectRun = directRunCandidate
+  ? pathToFileURL(directRunCandidate).href === import.meta.url
+  : false;
+
+if (isDirectRun) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exit(1);
+  });
+}

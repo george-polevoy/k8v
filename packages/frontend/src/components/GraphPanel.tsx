@@ -387,6 +387,57 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     }
   }, [graph, refreshGraphSummaries, updateGraph]);
 
+  const handleRemoveProjection = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const projectionState = normalizeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId,
+      graph.canvasBackground
+    );
+    if (projectionState.projections.length <= 1) {
+      return;
+    }
+
+    const activeProjection = projectionState.projections.find(
+      (projection) => projection.id === projectionState.activeProjectionId
+    );
+    if (!activeProjection || activeProjection.id === DEFAULT_GRAPH_PROJECTION_ID) {
+      return;
+    }
+
+    const remainingProjections = projectionState.projections.filter(
+      (projection) => projection.id !== activeProjection.id
+    );
+    if (remainingProjections.length === 0) {
+      return;
+    }
+
+    const nextActiveProjection = remainingProjections.find(
+      (projection) => projection.id === DEFAULT_GRAPH_PROJECTION_ID
+    ) ?? remainingProjections[0];
+
+    setIsGraphActionInFlight(true);
+    try {
+      const nextBackground = normalizeCanvasBackground(
+        nextActiveProjection.canvasBackground ?? graph.canvasBackground
+      );
+      await updateGraph({
+        projections: remainingProjections,
+        activeProjectionId: nextActiveProjection.id,
+        nodes: applyProjectionToNodes(graph.nodes, nextActiveProjection),
+        canvasBackground: nextBackground,
+        updatedAt: Date.now(),
+      });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, refreshGraphSummaries, updateGraph]);
+
   const projectionState = graph
     ? normalizeGraphProjectionState(
       graph.nodes,
@@ -397,6 +448,12 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     : null;
   const projectionOptions = projectionState?.projections ?? [];
   const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+  const canRemoveActiveProjection = Boolean(
+    graph &&
+    !isGraphActionInFlight &&
+    projectionOptions.length > 1 &&
+    activeProjectionId !== DEFAULT_GRAPH_PROJECTION_ID
+  );
 
   return (
     <div
@@ -656,6 +713,26 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
             }}
           >
             Add Projection
+          </button>
+          <button
+            data-testid="projection-remove"
+            disabled={!canRemoveActiveProjection}
+            onClick={() => {
+              void handleRemoveProjection();
+            }}
+            style={{
+              width: '100%',
+              marginTop: '8px',
+              padding: '7px 8px',
+              background: '#b91c1c',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              cursor: canRemoveActiveProjection ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Remove Active Projection
           </button>
         </div>
 

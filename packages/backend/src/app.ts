@@ -499,6 +499,10 @@ export function createApp(deps?: AppDependencies) {
         return res.status(404).json({ error: 'Graph not found' });
       }
 
+      if (Array.isArray(req.body.projections) && req.body.projections.length === 0) {
+        return res.status(400).json({ error: 'At least one projection must remain in the graph.' });
+      }
+
       const mergedNodes = req.body.nodes ?? existing.nodes;
       const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
       const projectionState = normalizeGraphProjections(

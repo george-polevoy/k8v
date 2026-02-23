@@ -12,9 +12,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
-- Graph panel projection management: select active 2D projection and add new projections.
+- Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.
 - New projections clone node coordinates, node card dimensions, and projection background from the currently selected projection.
 - Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
+- Graph update API rejects projection updates that remove all projections (at least one projection must remain).
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Graph panel projection background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog for the active projection.
 - Current graph ID is shown in graph panel for explicit graph-target confirmation.
@@ -135,11 +136,11 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## MCP and Agent API
 
 - MCP server package at `packages/mcp-server`.
-- MCP graph-edit tools for node creation, moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
+- MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`), moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
 - MCP graph-edit tools for projections: add a projection (cloned from current active coordinates/card sizes/background by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
-- MCP `bulk_edit` tool accepts an ordered array of graph-edit operations and applies them sequentially in one persisted graph update.
+- MCP `bulk_edit` tool accepts an ordered array of graph-edit operations (including `node_add_numeric_input`) and applies them sequentially in one persisted graph update.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
 - Screenshot render overlays stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.

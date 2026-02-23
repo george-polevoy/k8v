@@ -473,6 +473,32 @@ test('PUT /api/graphs switches graph canvas background to selected projection ba
   }
 });
 
+test('PUT /api/graphs rejects updates that remove all projections', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projections: [],
+      }),
+    });
+
+    assert.equal(updateResponse.status, 400);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /at least one projection/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('DELETE /api/graphs/:id deletes graph and subsequent fetch returns 404', async () => {
   const ctx = await setupTestServer();
 

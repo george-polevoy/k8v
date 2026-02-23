@@ -83,6 +83,7 @@ Last reviewed: February 23, 2026.
 - `A-BE-40` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default projection metadata when omitted.
 - `A-BE-41` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` switches active projection and applies that projection's node coordinates.
 - `A-BE-42` `packages/backend/tests/app.test.ts`: switching `activeProjectionId` updates graph canvas background to the selected projection background.
+- `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
 
 ## Manual Regression Test Cases
 
@@ -96,6 +97,7 @@ Last reviewed: February 23, 2026.
 - `M-GRAPH-08`: Graph panel delete-graph action removes the selected graph and automatically switches to latest remaining graph (or creates a new graph if none remain).
 - `M-GRAPH-09`: Graph panel projection background controls persist mode (`solid`/`gradient`) and selected base color for the active projection.
 - `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates/card sizes/background and switch active projection.
+- `M-GRAPH-11`: Graph panel projection controls can remove the active non-default projection, while always keeping at least one projection.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift/Alt + wheel performs directional scroll without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
@@ -152,6 +154,7 @@ Last reviewed: February 23, 2026.
 - `M-MCP-07`: MCP Python env tools can add/edit/delete graph env definitions, and env renames/deletes keep node `pythonEnv` references consistent.
 - `M-MCP-08`: MCP projection tools can add a projection (cloned from active projection coordinates/card sizes/background by default) and switch active projection state.
 - `M-MCP-09`: MCP `bulk_edit` applies ordered graph-edit operations sequentially and persists the final graph state.
+- `M-MCP-10`: MCP numeric-input creation tools (`node_add_numeric_input` and `bulk_edit` `node_add_numeric_input`) persist slider nodes that round-trip through `graph_get`.
 
 ## Feature Coverage Map
 
@@ -166,7 +169,8 @@ Last reviewed: February 23, 2026.
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
-| Graph panel projection management (add + select active projection) | `M-GRAPH-10` | Manual |
+| Graph panel projection management (add + select + remove active projection) | `M-GRAPH-10`, `M-GRAPH-11` | Manual |
+| Graph updates reject removing all projections (at least one projection must remain) | `A-BE-43`, `M-GRAPH-11` | Automated + Manual |
 | New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Graph panel projection background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-BE-42`, `A-FE-19`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
@@ -241,7 +245,7 @@ Last reviewed: February 23, 2026.
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
-| MCP graph-edit API coverage | `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09` | Manual |
+| MCP graph-edit API coverage | `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10` | Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
 | MCP screenshot node-number overlay (stable unique identifiers) | `M-MCP-03` | Manual |
