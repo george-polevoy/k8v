@@ -14,6 +14,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-01` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag maintains `ew-resize` cursor and persists dragged value.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
+- `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -109,6 +110,7 @@ Last reviewed: February 23, 2026.
 - `M-PANEL-09`: Selecting a drawing allows rename/delete operations from node panel.
 - `M-PANEL-10`: For a `numeric_input` node, editing `min`/`max`/`step` in node panel updates slider behavior and persisted output value bounds.
 - `M-PANEL-11`: Right sidebar panels (Graph, Node, Output) are collapsible in accordion behavior (opening one collapses the others).
+- `M-PANEL-12`: Selecting a node from canvas auto-expands the Node panel in the right sidebar accordion.
 - `M-STATUS-01`: Running compute shows amber indicator while executing.
 - `M-STATUS-02`: Runtime error shows red indicator and error message in node panel.
 - `M-STATUS-03`: Auto-recompute enabled and healthy shows green indicator.
@@ -143,6 +145,7 @@ Last reviewed: February 23, 2026.
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
 | Right sidebar Graph/Node/Output panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
+| Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `M-CANVAS-01` | Manual |
@@ -210,6 +213,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, and sidebar accordion behavior (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, and sidebar accordion behaviors (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

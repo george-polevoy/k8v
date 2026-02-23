@@ -1057,8 +1057,6 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
 
       {selectedNode ? (
         <div>
-          <h4 style={{ marginBottom: '12px' }}>{selectedNode.metadata.name}</h4>
-
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Card Name:</label>
             <input

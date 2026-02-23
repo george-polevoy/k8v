@@ -225,17 +225,15 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     >
       {!embedded && <h3 style={{ marginBottom: '16px' }}>Graph Panel</h3>}
       <div
-        style={{
-          padding: '10px',
-          border: '1px solid #dbe4ef',
-          borderRadius: '6px',
-          background: '#fff',
-        }}
+        style={embedded
+          ? {}
+          : {
+              padding: '10px',
+              border: '1px solid #dbe4ef',
+              borderRadius: '6px',
+              background: '#fff',
+            }}
       >
-        <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#334155' }}>
-          Graph
-        </div>
-
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           Select graph
         </label>

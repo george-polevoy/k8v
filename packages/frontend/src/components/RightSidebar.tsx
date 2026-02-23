@@ -1,7 +1,8 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import GraphPanel from './GraphPanel';
 import NodePanel from './NodePanel';
 import OutputPanel from './OutputPanel';
+import { useGraphStore } from '../store/graphStore';
 
 type SidebarSectionId = 'graph' | 'node' | 'output';
 
@@ -72,11 +73,19 @@ function AccordionSection({
 }
 
 function RightSidebar() {
+  const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const [expandedSection, setExpandedSection] = useState<SidebarSectionId | null>('graph');
 
   const handleToggleSection = (sectionId: SidebarSectionId) => {
     setExpandedSection((current) => (current === sectionId ? null : sectionId));
   };
+
+  useEffect(() => {
+    if (!selectedNodeId) {
+      return;
+    }
+    setExpandedSection('node');
+  }, [selectedNodeId]);
 
   return (
     <aside

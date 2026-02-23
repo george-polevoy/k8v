@@ -16,6 +16,7 @@ const FRONTEND_DIR = path.resolve(SUPPORT_DIR, '..', '..', '..');
 const REPO_ROOT = path.resolve(FRONTEND_DIR, '..', '..');
 const MAX_LOG_LINES = 160;
 const POLL_INTERVAL_MS = 250;
+const AUTOTEST_GRAPH_PREFIX = 'autotests_';
 
 let initialized = false;
 let backendProcess: ManagedProcess | null = null;
@@ -139,6 +140,36 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
   ]);
 }
 
+async function cleanupAutotestGraphs(): Promise<void> {
+  const listResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!listResponse.ok) {
+    throw new Error(`Failed to list graphs for cleanup (${listResponse.status})`);
+  }
+
+  const payload = await listResponse.json() as { graphs?: Array<{ id: string; name: string }> };
+  const graphs = Array.isArray(payload.graphs) ? payload.graphs : [];
+  const targetGraphIds = graphs
+    .filter((graph) =>
+      graph &&
+      typeof graph.id === 'string' &&
+      typeof graph.name === 'string' &&
+      graph.name.startsWith(AUTOTEST_GRAPH_PREFIX)
+    )
+    .map((graph) => graph.id);
+
+  await Promise.all(targetGraphIds.map(async (graphId) => {
+    const deleteResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (deleteResponse.status !== 204 && deleteResponse.status !== 404) {
+      throw new Error(`Failed to cleanup graph ${graphId} (${deleteResponse.status})`);
+    }
+  }));
+}
+
 export async function ensureE2EEnvironment(): Promise<void> {
   if (initialized) {
     return;
@@ -174,6 +205,7 @@ export async function ensureE2EEnvironment(): Promise<void> {
       await waitForUrl(frontendHealthUrl, E2E_START_TIMEOUT_MS, frontendProcess);
     }
 
+    await cleanupAutotestGraphs();
     initialized = true;
   } catch (error) {
     await stopProcess(frontendProcess);
@@ -186,6 +218,13 @@ export async function ensureE2EEnvironment(): Promise<void> {
 }
 
 export async function shutdownE2EEnvironment(): Promise<void> {
+  try {
+    if (await isHttpReady(`${E2E_BACKEND_URL}/api/graphs`)) {
+      await cleanupAutotestGraphs();
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
   await stopProcess(frontendProcess);
   await stopProcess(backendProcess);
   frontendProcess = null;

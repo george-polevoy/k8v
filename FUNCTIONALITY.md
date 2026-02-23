@@ -41,6 +41,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing handles are selectable, draggable (move drawing), and deletable.
 - Drawing paths and handles are rendered in canvas and minimap.
 - Right sidebar uses collapsible accordion panels for graph editing, node editing, and output.
+- Selecting a node auto-expands the Node accordion panel.
 
 ## Node Editing (Node Panel)
 

@@ -1,9 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createEmptyGraph } from './support/api.ts';
+import { createEmptyGraph, createNumericInputGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
+
+const NUMERIC_NODE_WIDTH = 220;
+
+interface NodeScreenPosition {
+  centerX: number;
+  centerY: number;
+  left: number;
+}
+
+interface CanvasBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
+  const centerX = canvasBox.x + (canvasBox.width / 2);
+  const centerY = canvasBox.y + (canvasBox.height / 2);
+  return {
+    centerX,
+    centerY,
+    left: centerX - (NUMERIC_NODE_WIDTH / 2),
+  };
+}
 
 test.before(async () => {
   await ensureE2EEnvironment();
@@ -68,6 +93,64 @@ test(
       });
 
       assert.equal(await graphSelect.isVisible(), true);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'selecting a node auto-expands the node sidebar panel',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId } = await createNumericInputGraph({
+      value: 25,
+      min: 0,
+      max: 100,
+      step: 1,
+    });
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+
+      await openCanvasForGraph(page, graphId);
+
+      await page.locator('[data-testid="sidebar-toggle-output"]').click();
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox();
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const nodeBox = resolveCenteredNodePosition(canvasBox);
+      const headerClickX = nodeBox.left + 24;
+      const headerClickY = nodeBox.centerY - 30;
+      await page.mouse.click(headerClickX, headerClickY);
+
+      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+
+      const nodeNameInput = page.locator('[data-testid="node-name-input"]');
+      await nodeNameInput.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
       await context.close();
     } finally {
