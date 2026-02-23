@@ -117,3 +117,4 @@ When the user says: `feature: x should be working like y...`
 7. For explicit user test-case requests, always verify existing coverage first, add missing tests, and retest before closing
 8. For explicit user feature requests, verify documentation and coverage status first, then implement right away
 9. For bug fixes, always confirm behavior is fixed using a browser test when the bug affects UI/interaction
+10. Do not switch context to a new feature/bugfix while previous work is uncommitted; commit (or explicitly resolve with the user) before starting the next task
