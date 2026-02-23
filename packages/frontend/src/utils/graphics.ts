@@ -23,6 +23,44 @@ export function buildGraphicsImageUrl(graphics: GraphicsArtifact, maxPixels?: nu
   return `/api/graphics/${encodeURIComponent(graphics.id)}/image${query ? `?${query}` : ''}`;
 }
 
+function getSortedLevels(graphics: GraphicsArtifact) {
+  return [...graphics.levels].sort((left, right) => left.level - right.level);
+}
+
+export function selectGraphicsMipLevel(
+  graphics: GraphicsArtifact,
+  maxPixels?: number
+) {
+  const levels = getSortedLevels(graphics);
+  if (levels.length === 0) {
+    return null;
+  }
+
+  if (typeof maxPixels !== 'number' || !Number.isFinite(maxPixels) || maxPixels <= 0) {
+    return levels[0];
+  }
+
+  const budget = clampPositiveInt(maxPixels);
+  for (const level of levels) {
+    if (level.pixelCount <= budget) {
+      return level;
+    }
+  }
+
+  return levels[levels.length - 1];
+}
+
+export function resolveStableGraphicsRequestMaxPixels(
+  graphics: GraphicsArtifact,
+  maxPixels?: number
+): number {
+  const selected = selectGraphicsMipLevel(graphics, maxPixels);
+  if (!selected) {
+    return MIN_PIXELS;
+  }
+  return clampPositiveInt(selected.pixelCount);
+}
+
 export function estimateProjectedPixelBudget(
   graphics: GraphicsArtifact,
   projectedWidth: number,

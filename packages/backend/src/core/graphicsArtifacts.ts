@@ -136,19 +136,40 @@ function downsamplePng(source: PngRaster): PNG {
       for (let srcY = srcYStart; srcY < srcYEnd; srcY += 1) {
         for (let srcX = srcXStart; srcX < srcXEnd; srcX += 1) {
           const sourceIndex = (source.width * srcY + srcX) << 2;
-          r += source.data[sourceIndex];
-          g += source.data[sourceIndex + 1];
-          b += source.data[sourceIndex + 2];
-          a += source.data[sourceIndex + 3];
+          const sourceR = source.data[sourceIndex];
+          const sourceG = source.data[sourceIndex + 1];
+          const sourceB = source.data[sourceIndex + 2];
+          const sourceA = source.data[sourceIndex + 3];
+
+          // Filter in premultiplied-alpha space to avoid dark/bright fringes
+          // around semi-transparent edges when generating lower mip levels.
+          const alphaFactor = sourceA / 255;
+          r += sourceR * alphaFactor;
+          g += sourceG * alphaFactor;
+          b += sourceB * alphaFactor;
+          a += sourceA;
           samples += 1;
         }
       }
 
       const targetIndex = (target.width * y + x) << 2;
-      target.data[targetIndex] = Math.round(r / samples);
-      target.data[targetIndex + 1] = Math.round(g / samples);
-      target.data[targetIndex + 2] = Math.round(b / samples);
-      target.data[targetIndex + 3] = Math.round(a / samples);
+      const averagedAlpha = a / samples;
+      target.data[targetIndex + 3] = Math.round(averagedAlpha);
+      if (averagedAlpha <= 0) {
+        target.data[targetIndex] = 0;
+        target.data[targetIndex + 1] = 0;
+        target.data[targetIndex + 2] = 0;
+        continue;
+      }
+
+      const unpremultiplyFactor = 255 / averagedAlpha;
+      target.data[targetIndex] = Math.round(Math.min(255, Math.max(0, (r / samples) * unpremultiplyFactor)));
+      target.data[targetIndex + 1] = Math.round(
+        Math.min(255, Math.max(0, (g / samples) * unpremultiplyFactor))
+      );
+      target.data[targetIndex + 2] = Math.round(
+        Math.min(255, Math.max(0, (b / samples) * unpremultiplyFactor))
+      );
     }
   }
 

@@ -20,6 +20,7 @@ import {
   buildGraphicsImageUrl,
   estimateProjectedPixelBudget,
   isRenderableGraphicsArtifact,
+  resolveStableGraphicsRequestMaxPixels,
 } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
 import { v4 as uuidv4 } from 'uuid';
@@ -1749,8 +1750,14 @@ function Canvas() {
     if (!nodesLayer || !drawingHandleLayer) return;
 
     requestCanvasAnimationLoop();
-    nodesLayer.removeChildren();
-    drawingHandleLayer.removeChildren();
+    const staleNodeObjects = nodesLayer.removeChildren();
+    for (const displayObject of staleNodeObjects) {
+      displayObject.destroy({ children: true });
+    }
+    const staleDrawingObjects = drawingHandleLayer.removeChildren();
+    for (const displayObject of staleDrawingObjects) {
+      displayObject.destroy({ children: true });
+    }
     nodeVisualsRef.current.clear();
     drawingVisualsRef.current.clear();
     numericSliderVisualsRef.current.clear();
@@ -2233,8 +2240,16 @@ function Canvas() {
       if (shouldLoadProjectedGraphics && graphicsOutput) {
         const projectionWidth = width;
         const projectedWidthOnScreen = projectionWidth * viewportScale;
-        const maxPixels = estimateProjectedPixelBudget(graphicsOutput, projectedWidthOnScreen, PIXEL_RATIO);
-        const source = buildGraphicsImageUrl(graphicsOutput, maxPixels);
+        const estimatedMaxPixels = estimateProjectedPixelBudget(
+          graphicsOutput,
+          projectedWidthOnScreen,
+          PIXEL_RATIO
+        );
+        const stableMaxPixels = resolveStableGraphicsRequestMaxPixels(
+          graphicsOutput,
+          estimatedMaxPixels
+        );
+        const source = buildGraphicsImageUrl(graphicsOutput, stableMaxPixels);
         const texture = getNodeGraphicsTextureForNode(node.id, source);
         activeNodeGraphicsTextureIds.add(node.id);
         const textureDimensions = getTextureDimensions(texture);

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import axios from 'axios';
 import { GraphicsArtifact } from '../types';
-import { buildGraphicsImageUrl } from '../utils/graphics';
+import { buildGraphicsImageUrl, resolveStableGraphicsRequestMaxPixels } from '../utils/graphics';
 
 interface OutputPanelProps {
   embedded?: boolean;
@@ -156,7 +156,8 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
     if (!graphicsOutput) {
       return null;
     }
-    return buildGraphicsImageUrl(graphicsOutput, graphicsMaxPixels);
+    const stableMaxPixels = resolveStableGraphicsRequestMaxPixels(graphicsOutput, graphicsMaxPixels);
+    return buildGraphicsImageUrl(graphicsOutput, stableMaxPixels);
   }, [graphicsOutput, graphicsMaxPixels]);
 
   if (!selectedNodeId) {
