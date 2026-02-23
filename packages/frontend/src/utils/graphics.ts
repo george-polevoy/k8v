@@ -1,6 +1,7 @@
 import { GraphicsArtifact } from '../types';
 
 const MIN_PIXELS = 1;
+const MIP_SELECTION_QUALITY_MULTIPLIER = 2;
 
 function clampPositiveInt(value: number): number {
   if (!Number.isFinite(value)) {
@@ -40,7 +41,7 @@ export function selectGraphicsMipLevel(
     return levels[0];
   }
 
-  const budget = clampPositiveInt(maxPixels);
+  const budget = clampPositiveInt(maxPixels * MIP_SELECTION_QUALITY_MULTIPLIER);
   for (const level of levels) {
     if (level.pixelCount <= budget) {
       return level;

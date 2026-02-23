@@ -19,6 +19,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
 - `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
+- `A-E2E-09` `packages/frontend/tests/e2e/graphicsMipSelection.test.ts`: output graphics requests use sharper mip selection (`maxPixels` reflects 2x budget bias).
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -200,6 +201,7 @@ Last reviewed: February 23, 2026.
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
+| Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
 | Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `M-CANVAS-21` | Automated + Manual |
 | Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |

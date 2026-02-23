@@ -21,12 +21,12 @@ test('selectGraphicsMipLevel stays on the same level for nearby zoom budgets', (
   const levelA = selectGraphicsMipLevel(GRAPHICS, 260_000);
   const levelB = selectGraphicsMipLevel(GRAPHICS, 200_000);
 
-  assert.equal(levelA?.level, 2);
-  assert.equal(levelB?.level, 2);
+  assert.equal(levelA?.level, 1);
+  assert.equal(levelB?.level, 1);
 });
 
 test('resolveStableGraphicsRequestMaxPixels quantizes to selected mip level pixelCount', () => {
-  assert.equal(resolveStableGraphicsRequestMaxPixels(GRAPHICS, 1_000_000), 262_144);
+  assert.equal(resolveStableGraphicsRequestMaxPixels(GRAPHICS, 1_000_000), 1_048_576);
   assert.equal(resolveStableGraphicsRequestMaxPixels(GRAPHICS, 70_000), 65_536);
   assert.equal(resolveStableGraphicsRequestMaxPixels(GRAPHICS, 17_000), 16_384);
 });
