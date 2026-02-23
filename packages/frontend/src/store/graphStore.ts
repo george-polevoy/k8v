@@ -851,9 +851,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const { graph, nodeExecutionStates, nodeGraphicsOutputs } = get();
       if (!graph) return;
 
-        const updatedGraph = normalizeGraph({ ...graph, ...updates } as Graph);
+      const updatedGraph = normalizeGraph({ ...graph, ...updates } as Graph);
       const requestId = latestUpdateRequestId + 1;
       latestUpdateRequestId = requestId;
+      const ifMatchUpdatedAt = graph.updatedAt;
 
       set({
         graph: updatedGraph,
@@ -867,7 +868,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       });
 
       try {
-        const response = await axios.put(`/api/graphs/${graph.id}`, updatedGraph);
+        const response = await axios.put(`/api/graphs/${graph.id}`, {
+          ...updatedGraph,
+          ifMatchUpdatedAt,
+        });
         if (requestId !== latestUpdateRequestId) {
           return;
         }
@@ -914,6 +918,72 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         if (requestId !== latestUpdateRequestId) {
           return;
         }
+
+        if (error?.response?.status === 409) {
+          try {
+            const latestResponse = await axios.get(`/api/graphs/${graph.id}`);
+            if (requestId !== latestUpdateRequestId) {
+              return;
+            }
+
+            const latestGraph = normalizeGraph(latestResponse.data as Graph);
+            set((state) => ({
+              graph: latestGraph,
+              selectedNodeId:
+                state.selectedNodeId && latestGraph.nodes.some((node) => node.id === state.selectedNodeId)
+                  ? state.selectedNodeId
+                  : null,
+              selectedDrawingId:
+                state.selectedDrawingId &&
+                latestGraph.drawings?.some((drawing) => drawing.id === state.selectedDrawingId)
+                  ? state.selectedDrawingId
+                  : null,
+              error: 'Graph changed remotely. Reloaded latest graph state.',
+              isLoading: false,
+              nodeExecutionStates: withDerivedExecutionState(
+                latestGraph,
+                buildNodeStateMapForGraph(latestGraph, state.nodeExecutionStates)
+              ),
+              nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
+                latestGraph,
+                state.nodeGraphicsOutputs
+              ),
+            }));
+
+            upsertGraphSummary({
+              id: latestGraph.id,
+              name: latestGraph.name,
+              updatedAt: latestGraph.updatedAt,
+            });
+
+            try {
+              localStorage.setItem('k8v-current-graph-id', latestGraph.id);
+            } catch (storageError) {
+              console.warn('Could not save to localStorage:', storageError);
+            }
+            return;
+          } catch (reloadError: any) {
+            if (requestId !== latestUpdateRequestId) {
+              return;
+            }
+            const reloadMessage = resolveErrorMessage(
+              reloadError,
+              'Graph changed remotely and latest graph could not be reloaded'
+            );
+            set({
+              graph,
+              error: reloadMessage,
+              isLoading: false,
+              nodeExecutionStates: withDerivedExecutionState(
+                graph,
+                buildNodeStateMapForGraph(graph, nodeExecutionStates)
+              ),
+              nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
+            });
+            return;
+          }
+        }
+
         const serverMessage = resolveErrorMessage(error, 'Failed to update graph');
         set({
           graph,

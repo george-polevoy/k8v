@@ -1014,19 +1014,34 @@ async function updateGraph(
   graphId: string,
   mutate: (graph: Graph) => Graph
 ): Promise<Graph> {
-  const currentGraph = await getGraph(backendUrl, graphId);
-  const nextGraph = normalizeGraph(mutate(structuredClone(currentGraph)));
-  const body = {
-    ...nextGraph,
-    id: graphId,
-    updatedAt: Date.now(),
-  };
+  const maxAttempts = 3;
 
-  const persisted = await requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
-  return normalizeGraph(persisted);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const currentGraph = await getGraph(backendUrl, graphId);
+    const nextGraph = normalizeGraph(mutate(structuredClone(currentGraph)));
+    const body = {
+      ...nextGraph,
+      id: graphId,
+      updatedAt: Date.now(),
+      ifMatchUpdatedAt: currentGraph.updatedAt,
+    };
+
+    try {
+      const persisted = await requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      return normalizeGraph(persisted);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt < maxAttempts && /reload and retry/i.test(message)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Failed to update graph ${graphId} after ${maxAttempts} attempts`);
 }
 
 function getNode(graph: Graph, nodeId: string): GraphNode {

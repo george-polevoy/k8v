@@ -10,6 +10,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Auto-create a new graph when no graph exists.
 - Persist graph edits through `PUT /api/graphs/:id`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
+- Graph update API supports optimistic concurrency via `ifMatchUpdatedAt`; stale clients receive conflict instead of silently overwriting newer graph edits.
+- On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.

@@ -250,6 +250,66 @@ test('updateNodePosition persists position without changing node version', async
   }
 });
 
+test('updateGraph reloads latest graph when backend reports conflict', async () => {
+  const originalGet = axios.get;
+  const originalPut = axios.put;
+
+  const initialGraph: Graph = {
+    id: 'g-conflict',
+    name: 'Graph conflict local',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 100,
+  };
+  const latestGraph: Graph = {
+    id: 'g-conflict',
+    name: 'Graph conflict remote',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 200,
+  };
+
+  let putPayload: any = null;
+  (axios as any).put = async (_url: string, body: unknown) => {
+    putPayload = body;
+    const error: any = new Error('Graph has changed since it was loaded. Reload and retry your update.');
+    error.response = { status: 409 };
+    throw error;
+  };
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-conflict') {
+      return { data: latestGraph };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph({ name: 'Graph conflict attempted update' });
+
+    const state = useGraphStore.getState();
+    assert.ok(putPayload, 'expected PUT payload to be sent');
+    assert.equal(putPayload.ifMatchUpdatedAt, 100);
+    assert.equal(state.graph?.name, 'Graph conflict remote');
+    assert.equal(state.graph?.updatedAt, 200);
+    assert.match(state.error ?? '', /changed remotely/i);
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).put = originalPut;
+  }
+});
+
 test('updateNodePosition persists position to active projection nodePositions', async () => {
   const originalPut = axios.put;
   let capturedPayload: any = null;

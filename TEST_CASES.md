@@ -18,6 +18,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: dragging a selected node card resize handle updates and persists node `cardWidth`/`cardHeight`.
 - `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
 - `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
+- `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -41,6 +42,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-21` `packages/frontend/tests/projections.test.ts`: projection utilities normalize default projection state and apply projection coordinates to nodes.
 - `A-FE-22` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` writes node coordinates to the active projection map.
 - `A-FE-23` `packages/frontend/tests/graphStore.test.ts`: `updateNodeCardSize` writes node card dimensions to the active projection map.
+- `A-FE-24` `packages/frontend/tests/graphStore.test.ts`: on `409` graph-update conflict, frontend reloads latest graph state and surfaces a conflict message.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -84,6 +86,7 @@ Last reviewed: February 23, 2026.
 - `A-BE-41` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` switches active projection and applies that projection's node coordinates.
 - `A-BE-42` `packages/backend/tests/app.test.ts`: switching `activeProjectionId` updates graph canvas background to the selected projection background.
 - `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
+- `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
 
 ## Manual Regression Test Cases
 
@@ -164,7 +167,8 @@ Last reviewed: February 23, 2026.
 | Fallback to latest stored graph when saved graph ID is stale | `A-FE-01` | Automated |
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
 | Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02`, `A-BE-37` | Automated |
-| Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02` | Manual |
+| Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
+| Graph update conflict detection/reload (`ifMatchUpdatedAt` + `409`) | `A-BE-44`, `A-FE-24`, `A-E2E-08` | Automated |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
@@ -252,6 +256,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, and draw-toolbar hint wrapping (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, and conflict reload on stale local save (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

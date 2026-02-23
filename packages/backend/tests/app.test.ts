@@ -499,6 +499,35 @@ test('PUT /api/graphs rejects updates that remove all projections', async () => 
   }
 });
 
+test('PUT /api/graphs rejects stale ifMatchUpdatedAt values with conflict', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: toAutotestGraphName('conflict_name'),
+        ifMatchUpdatedAt: createdGraph.updatedAt - 1,
+      }),
+    });
+
+    assert.equal(updateResponse.status, 409);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /reload and retry/i);
+    assert.equal(typeof payload.currentUpdatedAt, 'number');
+    assert.equal(payload.currentUpdatedAt, createdGraph.updatedAt);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('DELETE /api/graphs/:id deletes graph and subsequent fetch returns 404', async () => {
   const ctx = await setupTestServer();
 

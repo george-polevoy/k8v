@@ -46,6 +46,7 @@ const UpdateGraphSchema = z.object({
   activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).optional(),
   drawings: z.array(GraphDrawing).optional(),
+  ifMatchUpdatedAt: z.number().optional(),
 });
 
 const ComputeRequestSchema = z.object({
@@ -499,10 +500,20 @@ export function createApp(deps?: AppDependencies) {
         return res.status(404).json({ error: 'Graph not found' });
       }
 
+      const expectedUpdatedAt = req.body.ifMatchUpdatedAt;
+      if (typeof expectedUpdatedAt === 'number' && expectedUpdatedAt !== existing.updatedAt) {
+        return res.status(409).json({
+          error: 'Graph has changed since it was loaded. Reload and retry your update.',
+          currentUpdatedAt: existing.updatedAt,
+        });
+      }
+
       if (Array.isArray(req.body.projections) && req.body.projections.length === 0) {
         return res.status(400).json({ error: 'At least one projection must remain in the graph.' });
       }
 
+      const graphUpdates = { ...req.body } as Partial<Graph> & { ifMatchUpdatedAt?: number };
+      delete graphUpdates.ifMatchUpdatedAt;
       const mergedNodes = req.body.nodes ?? existing.nodes;
       const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
       const projectionState = normalizeGraphProjections(
@@ -514,7 +525,7 @@ export function createApp(deps?: AppDependencies) {
       );
       const graph: Graph = {
         ...existing,
-        ...req.body,
+        ...graphUpdates,
         id: req.params.id,
         nodes: projectionState.nodes,
         canvasBackground: projectionState.canvasBackground,
