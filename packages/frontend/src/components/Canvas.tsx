@@ -90,6 +90,13 @@ interface GraphicsTextureCacheEntry {
   refCount: number;
 }
 
+interface WorldBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 interface PanState {
   pointerX: number;
   pointerY: number;
@@ -426,6 +433,32 @@ function getTextureDimensions(texture: Texture): { width: number; height: number
   return { width, height, valid };
 }
 
+function getViewportWorldBounds(app: Application, viewport: Container): WorldBounds {
+  const scaleX = Math.max(Math.abs(viewport.scale.x || 1), 0.0001);
+  const scaleY = Math.max(Math.abs(viewport.scale.y || 1), 0.0001);
+  const minX = -viewport.position.x / scaleX;
+  const minY = -viewport.position.y / scaleY;
+  return {
+    minX,
+    minY,
+    maxX: minX + app.screen.width / scaleX,
+    maxY: minY + app.screen.height / scaleY,
+  };
+}
+
+function worldBoundsIntersect(a: WorldBounds, b: WorldBounds): boolean {
+  return !(a.maxX <= b.minX || a.minX >= b.maxX || a.maxY <= b.minY || a.minY >= b.maxY);
+}
+
+function resolveGraphicsAspectRatio(graphics: GraphicsArtifact): number {
+  const baseLevel = graphics.levels[0];
+  if (!baseLevel || baseLevel.width <= 0 || baseLevel.height <= 0) {
+    return NODE_GRAPHICS_FALLBACK_ASPECT_RATIO;
+  }
+
+  return Math.max(baseLevel.height / baseLevel.width, 0.01);
+}
+
 function drawNodeCardFrame(
   graphics: Graphics,
   width: number,
@@ -710,6 +743,7 @@ function Canvas() {
   const pendingGraphicsTextureLoadsRef = useRef<Set<string>>(new Set());
   const graphRef = useRef(graph);
   const renderGraphRef = useRef<() => void>(() => {});
+  const viewportRefreshRafRef = useRef<number | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
   const nodeResizeStateRef = useRef<NodeResizeState | null>(null);
@@ -733,6 +767,17 @@ function Canvas() {
       return;
     }
     app.start();
+  }, []);
+
+  const requestViewportDrivenGraphRefresh = useCallback(() => {
+    if (viewportRefreshRafRef.current !== null) {
+      return;
+    }
+
+    viewportRefreshRafRef.current = window.requestAnimationFrame(() => {
+      viewportRefreshRafRef.current = null;
+      renderGraphRef.current();
+    });
   }, []);
 
   const applyCanvasCursor = useCallback(() => {
@@ -997,7 +1042,8 @@ function Canvas() {
       snapToPixel(app.screen.height * 0.5 - worldY * scale)
     );
     requestCanvasAnimationLoop();
-  }, [requestCanvasAnimationLoop]);
+    requestViewportDrivenGraphRefresh();
+  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh]);
 
   const handleMinimapPointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
@@ -1531,6 +1577,7 @@ function Canvas() {
       viewport.position.set(app.screen.width / 2, app.screen.height / 2);
       updateTextResolutionForScale(1);
       drawMinimap();
+      requestViewportDrivenGraphRefresh();
       return;
     }
 
@@ -1574,6 +1621,7 @@ function Canvas() {
       viewport.position.set(app.screen.width / 2, app.screen.height / 2);
       updateTextResolutionForScale(1);
       drawMinimap();
+      requestViewportDrivenGraphRefresh();
       return;
     }
 
@@ -1590,7 +1638,8 @@ function Canvas() {
     );
     updateTextResolutionForScale(nextScale);
     drawMinimap();
-  }, [drawMinimap, updateTextResolutionForScale]);
+    requestViewportDrivenGraphRefresh();
+  }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);
 
   const endConnectionDrag = useCallback((commit: boolean) => {
     const dragState = connectionDragStateRef.current;
@@ -1688,6 +1737,14 @@ function Canvas() {
     const nodesLayer = nodeLayerRef.current;
     const drawingHandleLayer = drawingHandleLayerRef.current;
     const currentGraph = graphRef.current;
+    const app = appRef.current;
+    const viewportContainer = viewportRef.current;
+    const viewportWorldBounds =
+      app && viewportContainer ? getViewportWorldBounds(app, viewportContainer) : null;
+    const canEvaluateViewportGraphics = Boolean(viewportWorldBounds && viewportInitializedRef.current);
+    const viewportScale = viewportContainer
+      ? Math.max(Math.abs(viewportContainer.scale.x || 1), 0.0001)
+      : 1;
 
     if (!nodesLayer || !drawingHandleLayer) return;
 
@@ -1750,9 +1807,31 @@ function Canvas() {
       const width = dimensions.width;
       const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
       const shouldProjectGraphics = isRenderablePythonGraphicsOutput(node, graphicsOutput);
-      const hasProjectedGraphics = shouldProjectGraphics && Boolean(graphicsOutput);
+      const expectedProjectedGraphicsHeight =
+        shouldProjectGraphics && graphicsOutput
+          ? Math.max(1, width * resolveGraphicsAspectRatio(graphicsOutput))
+          : 0;
       const height = dimensions.height;
       const position = { ...node.position };
+      const graphicsBounds: WorldBounds | null =
+        shouldProjectGraphics && expectedProjectedGraphicsHeight > 0
+          ? {
+              minX: position.x,
+              minY: position.y + height,
+              maxX: position.x + width,
+              maxY: position.y + height + expectedProjectedGraphicsHeight,
+            }
+          : null;
+      const shouldLoadProjectedGraphics =
+        Boolean(
+          shouldProjectGraphics &&
+            graphicsOutput &&
+            canEvaluateViewportGraphics &&
+            viewportWorldBounds &&
+            graphicsBounds &&
+            worldBoundsIntersect(viewportWorldBounds, graphicsBounds)
+        );
+      const hasProjectedGraphics = shouldLoadProjectedGraphics;
       const container = new Container();
       const isSelected = selectedNodeId === node.id;
 
@@ -2150,10 +2229,11 @@ function Canvas() {
         container.addChild(resizeHandle);
       }
 
-      let projectedGraphicsHeight = 0;
-      if (shouldProjectGraphics && graphicsOutput) {
+      let projectedGraphicsHeight = expectedProjectedGraphicsHeight;
+      if (shouldLoadProjectedGraphics && graphicsOutput) {
         const projectionWidth = width;
-        const maxPixels = estimateProjectedPixelBudget(graphicsOutput, projectionWidth, PIXEL_RATIO);
+        const projectedWidthOnScreen = projectionWidth * viewportScale;
+        const maxPixels = estimateProjectedPixelBudget(graphicsOutput, projectedWidthOnScreen, PIXEL_RATIO);
         const source = buildGraphicsImageUrl(graphicsOutput, maxPixels);
         const texture = getNodeGraphicsTextureForNode(node.id, source);
         activeNodeGraphicsTextureIds.add(node.id);
@@ -2852,6 +2932,7 @@ function Canvas() {
         snapToPixel(panState.viewportY + (event.global.y - panState.pointerY))
       );
       drawMinimap();
+      requestViewportDrivenGraphRefresh();
     };
 
     const handleStagePointerUp = (event: FederatedPointerEvent) => {
@@ -2872,6 +2953,7 @@ function Canvas() {
           snapToPixel(currentViewport.position.y - event.deltaY)
         );
         drawMinimap();
+        requestViewportDrivenGraphRefresh();
         return;
       }
 
@@ -2889,6 +2971,7 @@ function Canvas() {
         snapToPixel(pointer.y - worldPointBefore.y * nextScale)
       );
       drawMinimap();
+      requestViewportDrivenGraphRefresh();
     };
 
     const handleResize = () => {
@@ -2906,6 +2989,7 @@ function Canvas() {
       drawMinimap();
       drawEffects();
       drawFreehandStrokes();
+      requestViewportDrivenGraphRefresh();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2970,6 +3054,10 @@ function Canvas() {
     renderGraphRef.current();
 
     return () => {
+      if (viewportRefreshRafRef.current !== null) {
+        window.cancelAnimationFrame(viewportRefreshRafRef.current);
+        viewportRefreshRafRef.current = null;
+      }
       window.removeEventListener('pointerup', finishInteraction);
       canvasElement.removeEventListener('wheel', handleWheel);
       app.stage.off('pointerdown', handleStagePointerDown);
@@ -2991,7 +3079,7 @@ function Canvas() {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
+  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;
