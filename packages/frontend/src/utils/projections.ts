@@ -17,7 +17,7 @@ const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
 const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 640;
+const NODE_MAX_WIDTH = 1920;
 const NODE_MAX_HEIGHT = 640;
 
 function clonePosition(position: Position): Position {

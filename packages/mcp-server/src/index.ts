@@ -19,7 +19,7 @@ const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
 };
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 640;
+const NODE_MAX_WIDTH = 1920;
 const NODE_MAX_HEIGHT = 640;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;

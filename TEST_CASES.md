@@ -44,6 +44,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-22` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` writes node coordinates to the active projection map.
 - `A-FE-23` `packages/frontend/tests/graphStore.test.ts`: `updateNodeCardSize` writes node card dimensions to the active projection map.
 - `A-FE-24` `packages/frontend/tests/graphStore.test.ts`: on `409` graph-update conflict, frontend reloads latest graph state and surfaces a conflict message.
+- `A-FE-25` `packages/frontend/tests/projections.test.ts`: projection normalization clamps oversized fallback node card width to `1920`.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -88,6 +89,8 @@ Last reviewed: February 23, 2026.
 - `A-BE-42` `packages/backend/tests/app.test.ts`: switching `activeProjectionId` updates graph canvas background to the selected projection background.
 - `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
 - `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
+- `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` clamps oversized fallback node card width to `1920`.
+- `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) clamps oversized fallback node card widths to `1920`.
 
 ## Manual Regression Test Cases
 
@@ -193,6 +196,7 @@ Last reviewed: February 23, 2026.
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card dimensions are stored per active projection | `A-FE-23`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
+| Node card width normalization clamps oversized values to a max of `1920` | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
 | Edge rendering with Bezier curves | `M-CANVAS-07` | Manual |
 | Edge hit-testing and selection | `M-CANVAS-07` | Manual |
 | Delete selected edge with `Delete`/`Backspace` | `M-CANVAS-07` | Manual |
@@ -258,6 +262,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, and conflict reload on stale local save (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, and graphics mip-selection quality bias (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

@@ -92,3 +92,41 @@ test('applyBulkEditOperation rejects duplicate numeric_input node ids', () => {
     /already exists/
   );
 });
+
+test('applyBulkEditOperation graph_projection_add clamps oversized fallback node card width', () => {
+  const graph = createEmptyGraph();
+  graph.nodes.push({
+    id: 'node-inline',
+    type: 'inline_code',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: 'Inline',
+      inputs: [],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = 1;',
+      runtime: 'javascript_vm',
+      config: {
+        cardWidth: 20_000,
+        cardHeight: 120,
+      },
+    },
+    version: '1',
+  });
+
+  const result = applyBulkEditOperation(graph, {
+    op: 'graph_projection_add',
+    projectionId: 'alt',
+    activate: false,
+  });
+
+  const defaultProjection = result.graph.projections?.find((projection: any) => projection.id === 'default');
+  const altProjection = result.graph.projections?.find((projection: any) => projection.id === 'alt');
+  assert.ok(defaultProjection);
+  assert.ok(altProjection);
+  assert.equal(defaultProjection.nodeCardSizes['node-inline'].width, 1920);
+  assert.equal(altProjection.nodeCardSizes['node-inline'].width, 1920);
+  assert.equal(result.graph.nodes[0].config.config.cardWidth, 1920);
+});

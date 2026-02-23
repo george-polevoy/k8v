@@ -65,6 +65,17 @@ test('normalizeGraphProjectionState ensures default projection and valid active 
   });
 });
 
+test('normalizeGraphProjectionState clamps oversized fallback node card width', () => {
+  const node = makeNode('node-a', 1, 2);
+  node.config.config = {
+    cardWidth: 20_000,
+    cardHeight: 120,
+  };
+
+  const projectionState = normalizeGraphProjectionState([node], [], 'default');
+  assert.equal(projectionState.projections[0].nodeCardSizes['node-a'].width, 1920);
+});
+
 test('applyProjectionToNodes updates node positions using projection coordinates', () => {
   const nodes = [makeNode('node-a', 1, 2), makeNode('node-b', 3, 4)];
   const projected = applyProjectionToNodes(nodes, {
