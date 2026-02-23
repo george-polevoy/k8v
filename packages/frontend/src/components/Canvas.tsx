@@ -19,10 +19,10 @@ import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } fr
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
-const MIN_NODE_HEIGHT = 96;
-const HEADER_HEIGHT = 44;
-const NODE_BODY_PADDING = 14;
-const PORT_SPACING = 22;
+const MIN_NODE_HEIGHT = 68;
+const HEADER_HEIGHT = 36;
+const NODE_BODY_PADDING = 6;
+const PORT_SPACING = 18;
 const PORT_RADIUS = 4;
 const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
 const MIN_ZOOM = 0.25;
@@ -37,10 +37,10 @@ const NODE_DRAG_START_THRESHOLD = 2;
 const LIGHTNING_DURATION_MS = 900;
 const NODE_SHOCK_DURATION_MS = 1200;
 const DRAW_SMOOTHING_STEP = 1;
-const NUMERIC_INPUT_NODE_MIN_HEIGHT = 108;
-const NUMERIC_SLIDER_LEFT_PADDING = 14;
-const NUMERIC_SLIDER_RIGHT_PADDING = 58;
-const NUMERIC_SLIDER_Y_OFFSET = 22;
+const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
+const NUMERIC_SLIDER_LEFT_PADDING = 12;
+const NUMERIC_SLIDER_RIGHT_PADDING = 34;
+const NUMERIC_SLIDER_Y_OFFSET = 15;
 const NUMERIC_SLIDER_TRACK_WIDTH = 4;
 const NUMERIC_SLIDER_KNOB_RADIUS = 7;
 const SMOKE_EMIT_INTERVAL_MS = 140;
@@ -1699,7 +1699,7 @@ function Canvas() {
       const statusLight = new Graphics();
       statusLight.lineStyle(1, 0x0f172a, 0.25);
       statusLight.beginFill(statusLightColor, 1);
-      statusLight.drawCircle(width - 14, 14, 5);
+      statusLight.drawCircle(width - 13, 12, 5);
       statusLight.endFill();
       container.addChild(statusLight);
 
@@ -1711,7 +1711,7 @@ function Canvas() {
       });
       title.resolution = PIXEL_RATIO;
       textNodesRef.current.add(title);
-      title.position.set(12, 10);
+      title.position.set(12, 8);
       container.addChild(title);
 
       if (node.type !== NodeType.NUMERIC_INPUT) {
@@ -1722,7 +1722,7 @@ function Canvas() {
         });
         subtitle.resolution = PIXEL_RATIO;
         textNodesRef.current.add(subtitle);
-        subtitle.position.set(12, 28);
+        subtitle.position.set(12, 22);
         container.addChild(subtitle);
       }
 
@@ -1731,6 +1731,8 @@ function Canvas() {
       const bodyHeight = Math.max(1, height - HEADER_HEIGHT - NODE_BODY_PADDING);
       const inputSlots = Math.max(node.metadata.inputs.length, 1);
       const outputSlots = Math.max(node.metadata.outputs.length, 1);
+      const numericSliderY = height - NUMERIC_SLIDER_Y_OFFSET;
+      const isNumericInputNode = node.type === NodeType.NUMERIC_INPUT;
 
       for (let i = 0; i < node.metadata.inputs.length; i += 1) {
         const port = node.metadata.inputs[i];
@@ -1795,7 +1797,9 @@ function Canvas() {
       for (let i = 0; i < node.metadata.outputs.length; i += 1) {
         const port = node.metadata.outputs[i];
         const portKey = makePortKey(node.id, port.name);
-        const y = HEADER_HEIGHT + ((i + 1) * bodyHeight) / (outputSlots + 1);
+        const y = isNumericInputNode
+          ? numericSliderY
+          : HEADER_HEIGHT + ((i + 1) * bodyHeight) / (outputSlots + 1);
         outputPortOffsets.set(port.name, y);
 
         const marker = new Graphics();
@@ -1858,19 +1862,21 @@ function Canvas() {
           y: position.y + y,
         });
 
-        const label = new Text(port.name, {
-          fontFamily: 'Arial',
-          fontSize: 10,
-          fill: 0x1e293b,
-        });
-        label.resolution = PIXEL_RATIO;
-        textNodesRef.current.add(label);
-        label.anchor.set(1, 0);
-        label.position.set(width - 10, y - 7);
-        container.addChild(label);
+        if (!isNumericInputNode) {
+          const label = new Text(port.name, {
+            fontFamily: 'Arial',
+            fontSize: 10,
+            fill: 0x1e293b,
+          });
+          label.resolution = PIXEL_RATIO;
+          textNodesRef.current.add(label);
+          label.anchor.set(1, 0);
+          label.position.set(width - 10, y - 7);
+          container.addChild(label);
+        }
       }
 
-      if (node.type === NodeType.NUMERIC_INPUT) {
+      if (isNumericInputNode) {
         const numericConfig = normalizeNumericInputConfig(
           node.config.config as Record<string, unknown> | undefined
         );
@@ -1879,7 +1885,7 @@ function Canvas() {
           40,
           width - NUMERIC_SLIDER_LEFT_PADDING - NUMERIC_SLIDER_RIGHT_PADDING
         );
-        const trackY = height - NUMERIC_SLIDER_Y_OFFSET;
+        const trackY = numericSliderY;
 
         const track = new Graphics();
         track.eventMode = 'none';

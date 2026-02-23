@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './config.ts';
 
+const AUTOTEST_GRAPH_PREFIX = 'autotests_';
+
 interface GraphNodePayload {
   id: string;
   type: 'numeric_input';
@@ -34,6 +36,12 @@ interface GraphResponse {
       };
     };
   }>;
+}
+
+function toAutotestGraphName(name: string): string {
+  return name.startsWith(AUTOTEST_GRAPH_PREFIX)
+    ? name
+    : `${AUTOTEST_GRAPH_PREFIX}${name}`;
 }
 
 async function expectJsonResponse(response: Response, context: string): Promise<any> {
@@ -84,7 +92,7 @@ export async function createNumericInputGraph(options?: {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      name: `E2E Numeric Slider ${Date.now()}`,
+      name: toAutotestGraphName(`e2e_numeric_slider_${Date.now()}`),
       nodes: [node],
       connections: [],
       drawings: [],
@@ -103,7 +111,7 @@ export async function createEmptyGraph(name?: string): Promise<{ graphId: string
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      name: name ?? `E2E Graph ${Date.now()}`,
+      name: toAutotestGraphName(name ?? `e2e_graph_${Date.now()}`),
       nodes: [],
       connections: [],
       drawings: [],

@@ -15,6 +15,14 @@ interface AppTestContext {
   close: () => Promise<void>;
 }
 
+const AUTOTEST_GRAPH_PREFIX = 'autotests_';
+
+function toAutotestGraphName(name: string): string {
+  return name.startsWith(AUTOTEST_GRAPH_PREFIX)
+    ? name
+    : `${AUTOTEST_GRAPH_PREFIX}${name}`;
+}
+
 function createValidInlineNode() {
   return {
     id: 'node-1',
@@ -97,15 +105,24 @@ async function setupTestServer(): Promise<AppTestContext> {
 }
 
 async function createGraph(baseUrl: string, payload?: Record<string, unknown>) {
+  const requestedName = typeof payload?.name === 'string'
+    ? payload.name
+    : 'runtime_graph';
+  const nextPayload = {
+    name: toAutotestGraphName(requestedName),
+    nodes: [createValidInlineNode()],
+    connections: [],
+    ...payload,
+  };
+
+  if (typeof nextPayload.name === 'string') {
+    nextPayload.name = toAutotestGraphName(nextPayload.name);
+  }
+
   return fetch(`${baseUrl}/api/graphs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: 'Runtime Graph',
-      nodes: [createValidInlineNode()],
-      connections: [],
-      ...payload,
-    }),
+    body: JSON.stringify(nextPayload),
   });
 }
 
@@ -541,7 +558,7 @@ test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', as
     const nodeB = createPassThroughNode('node-b');
     const legacyGraph = {
       id: 'legacy-cyclic',
-      name: 'Legacy Cyclic Graph',
+      name: toAutotestGraphName('legacy_cyclic_graph'),
       nodes: [nodeA, nodeB],
       connections: [
         {
