@@ -30,7 +30,14 @@ interface GraphResponse {
   id: string;
   nodes: Array<{
     id: string;
+    metadata?: {
+      name?: string;
+      inputs?: Array<{ name?: string }>;
+      outputs?: Array<{ name?: string }>;
+    };
     config: {
+      type?: string;
+      runtime?: string;
       config?: {
         value?: unknown;
         cardWidth?: unknown;
@@ -203,5 +210,33 @@ export async function waitForNodeCardSize(
 
   throw new Error(
     `Timed out waiting for node card size in graph ${graphId}. Last size: ${JSON.stringify(lastSize)}`
+  );
+}
+
+export async function waitForGraphNodeByName(
+  graphId: string,
+  nodeName: string,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<GraphResponse['nodes'][number]> {
+  const startedAt = Date.now();
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+      },
+    });
+    const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+    const node = graph.nodes.find((candidate) => candidate.metadata?.name === nodeName);
+    if (node) {
+      return node;
+    }
+
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for node "${nodeName}" in graph ${graphId}`
   );
 }

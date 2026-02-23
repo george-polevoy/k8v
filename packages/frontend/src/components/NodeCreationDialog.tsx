@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { GraphNode, NodeType } from '../types';
 import { useGraphStore } from '../store/graphStore';
-import { 
-  createInlineCodeNode, 
-  createLibraryNode, 
-  createExternalInputNode, 
+import {
+  createInlineCodeNode,
+  createLibraryNode,
+  createExternalInputNode,
   createNumericInputNode,
-  createExternalOutputNode 
+  createExternalOutputNode,
 } from '../utils/nodeFactory';
+import {
+  inferInlineInputPortNames,
+  inferInlineOutputPortNames,
+} from '../utils/inlinePortInference';
 
 interface NodeCreationDialogProps {
   onClose: () => void;
@@ -29,25 +33,27 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
 
     switch (nodeType) {
       case NodeType.INLINE_CODE:
-        newNode = createInlineCodeNode({ 
-          position, 
+        newNode = createInlineCodeNode({
+          position,
           name: name || undefined,
           code: code || undefined,
           runtime,
           pythonEnv: runtime === 'python_process' && pythonEnv ? pythonEnv : undefined,
+          inputNames: inferInlineInputPortNames(code),
+          outputNames: inferInlineOutputPortNames(code),
         });
         break;
       case NodeType.LIBRARY:
-        newNode = createLibraryNode({ 
-          position, 
+        newNode = createLibraryNode({
+          position,
           name: name || undefined,
-          libraryId: '' 
+          libraryId: ''
         });
         break;
       case NodeType.EXTERNAL_INPUT:
-        newNode = createExternalInputNode({ 
-          position, 
-          name: name || undefined 
+        newNode = createExternalInputNode({
+          position,
+          name: name || undefined
         });
         break;
       case NodeType.NUMERIC_INPUT:
@@ -57,9 +63,9 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
         });
         break;
       case NodeType.EXTERNAL_OUTPUT:
-        newNode = createExternalOutputNode({ 
-          position, 
-          name: name || undefined 
+        newNode = createExternalOutputNode({
+          position,
+          name: name || undefined
         });
         break;
       default:

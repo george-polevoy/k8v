@@ -31,6 +31,17 @@ test('createInlineCodeNode stores explicit python env name when provided', () =>
   assert.equal(node.config.pythonEnv, 'analytics');
 });
 
+test('createInlineCodeNode honors explicit input and output port names', () => {
+  const node = createInlineCodeNode({
+    position: { x: 12, y: 8 },
+    inputNames: ['a', 'b'],
+    outputNames: ['sum'],
+  });
+
+  assert.deepEqual(node.metadata.inputs.map((port) => port.name), ['a', 'b']);
+  assert.deepEqual(node.metadata.outputs.map((port) => port.name), ['sum']);
+});
+
 test('createNumericInputNode uses numeric defaults and numeric_input type', () => {
   const node = createNumericInputNode({
     position: { x: 20, y: 30 },

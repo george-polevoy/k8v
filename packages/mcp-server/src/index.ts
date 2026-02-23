@@ -694,6 +694,93 @@ function assertValidPortName(name: string, kind: 'input' | 'output'): void {
   }
 }
 
+interface PortMatch {
+  name: string;
+  index: number;
+}
+
+const DICT_HELPER_METHODS = new Set([
+  'get',
+  'items',
+  'keys',
+  'values',
+  'pop',
+  'setdefault',
+  'update',
+  'copy',
+  'clear',
+  'fromkeys',
+]);
+
+function collectPortMatches(code: string, pattern: RegExp): PortMatch[] {
+  const matches: PortMatch[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(code)) !== null) {
+    const candidate = match[1];
+    if (!candidate || !PORT_NAME_PATTERN.test(candidate)) {
+      continue;
+    }
+
+    matches.push({
+      name: candidate,
+      index: match.index,
+    });
+  }
+
+  return matches;
+}
+
+function uniquePortNamesByAppearance(matches: PortMatch[]): string[] {
+  const ordered = [...matches].sort((left, right) => left.index - right.index);
+  const seen = new Set<string>();
+  const names: string[] = [];
+
+  for (const entry of ordered) {
+    if (seen.has(entry.name)) {
+      continue;
+    }
+    seen.add(entry.name);
+    names.push(entry.name);
+  }
+
+  return names;
+}
+
+function inferInputPortNamesFromCode(code: string): string[] {
+  if (!code.trim()) {
+    return [];
+  }
+
+  const dotMatches = collectPortMatches(code, /\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g)
+    .filter((entry) => !DICT_HELPER_METHODS.has(entry.name));
+  const bracketMatches = collectPortMatches(
+    code,
+    /\binputs\s*\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g
+  );
+  const getMatches = collectPortMatches(
+    code,
+    /\binputs\.get\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*(?:,|\))/g
+  );
+
+  return uniquePortNamesByAppearance([...dotMatches, ...bracketMatches, ...getMatches]);
+}
+
+function inferOutputPortNamesFromCode(code: string): string[] {
+  if (!code.trim()) {
+    return [];
+  }
+
+  const dotMatches = collectPortMatches(code, /\boutputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g)
+    .filter((entry) => !DICT_HELPER_METHODS.has(entry.name));
+  const bracketMatches = collectPortMatches(
+    code,
+    /\boutputs\s*\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g
+  );
+
+  return uniquePortNamesByAppearance([...dotMatches, ...bracketMatches]);
+}
+
 function ensureNodeVersion(node: GraphNode): string {
   return `${Date.now()}-${node.id}`;
 }
@@ -1224,8 +1311,17 @@ server.registerTool(
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
     const nodeId = randomUUID();
     const nowVersion = `${Date.now()}-${nodeId}`;
+    const inlineCode = code ?? 'outputs.output = inputs.input;';
+    const inferredInputNames = inferInputPortNamesFromCode(inlineCode);
+    const inferredOutputNames = inferOutputPortNamesFromCode(inlineCode);
+    const resolvedInputNames = inputNames && inputNames.length > 0
+      ? inputNames
+      : (inferredInputNames.length > 0 ? inferredInputNames : ['input']);
+    const resolvedOutputNames = outputNames && outputNames.length > 0
+      ? outputNames
+      : (inferredOutputNames.length > 0 ? inferredOutputNames : ['output']);
 
-    const inputs = (inputNames && inputNames.length > 0 ? inputNames : ['input']).map(
+    const inputs = resolvedInputNames.map(
       (portName) => {
         assertValidPortName(portName, 'input');
         return {
@@ -1235,7 +1331,7 @@ server.registerTool(
       }
     );
 
-    const outputs = (outputNames && outputNames.length > 0 ? outputNames : ['output']).map(
+    const outputs = resolvedOutputNames.map(
       (portName) => {
         assertValidPortName(portName, 'output');
         return {
@@ -1258,7 +1354,7 @@ server.registerTool(
         type: 'inline_code',
         runtime: runtime ?? 'javascript_vm',
         ...(pythonEnv ? { pythonEnv } : {}),
-        code: code ?? 'outputs.output = inputs.input;',
+        code: inlineCode,
         config: {
           autoRecompute: autoRecompute ?? false,
         },

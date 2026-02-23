@@ -7,6 +7,8 @@ export interface CreateNodeOptions {
   code?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;
+  inputNames?: string[];
+  outputNames?: string[];
 }
 
 /**
@@ -14,14 +16,27 @@ export interface CreateNodeOptions {
  * Single source of truth for node defaults to ensure consistency.
  */
 export function createInlineCodeNode(options: CreateNodeOptions): GraphNode {
+  const inputNames = options.inputNames && options.inputNames.length > 0
+    ? options.inputNames
+    : ['input'];
+  const outputNames = options.outputNames && options.outputNames.length > 0
+    ? options.outputNames
+    : ['output'];
+
   return {
     id: uuidv4(),
     type: NodeType.INLINE_CODE,
     position: options.position,
     metadata: {
       name: options.name || 'Inline Code',
-      inputs: [{ name: 'input', schema: { type: 'object' } }],
-      outputs: [{ name: 'output', schema: { type: 'object' } }],
+      inputs: inputNames.map((name) => ({
+        name,
+        schema: { type: 'object' as const },
+      })),
+      outputs: outputNames.map((name) => ({
+        name,
+        schema: { type: 'object' as const },
+      })),
     },
     config: {
       type: NodeType.INLINE_CODE,
