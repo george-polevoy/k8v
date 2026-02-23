@@ -20,6 +20,9 @@ import { truncateTextToWidth } from '../utils/textLayout';
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
+const NODE_MIN_WIDTH = 180;
+const NODE_MAX_WIDTH = 640;
+const NODE_MAX_HEIGHT = 640;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
@@ -44,6 +47,8 @@ const NUMERIC_SLIDER_RIGHT_PADDING = 34;
 const NUMERIC_SLIDER_Y_OFFSET = 15;
 const NUMERIC_SLIDER_TRACK_WIDTH = 4;
 const NUMERIC_SLIDER_KNOB_RADIUS = 7;
+const NODE_RESIZE_HANDLE_SIZE = 10;
+const NODE_RESIZE_HANDLE_MARGIN = 4;
 const SMOKE_EMIT_INTERVAL_MS = 140;
 const SMOKE_MIN_DURATION_MS = 720;
 const SMOKE_MAX_DURATION_MS = 1320;
@@ -96,6 +101,18 @@ interface NodeDragState {
   currentX: number;
   currentY: number;
   moved: boolean;
+}
+
+interface NodeResizeState {
+  nodeId: string;
+  pointerX: number;
+  pointerY: number;
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+  currentWidth: number;
+  currentHeight: number;
 }
 
 interface ConnectionDragState {
@@ -205,6 +222,13 @@ interface NumericSliderDragState {
   nodeId: string;
   initialValue: number;
   currentValue: number;
+}
+
+interface NodeCardDimensions {
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -363,13 +387,32 @@ function isRenderablePythonGraphicsOutput(
     graphicsOutput.startsWith('data:image/');
 }
 
-function getNodeHeight(node: GraphNode): number {
+function getNodeMinHeight(node: GraphNode): number {
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
   const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
   if (node.type === NodeType.NUMERIC_INPUT) {
     return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
   }
   return baseHeight;
+}
+
+function resolveNodeCardDimensions(
+  node: GraphNode,
+  draftSize?: { width: number; height: number }
+): NodeCardDimensions {
+  const minWidth = NODE_MIN_WIDTH;
+  const minHeight = getNodeMinHeight(node);
+  const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
+  const widthCandidate = draftSize
+    ? draftSize.width
+    : toFiniteNumber(nodeConfig.cardWidth, NODE_WIDTH);
+  const heightCandidate = draftSize
+    ? draftSize.height
+    : toFiniteNumber(nodeConfig.cardHeight, minHeight);
+
+  const width = clamp(snapToPixel(widthCandidate), minWidth, NODE_MAX_WIDTH);
+  const height = clamp(snapToPixel(heightCandidate), minHeight, NODE_MAX_HEIGHT);
+  return { width, height, minWidth, minHeight };
 }
 
 function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
@@ -600,6 +643,7 @@ function Canvas() {
   const updateNode = useGraphStore((state) => state.updateNode);
   const selectDrawing = useGraphStore((state) => state.selectDrawing);
   const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
+  const updateNodeCardSize = useGraphStore((state) => state.updateNodeCardSize);
   const updateDrawingPosition = useGraphStore((state) => state.updateDrawingPosition);
   const addDrawing = useGraphStore((state) => state.addDrawing);
   const addDrawingPath = useGraphStore((state) => state.addDrawingPath);
@@ -664,6 +708,9 @@ function Canvas() {
   const renderGraphRef = useRef<() => void>(() => {});
   const panStateRef = useRef<PanState | null>(null);
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
+  const nodeResizeStateRef = useRef<NodeResizeState | null>(null);
+  const hoveredNodeResizeHandleNodeIdRef = useRef<string | null>(null);
+  const nodeCardDraftSizesRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const lastGraphIdRef = useRef<string | null>(null);
   const viewportInitializedRef = useRef(false);
   const handledDrawingCreateRequestRef = useRef(0);
@@ -695,6 +742,10 @@ function Canvas() {
       canvas.style.cursor = 'crosshair';
       return;
     }
+    if (nodeResizeStateRef.current || hoveredNodeResizeHandleNodeIdRef.current) {
+      canvas.style.cursor = 'nwse-resize';
+      return;
+    }
     if (numericSliderDragStateRef.current || hoveredNumericSliderNodeIdRef.current) {
       canvas.style.cursor = 'ew-resize';
       return;
@@ -711,6 +762,7 @@ function Canvas() {
       hasActiveInteraction: Boolean(
         connectionDragStateRef.current ||
         nodeDragStateRef.current ||
+        nodeResizeStateRef.current ||
         numericSliderDragStateRef.current ||
         drawingDragStateRef.current ||
         panStateRef.current ||
@@ -780,10 +832,11 @@ function Canvas() {
       for (const node of currentGraph.nodes) {
         const position = nodePositionsRef.current.get(node.id) ?? node.position;
         const visual = nodeVisualsRef.current.get(node.id);
-        const nodeWidth = visual?.width ?? NODE_WIDTH;
+        const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
+        const nodeWidth = visual?.width ?? dimensions.width;
         const nodeHeight = visual
           ? visual.height + visual.projectedGraphicsHeight
-          : getNodeHeight(node);
+          : dimensions.height;
 
         minX = Math.min(minX, position.x);
         minY = Math.min(minY, position.y);
@@ -851,10 +904,11 @@ function Canvas() {
       for (const node of currentGraph.nodes) {
         const position = nodePositionsRef.current.get(node.id) ?? node.position;
         const visual = nodeVisualsRef.current.get(node.id);
-        const nodeWidth = visual?.width ?? NODE_WIDTH;
+        const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
+        const nodeWidth = visual?.width ?? dimensions.width;
         const nodeHeight = visual
           ? visual.height + visual.projectedGraphicsHeight
-          : getNodeHeight(node);
+          : dimensions.height;
 
         const x = offsetX + (position.x - minX) * scale;
         const y = offsetY + (position.y - minY) * scale;
@@ -1651,6 +1705,8 @@ function Canvas() {
 
     if (!currentGraph) {
       hoveredNumericSliderNodeIdRef.current = null;
+      hoveredNodeResizeHandleNodeIdRef.current = null;
+      nodeCardDraftSizesRef.current.clear();
       clearAllNodeGraphicsTextures();
       drawConnections();
       drawFreehandStrokes();
@@ -1666,14 +1722,32 @@ function Canvas() {
       hoveredNumericSliderNodeIdRef.current = null;
     }
 
+    if (
+      hoveredNodeResizeHandleNodeIdRef.current &&
+      (
+        !currentGraph.nodes.some((node) => node.id === hoveredNodeResizeHandleNodeIdRef.current) ||
+        selectedNodeIdRef.current !== hoveredNodeResizeHandleNodeIdRef.current
+      )
+    ) {
+      hoveredNodeResizeHandleNodeIdRef.current = null;
+    }
+
+    const currentNodeIds = new Set(currentGraph.nodes.map((node) => node.id));
+    for (const nodeId of nodeCardDraftSizesRef.current.keys()) {
+      if (!currentNodeIds.has(nodeId)) {
+        nodeCardDraftSizesRef.current.delete(nodeId);
+      }
+    }
+
     const activeNodeGraphicsTextureIds = new Set<string>();
 
     for (const node of currentGraph.nodes) {
-      const width = NODE_WIDTH;
+      const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
+      const width = dimensions.width;
       const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
       const shouldProjectGraphics = isRenderablePythonGraphicsOutput(node, graphicsOutput);
       const hasProjectedGraphics = shouldProjectGraphics && Boolean(graphicsOutput);
-      const height = getNodeHeight(node);
+      const height = dimensions.height;
       const position = { ...node.position };
       const container = new Container();
       const isSelected = selectedNodeId === node.id;
@@ -2007,6 +2081,71 @@ function Canvas() {
         container.addChild(sliderHitArea);
       }
 
+      if (isSelected) {
+        const handleSize = NODE_RESIZE_HANDLE_SIZE;
+        const handleX = width - handleSize - NODE_RESIZE_HANDLE_MARGIN;
+        const handleY = height - handleSize - NODE_RESIZE_HANDLE_MARGIN;
+        const resizeHandle = new Graphics();
+        resizeHandle.beginFill(0x1d4ed8, 0.9);
+        resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
+        resizeHandle.endFill();
+        resizeHandle.eventMode = 'static';
+        resizeHandle.cursor = 'nwse-resize';
+        resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          event.stopPropagation();
+          hoveredNodeResizeHandleNodeIdRef.current = node.id;
+          applyCanvasCursor();
+        });
+        resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          event.stopPropagation();
+          if (nodeResizeStateRef.current?.nodeId === node.id) {
+            return;
+          }
+          if (hoveredNodeResizeHandleNodeIdRef.current === node.id) {
+            hoveredNodeResizeHandleNodeIdRef.current = null;
+          }
+          applyCanvasCursor();
+        });
+        resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          if (event.button !== 0) return;
+          event.stopPropagation();
+          const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+          canvas?.focus({ preventScroll: true });
+
+          selectedConnectionIdRef.current = null;
+          selectedNodeIdRef.current = node.id;
+          selectNode(node.id);
+          nodeResizeStateRef.current = {
+            nodeId: node.id,
+            pointerX: event.global.x,
+            pointerY: event.global.y,
+            width,
+            height,
+            minWidth: dimensions.minWidth,
+            minHeight: dimensions.minHeight,
+            currentWidth: width,
+            currentHeight: height,
+          };
+          nodeCardDraftSizesRef.current.set(node.id, { width, height });
+          hoveredNodeResizeHandleNodeIdRef.current = node.id;
+          requestCanvasAnimationLoop();
+          applyCanvasCursor();
+        });
+        resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
+          event.stopPropagation();
+        });
+        container.addChild(resizeHandle);
+      }
+
       let projectedGraphicsHeight = 0;
       if (shouldProjectGraphics && graphicsOutput) {
         const texture = getNodeGraphicsTextureForNode(node.id, graphicsOutput);
@@ -2277,6 +2416,9 @@ function Canvas() {
     if (drawingEnabled) {
       panStateRef.current = null;
       nodeDragStateRef.current = null;
+      nodeResizeStateRef.current = null;
+      hoveredNodeResizeHandleNodeIdRef.current = null;
+      nodeCardDraftSizesRef.current.clear();
       numericSliderDragStateRef.current = null;
       hoveredNumericSliderNodeIdRef.current = null;
       drawingDragStateRef.current = null;
@@ -2417,6 +2559,22 @@ function Canvas() {
         nodeDragStateRef.current = null;
       }
 
+      const resizeState = nodeResizeStateRef.current;
+      if (resizeState) {
+        if (
+          Math.abs(resizeState.currentWidth - resizeState.width) > 0.5 ||
+          Math.abs(resizeState.currentHeight - resizeState.height) > 0.5
+        ) {
+          updateNodeCardSize(
+            resizeState.nodeId,
+            resizeState.currentWidth,
+            resizeState.currentHeight
+          );
+        }
+        nodeCardDraftSizesRef.current.delete(resizeState.nodeId);
+        nodeResizeStateRef.current = null;
+      }
+
       const drawingDragState = drawingDragStateRef.current;
       if (drawingDragState) {
         if (drawingDragState.moved) {
@@ -2507,6 +2665,43 @@ function Canvas() {
         applyCanvasCursor();
         requestCanvasAnimationLoop();
         updateNumericSliderFromPointer(numericSliderDragState.nodeId, event.global.x, event.global.y);
+        return;
+      }
+
+      const nodeResizeState = nodeResizeStateRef.current;
+      if (nodeResizeState) {
+        const currentViewport = viewportRef.current;
+        if (!currentViewport) {
+          return;
+        }
+
+        const scale = currentViewport.scale.x || 1;
+        const deltaX = (event.global.x - nodeResizeState.pointerX) / scale;
+        const deltaY = (event.global.y - nodeResizeState.pointerY) / scale;
+        const nextWidth = clamp(
+          snapToPixel(nodeResizeState.width + deltaX),
+          nodeResizeState.minWidth,
+          NODE_MAX_WIDTH
+        );
+        const nextHeight = clamp(
+          snapToPixel(nodeResizeState.height + deltaY),
+          nodeResizeState.minHeight,
+          NODE_MAX_HEIGHT
+        );
+
+        if (
+          nextWidth !== nodeResizeState.currentWidth ||
+          nextHeight !== nodeResizeState.currentHeight
+        ) {
+          nodeResizeState.currentWidth = nextWidth;
+          nodeResizeState.currentHeight = nextHeight;
+          nodeCardDraftSizesRef.current.set(nodeResizeState.nodeId, {
+            width: nextWidth,
+            height: nextHeight,
+          });
+          renderGraphRef.current();
+        }
+        applyCanvasCursor();
         return;
       }
 
@@ -2787,7 +2982,7 @@ function Canvas() {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
+  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;

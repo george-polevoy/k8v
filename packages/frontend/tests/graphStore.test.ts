@@ -250,6 +250,63 @@ test('updateNodePosition persists position without changing node version', async
   }
 });
 
+test('updateNodeCardSize persists dimensions without changing node version', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const initialGraph: Graph = {
+    id: 'g-size',
+    name: 'Graph size',
+    nodes: [
+      {
+        id: 'n-size',
+        type: 'inline_code' as any,
+        position: { x: 10, y: 20 },
+        metadata: {
+          name: 'Node size',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'node-size-version-1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    useGraphStore.getState().updateNodeCardSize('n-size', 360, 200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = useGraphStore.getState();
+    assert.ok(capturedPayload, 'expected updateGraph payload');
+    assert.equal(capturedPayload.nodes[0].config.config.cardWidth, 360);
+    assert.equal(capturedPayload.nodes[0].config.config.cardHeight, 200);
+    assert.equal(capturedPayload.nodes[0].version, 'node-size-version-1');
+    assert.equal(state.graph?.nodes[0].version, 'node-size-version-1');
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
 test('auto recompute keeps only latest pending batch while compute is in flight', async () => {
   const originalPut = axios.put;
   const originalPost = axios.post;

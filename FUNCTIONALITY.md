@@ -32,6 +32,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Frontend cycle-prevention during connection creation.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
+- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool options: colors `white`/`green`/`red`.

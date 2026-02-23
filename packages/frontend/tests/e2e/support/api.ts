@@ -33,6 +33,8 @@ interface GraphResponse {
     config: {
       config?: {
         value?: unknown;
+        cardWidth?: unknown;
+        cardHeight?: unknown;
       };
     };
   }>;
@@ -158,5 +160,48 @@ export async function waitForNumericNodeValue(
 
   throw new Error(
     `Timed out waiting for numeric node value in graph ${graphId}. Last value: ${lastValue}`
+  );
+}
+
+export async function getNodeCardSize(
+  graphId: string,
+  nodeId: string
+): Promise<{ width: number | null; height: number | null }> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
+
+  const widthCandidate = node.config?.config?.cardWidth;
+  const heightCandidate = node.config?.config?.cardHeight;
+  const width = typeof widthCandidate === 'number' && Number.isFinite(widthCandidate) ? widthCandidate : null;
+  const height = typeof heightCandidate === 'number' && Number.isFinite(heightCandidate) ? heightCandidate : null;
+  return { width, height };
+}
+
+export async function waitForNodeCardSize(
+  graphId: string,
+  nodeId: string,
+  predicate: (size: { width: number | null; height: number | null }) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<{ width: number | null; height: number | null }> {
+  const startedAt = Date.now();
+  let lastSize: { width: number | null; height: number | null } = { width: null, height: null };
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastSize = await getNodeCardSize(graphId, nodeId);
+    if (predicate(lastSize)) {
+      return lastSize;
+    }
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for node card size in graph ${graphId}. Last size: ${JSON.stringify(lastSize)}`
   );
 }

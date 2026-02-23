@@ -46,6 +46,7 @@ interface GraphStore {
   addNode: (node: GraphNode) => void;
   updateNode: (nodeId: string, updates: Partial<GraphNode>) => void;
   updateNodePosition: (nodeId: string, position: Position) => void;
+  updateNodeCardSize: (nodeId: string, width: number, height: number) => void;
   deleteNode: (nodeId: string) => void;
   addConnection: (connection: Connection) => void;
   deleteConnection: (connectionId: string) => void;
@@ -879,6 +880,36 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const updatedNodes = graph.nodes.map((node) =>
         node.id === nodeId ? { ...node, position } : node
       );
+
+      const updatedGraph = {
+        ...graph,
+        nodes: updatedNodes,
+        updatedAt: Date.now(),
+      };
+      get().updateGraph(updatedGraph);
+    },
+
+    updateNodeCardSize: (nodeId: string, width: number, height: number) => {
+      const { graph } = get();
+      if (!graph) return;
+
+      const updatedNodes = graph.nodes.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+
+        return {
+          ...node,
+          config: {
+            ...node.config,
+            config: {
+              ...(node.config.config ?? {}),
+              cardWidth: width,
+              cardHeight: height,
+            },
+          },
+        };
+      });
 
       const updatedGraph = {
         ...graph,
