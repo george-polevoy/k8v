@@ -13,11 +13,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
+- Graph panel canvas background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog.
 - Current graph ID is shown in graph panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
 
 - Pixi.js canvas renderer for nodes and connectors.
+- Canvas background supports per-graph `solid` color fill or base-color-driven `gradient` rendering.
 - Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
 - Mouse wheel zoom.
 - Shift/Alt wheel directional scroll.
@@ -35,8 +37,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Node cards can be resized directly on canvas via drag handle; resized width/height persists per node.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
-- Draw tool options: colors `white`/`green`/`red`.
+- Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
 - Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
+- Draw toolbar hint text wraps within the narrow panel without horizontal overflow.
 - Drawings are persisted as graph-level drawing objects with named handles.
 - Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
 - Drawing handles are selectable, draggable (move drawing), and deletable.

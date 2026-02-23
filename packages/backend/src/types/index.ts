@@ -51,7 +51,26 @@ export const PythonEnvironment = z.object({
 export type PythonEnvironment = z.infer<typeof PythonEnvironment>;
 
 // Persistent freehand drawing primitives
-export const DrawingColor = z.enum(['white', 'green', 'red']);
+const LEGACY_DRAWING_COLOR_MAP = {
+  white: '#ffffff',
+  green: '#22c55e',
+  red: '#ef4444',
+} as const;
+
+export const DrawingColor = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((value) => {
+    const lowered = value.toLowerCase();
+    if (lowered in LEGACY_DRAWING_COLOR_MAP) {
+      return LEGACY_DRAWING_COLOR_MAP[lowered as keyof typeof LEGACY_DRAWING_COLOR_MAP];
+    }
+    return lowered;
+  })
+  .refine((value) => /^#[0-9a-f]{6}$/.test(value), {
+    message: 'Drawing color must be a hex color in #RRGGBB format',
+  });
 export type DrawingColor = z.infer<typeof DrawingColor>;
 
 export const DrawingPath = z.object({
@@ -80,6 +99,21 @@ export const GraphDrawing = z.object({
 });
 
 export type GraphDrawing = z.infer<typeof GraphDrawing>;
+
+export const CanvasBackgroundMode = z.enum(['solid', 'gradient']);
+export type CanvasBackgroundMode = z.infer<typeof CanvasBackgroundMode>;
+
+export const CanvasBackground = z.object({
+  mode: CanvasBackgroundMode,
+  baseColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+});
+
+export type CanvasBackground = z.infer<typeof CanvasBackground>;
+
+export const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
+  mode: 'gradient',
+  baseColor: '#1d437e',
+};
 
 // Node configuration
 export const NodeConfig = z.object({
@@ -127,6 +161,7 @@ export const Graph = z.object({
   name: z.string(),
   nodes: z.array(GraphNode),
   connections: z.array(Connection),
+  canvasBackground: CanvasBackground.optional(),
   pythonEnvs: z.array(PythonEnvironment).default([]),
   drawings: z.array(GraphDrawing).default([]),
   createdAt: z.number(),

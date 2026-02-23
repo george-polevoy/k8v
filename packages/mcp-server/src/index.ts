@@ -9,6 +9,23 @@ import { z } from 'zod';
 
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+
+function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
+  const fallbackColor = HEX_COLOR_PATTERN.test(String(fallback)) ? String(fallback).toLowerCase() : '#ffffff';
+  if (typeof value !== 'string') {
+    return fallbackColor;
+  }
+
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === 'white') return '#ffffff';
+  if (trimmed === 'green') return '#22c55e';
+  if (trimmed === 'red') return '#ef4444';
+  if (!HEX_COLOR_PATTERN.test(trimmed)) {
+    return fallbackColor;
+  }
+  return trimmed;
+}
 
 type RuntimeId = 'javascript_vm' | string;
 
@@ -42,7 +59,7 @@ interface DrawingPoint {
   y: number;
 }
 
-type DrawingColor = 'white' | 'green' | 'red';
+type DrawingColor = string;
 
 interface DrawingPath {
   id: string;
@@ -91,11 +108,19 @@ interface Connection {
   targetPort: string;
 }
 
+type CanvasBackgroundMode = 'solid' | 'gradient';
+
+interface CanvasBackground {
+  mode: CanvasBackgroundMode;
+  baseColor: string;
+}
+
 interface Graph {
   id: string;
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
+  canvasBackground?: CanvasBackground;
   pythonEnvs?: PythonEnvironment[];
   drawings?: GraphDrawing[];
   createdAt: number;
@@ -338,8 +363,12 @@ const RENDERER_HTML = String.raw`<!doctype html>
         }
 
         function resolveDrawingColor(color) {
-          if (color === 'green') return '#22c55e';
-          if (color === 'red') return '#ef4444';
+          if (typeof color !== 'string') return '#ffffff';
+          const lowered = color.trim().toLowerCase();
+          if (lowered === 'green') return '#22c55e';
+          if (lowered === 'red') return '#ef4444';
+          if (lowered === 'white') return '#ffffff';
+          if (/^#[0-9a-f]{6}$/i.test(lowered)) return lowered;
           return '#ffffff';
         }
 
@@ -676,9 +705,30 @@ function resolveBackendUrl(explicitUrl?: string): string {
 }
 
 function normalizeGraph(graph: Graph): Graph {
+  const canvasBackground =
+    graph.canvasBackground &&
+    (graph.canvasBackground.mode === 'solid' || graph.canvasBackground.mode === 'gradient') &&
+    /^#[0-9a-f]{6}$/i.test(graph.canvasBackground.baseColor)
+      ? {
+          mode: graph.canvasBackground.mode,
+          baseColor: graph.canvasBackground.baseColor.toLowerCase(),
+        }
+      : {
+          mode: 'gradient' as const,
+          baseColor: '#1d437e',
+        };
+  const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
+
   return {
     ...graph,
-    drawings: Array.isArray(graph.drawings) ? graph.drawings : [],
+    canvasBackground,
+    drawings: drawings.map((drawing) => ({
+      ...drawing,
+      paths: (drawing.paths ?? []).map((path) => ({
+        ...path,
+        color: normalizeDrawingColor(path.color, '#ffffff'),
+      })),
+    })),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
   };
 }
@@ -1168,7 +1218,7 @@ server.registerTool(
       graphId: z.string(),
       drawingId: z.string(),
       points: z.array(z.object({ x: z.number(), y: z.number() })).min(1),
-      color: z.enum(['white', 'green', 'red']).optional(),
+      color: z.union([z.string().regex(/^#[0-9a-fA-F]{6}$/), z.enum(['white', 'green', 'red'])]).optional(),
       thickness: z.number().positive().optional(),
       pathId: z.string().optional(),
       coordinateSpace: z.enum(['world', 'local']).optional(),
@@ -1210,7 +1260,7 @@ server.registerTool(
                   ...candidate.paths,
                   {
                     id: pathId ?? randomUUID(),
-                    color: color ?? 'white',
+                    color: normalizeDrawingColor(color, '#ffffff'),
                     thickness: thickness ?? 3,
                     points: localPoints,
                   },

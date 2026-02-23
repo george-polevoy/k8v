@@ -3,7 +3,13 @@ export interface Position {
   y: number;
 }
 
-export type DrawingColor = 'white' | 'green' | 'red';
+export type DrawingColor = string;
+export type CanvasBackgroundMode = 'solid' | 'gradient';
+
+export interface CanvasBackgroundSettings {
+  mode: CanvasBackgroundMode;
+  baseColor: string;
+}
 
 export interface PortDefinition {
   name: string;
@@ -92,6 +98,7 @@ export interface Graph {
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
+  canvasBackground?: CanvasBackgroundSettings;
   pythonEnvs?: PythonEnvironment[];
   drawings?: GraphDrawing[];
   createdAt: number;

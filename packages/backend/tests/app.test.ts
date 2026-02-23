@@ -243,6 +243,63 @@ test('POST /api/graphs accepts numeric_input nodes and compute returns numeric v
   }
 });
 
+test('POST /api/graphs applies default canvas background settings', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.deepEqual(graph.canvasBackground, {
+      mode: 'gradient',
+      baseColor: '#1d437e',
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs persists canvas background mode and base color updates', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      canvasBackground: {
+        mode: 'solid',
+        baseColor: '#204060',
+      },
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.deepEqual(createdGraph.canvasBackground, {
+      mode: 'solid',
+      baseColor: '#204060',
+    });
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        canvasBackground: {
+          mode: 'gradient',
+          baseColor: '#4a7ab4',
+        },
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.deepEqual(updatedGraph.canvasBackground, {
+      mode: 'gradient',
+      baseColor: '#4a7ab4',
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('DELETE /api/graphs/:id deletes graph and subsequent fetch returns 404', async () => {
   const ctx = await setupTestServer();
 
@@ -387,6 +444,43 @@ test('POST /api/graphs accepts persisted drawings payload', async () => {
     assert.equal(graph.drawings.length, 1);
     assert.equal(graph.drawings[0].paths.length, 1);
     assert.equal(graph.drawings[0].paths[0].points.length, 2);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs normalizes drawing colors to hex format', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      drawings: [
+        {
+          id: 'drawing-colors',
+          name: 'Drawing Colors',
+          position: { x: 10, y: 10 },
+          paths: [
+            {
+              id: 'path-legacy',
+              color: 'green',
+              thickness: 3,
+              points: [{ x: 0, y: 0 }],
+            },
+            {
+              id: 'path-hex',
+              color: '#123abc',
+              thickness: 3,
+              points: [{ x: 4, y: 4 }],
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.equal(graph.drawings[0].paths[0].color, '#22c55e');
+    assert.equal(graph.drawings[0].paths[1].color, '#123abc');
   } finally {
     await ctx.close();
   }

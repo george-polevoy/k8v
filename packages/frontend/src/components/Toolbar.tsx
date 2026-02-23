@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
+import ColorSelectionDialog from './ColorSelectionDialog';
 import NodeCreationDialog from './NodeCreationDialog';
-
-const DRAW_COLORS: Array<{ id: 'white' | 'green' | 'red'; label: string; hex: string }> = [
-  { id: 'white', label: 'White', hex: '#ffffff' },
-  { id: 'green', label: 'Green', hex: '#22c55e' },
-  { id: 'red', label: 'Red', hex: '#ef4444' },
-];
 
 const DRAW_THICKNESSES: Array<{ id: 1 | 3 | 9; label: string }> = [
   { id: 1, label: 'Hairline' },
@@ -26,6 +21,7 @@ function Toolbar() {
   const setDrawingColor = useGraphStore((state) => state.setDrawingColor);
   const setDrawingThickness = useGraphStore((state) => state.setDrawingThickness);
   const [showDialog, setShowDialog] = useState(false);
+  const [showDrawingColorDialog, setShowDrawingColorDialog] = useState(false);
   const [dialogPosition, setDialogPosition] = useState({ x: 400, y: 300 });
 
   const handleAddNode = () => {
@@ -121,28 +117,59 @@ function Toolbar() {
             Color
           </div>
           {!selectedDrawingId && (
-            <div style={{ fontSize: '9px', color: '#b91c1c', marginBottom: '6px', textAlign: 'center' }}>
+            <div
+              style={{
+                fontSize: '9px',
+                color: '#b91c1c',
+                marginBottom: '6px',
+                textAlign: 'center',
+                lineHeight: 1.2,
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+              }}
+            >
               Create/select drawing
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '4px', marginBottom: '6px' }}>
-            {DRAW_COLORS.map((color) => (
-              <button
-                key={color.id}
-                onClick={() => setDrawingColor(color.id)}
-                disabled={!drawingEnabled}
-                title={`Pencil color: ${color.label}`}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (!drawingEnabled) {
+                  return;
+                }
+                setShowDrawingColorDialog(true);
+              }}
+              disabled={!drawingEnabled}
+              title="Choose pencil color"
+              style={{
+                width: '100%',
+                minHeight: '24px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                background: '#f8fafc',
+                color: '#0f172a',
+                cursor: drawingEnabled ? 'pointer' : 'not-allowed',
+                padding: '3px 4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                fontSize: '9px',
+              }}
+            >
+              <span
                 style={{
-                  width: '14px',
-                  height: '14px',
+                  width: '12px',
+                  height: '12px',
                   borderRadius: '50%',
-                  border: drawingColor === color.id ? '2px solid #0f172a' : '1px solid #64748b',
-                  background: color.hex,
-                  cursor: drawingEnabled ? 'pointer' : 'not-allowed',
-                  padding: 0,
+                  border: '1px solid #334155',
+                  background: drawingColor,
+                  flexShrink: 0,
                 }}
               />
-            ))}
+              <span>Pick</span>
+            </button>
           </div>
           <div style={{ fontSize: '9px', color: '#475569', marginBottom: '4px', textAlign: 'center' }}>
             Width
@@ -177,6 +204,19 @@ function Toolbar() {
           position={dialogPosition}
         />
       )}
+      <ColorSelectionDialog
+        open={showDrawingColorDialog}
+        title="Pencil Color"
+        description="Choose the freehand drawing color."
+        initialColor={drawingColor}
+        defaultColor="#ffffff"
+        confirmLabel="Use Color"
+        onCancel={() => setShowDrawingColorDialog(false)}
+        onConfirm={(color) => {
+          setDrawingColor(color);
+          setShowDrawingColorDialog(false);
+        }}
+      />
     </>
   );
 }

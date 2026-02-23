@@ -10,8 +10,12 @@ import {
   GraphicsArtifact,
 } from '../types';
 import axios from 'axios';
+import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import { normalizeHexColor } from '../utils/color';
 
-export type PencilColor = 'white' | 'green' | 'red';
+const DEFAULT_DRAWING_COLOR = '#ffffff';
+
+export type PencilColor = string;
 export type PencilThickness = 1 | 3 | 9;
 
 export interface NodeExecutionState {
@@ -110,10 +114,18 @@ function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
 }
 
 function normalizeGraph(graph: Graph): Graph {
+  const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   return {
     ...graph,
+    canvasBackground: normalizeCanvasBackground(graph.canvasBackground),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
-    drawings: Array.isArray(graph.drawings) ? graph.drawings : [],
+    drawings: drawings.map((drawing) => ({
+      ...drawing,
+      paths: (drawing.paths ?? []).map((path) => ({
+        ...path,
+        color: normalizeHexColor(path.color, DEFAULT_DRAWING_COLOR),
+      })),
+    })),
   };
 }
 
@@ -571,7 +583,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     nodeExecutionStates: {},
     nodeGraphicsOutputs: {},
     drawingEnabled: false,
-    drawingColor: 'white',
+    drawingColor: DEFAULT_DRAWING_COLOR,
     drawingThickness: 3,
     drawingCreateRequestId: 0,
 
@@ -1143,7 +1155,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     },
 
     setDrawingColor: (color: PencilColor) => {
-      set({ drawingColor: color });
+      set({ drawingColor: normalizeHexColor(color, DEFAULT_DRAWING_COLOR) });
     },
 
     setDrawingThickness: (thickness: PencilThickness) => {

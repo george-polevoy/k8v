@@ -4,7 +4,15 @@ import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
-import { Connection, Graph, GraphDrawing, GraphNode, PythonEnvironment } from './types/index.js';
+import {
+  CanvasBackground,
+  Connection,
+  DEFAULT_CANVAS_BACKGROUND,
+  Graph,
+  GraphDrawing,
+  GraphNode,
+  PythonEnvironment,
+} from './types/index.js';
 import { DEFAULT_RUNTIME_ID, PYTHON_RUNTIME_ID } from './core/execution/types.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -19,6 +27,7 @@ const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
+  canvasBackground: CanvasBackground.optional().default(DEFAULT_CANVAS_BACKGROUND),
   pythonEnvs: z.array(PythonEnvironment).optional().default([]),
   drawings: z.array(GraphDrawing).optional().default([]),
 });
@@ -27,6 +36,7 @@ const UpdateGraphSchema = z.object({
   name: z.string().optional(),
   nodes: z.array(GraphNode).optional(),
   connections: z.array(Connection).optional(),
+  canvasBackground: CanvasBackground.optional(),
   pythonEnvs: z.array(PythonEnvironment).optional(),
   drawings: z.array(GraphDrawing).optional(),
 });
@@ -201,6 +211,7 @@ export function createApp(deps?: AppDependencies) {
         name: req.body.name,
         nodes: req.body.nodes,
         connections: req.body.connections,
+        canvasBackground: req.body.canvasBackground,
         pythonEnvs: req.body.pythonEnvs,
         drawings: req.body.drawings,
         createdAt: Date.now(),
@@ -230,6 +241,7 @@ export function createApp(deps?: AppDependencies) {
         ...existing,
         ...req.body,
         id: req.params.id,
+        canvasBackground: req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND,
         pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],
         drawings: req.body.drawings ?? existing.drawings ?? [],
         updatedAt: Date.now(),

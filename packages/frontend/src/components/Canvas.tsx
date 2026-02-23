@@ -14,8 +14,18 @@ import {
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
 import type { NodeExecutionState, PencilColor } from '../store/graphStore';
-import { DrawingPath, GraphDrawing, GraphNode, GraphicsArtifact, NodeType, Position } from '../types';
+import {
+  CanvasBackgroundSettings,
+  DrawingPath,
+  GraphDrawing,
+  GraphNode,
+  GraphicsArtifact,
+  NodeType,
+  Position,
+} from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
+import { deriveGradientStops, resolveGraphCanvasBackground } from '../utils/canvasBackground';
+import { hexColorToNumber } from '../utils/color';
 import {
   buildGraphicsImageUrl,
   estimateProjectedPixelBudget,
@@ -371,13 +381,7 @@ function drawOutputPortMarker(marker: Graphics, highlighted: boolean): void {
 }
 
 function resolvePencilColor(color: PencilColor): number {
-  if (color === 'green') {
-    return 0x22c55e;
-  }
-  if (color === 'red') {
-    return 0xef4444;
-  }
-  return 0xffffff;
+  return hexColorToNumber(color, '#ffffff');
 }
 
 function getNextDrawingName(drawings: GraphDrawing[]): string {
@@ -458,6 +462,53 @@ function resolveGraphicsAspectRatio(graphics: GraphicsArtifact): number {
   }
 
   return Math.max(baseLevel.height / baseLevel.width, 0.01);
+}
+
+function getCanvasBackgroundSignature(
+  background: CanvasBackgroundSettings,
+  width: number,
+  height: number
+): string {
+  return `${background.mode}:${background.baseColor}:${Math.round(width)}x${Math.round(height)}`;
+}
+
+function createCanvasBackgroundTexture(
+  width: number,
+  height: number,
+  background: CanvasBackgroundSettings
+): Texture {
+  const safeWidth = Math.max(2, Math.round(width * PIXEL_RATIO));
+  const safeHeight = Math.max(2, Math.round(height * PIXEL_RATIO));
+  const canvas = document.createElement('canvas');
+  canvas.width = safeWidth;
+  canvas.height = safeHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return Texture.WHITE;
+  }
+
+  if (background.mode === 'solid') {
+    ctx.fillStyle = background.baseColor;
+    ctx.fillRect(0, 0, safeWidth, safeHeight);
+    return Texture.from(canvas);
+  }
+
+  const [highlight, base, shadow, deepShadow] = deriveGradientStops(background.baseColor);
+  const gradient = ctx.createRadialGradient(
+    safeWidth * 0.12,
+    safeHeight * 0.08,
+    safeWidth * 0.06,
+    safeWidth * 0.52,
+    safeHeight * 0.56,
+    Math.max(safeWidth, safeHeight) * 0.9
+  );
+  gradient.addColorStop(0, highlight);
+  gradient.addColorStop(0.35, base);
+  gradient.addColorStop(0.7, shadow);
+  gradient.addColorStop(1, deepShadow);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, safeWidth, safeHeight);
+  return Texture.from(canvas);
 }
 
 function drawNodeCardFrame(
@@ -702,6 +753,7 @@ function Canvas() {
   const minimapTransformRef = useRef<MinimapTransform | null>(null);
   const appRef = useRef<Application | null>(null);
   const backgroundSpriteRef = useRef<Sprite | null>(null);
+  const appliedCanvasBackgroundSignatureRef = useRef('');
   const viewportRef = useRef<Container | null>(null);
   const nodeLayerRef = useRef<Container | null>(null);
   const drawingHandleLayerRef = useRef<Container | null>(null);
@@ -741,7 +793,7 @@ function Canvas() {
   const nodeGraphicsOutputsRef = useRef(nodeGraphicsOutputs);
   const nodeGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
   const graphicsTextureCacheRef = useRef<Map<string, GraphicsTextureCacheEntry>>(new Map());
-  const pendingGraphicsTextureLoadsRef = useRef<Set<string>>(new Set());
+  const pendingGraphicsTextureLoadsRef = useRef<Map<string, Texture>>(new Map());
   const graphRef = useRef(graph);
   const renderGraphRef = useRef<() => void>(() => {});
   const viewportRefreshRafRef = useRef<number | null>(null);
@@ -779,6 +831,38 @@ function Canvas() {
       viewportRefreshRafRef.current = null;
       renderGraphRef.current();
     });
+  }, []);
+
+  const refreshCanvasBackgroundTexture = useCallback(() => {
+    const app = appRef.current;
+    const backgroundSprite = backgroundSpriteRef.current;
+    if (!app || !backgroundSprite) {
+      return;
+    }
+
+    const resolvedBackground = resolveGraphCanvasBackground(graphRef.current);
+    const signature = getCanvasBackgroundSignature(
+      resolvedBackground,
+      app.screen.width,
+      app.screen.height
+    );
+    if (signature === appliedCanvasBackgroundSignatureRef.current) {
+      return;
+    }
+
+    const previousTexture = backgroundSprite.texture;
+    backgroundSprite.texture = createCanvasBackgroundTexture(
+      app.screen.width,
+      app.screen.height,
+      resolvedBackground
+    );
+    backgroundSprite.width = app.screen.width;
+    backgroundSprite.height = app.screen.height;
+    appliedCanvasBackgroundSignatureRef.current = signature;
+
+    if (previousTexture !== Texture.WHITE && previousTexture !== backgroundSprite.texture) {
+      previousTexture.destroy(true);
+    }
   }, []);
 
   const applyCanvasCursor = useCallback(() => {
@@ -1121,6 +1205,10 @@ function Canvas() {
     }
 
     if (cached.refCount <= 1) {
+      const pendingTexture = pendingGraphicsTextureLoadsRef.current.get(source);
+      if (pendingTexture === cached.texture) {
+        pendingGraphicsTextureLoadsRef.current.delete(source);
+      }
       destroyNodeGraphicsTexture(cached.texture);
       graphicsTextureCacheRef.current.delete(source);
       return;
@@ -1130,18 +1218,37 @@ function Canvas() {
   }, [destroyNodeGraphicsTexture]);
 
   const queueNodeGraphicsTextureRefresh = useCallback((source: string, texture: Texture) => {
-    if (texture.baseTexture.valid || pendingGraphicsTextureLoadsRef.current.has(source)) {
+    const pendingTexture = pendingGraphicsTextureLoadsRef.current.get(source);
+    if (texture.baseTexture.valid) {
+      if (pendingTexture === texture) {
+        pendingGraphicsTextureLoadsRef.current.delete(source);
+      }
       return;
     }
 
-    pendingGraphicsTextureLoadsRef.current.add(source);
-    texture.baseTexture.once('loaded', () => {
-      pendingGraphicsTextureLoadsRef.current.delete(source);
+    if (pendingTexture === texture) {
+      return;
+    }
+
+    pendingGraphicsTextureLoadsRef.current.set(source, texture);
+    const clearPendingTexture = () => {
+      if (pendingGraphicsTextureLoadsRef.current.get(source) === texture) {
+        pendingGraphicsTextureLoadsRef.current.delete(source);
+      }
+    };
+    const scheduleGraphicsRefresh = () => {
+      if (!texture.baseTexture.valid) {
+        return;
+      }
+      clearPendingTexture();
       requestCanvasAnimationLoop();
       renderGraphRef.current();
-    });
+    };
+
+    texture.baseTexture.once('loaded', scheduleGraphicsRefresh);
+    texture.baseTexture.once('update', scheduleGraphicsRefresh);
     texture.baseTexture.once('error', () => {
-      pendingGraphicsTextureLoadsRef.current.delete(source);
+      clearPendingTexture();
     });
   }, [requestCanvasAnimationLoop]);
 
@@ -1750,6 +1857,7 @@ function Canvas() {
     if (!nodesLayer || !drawingHandleLayer) return;
 
     requestCanvasAnimationLoop();
+    refreshCanvasBackgroundTexture();
     const staleNodeObjects = nodesLayer.removeChildren();
     for (const displayObject of staleNodeObjects) {
       displayObject.destroy({ children: true });
@@ -2434,6 +2542,7 @@ function Canvas() {
     fitViewportToGraph,
     getNodeGraphicsTextureForNode,
     releaseUnusedNodeGraphicsTextures,
+    refreshCanvasBackgroundTexture,
     requestCanvasAnimationLoop,
     selectDrawing,
     selectNode,
@@ -2562,35 +2671,7 @@ function Canvas() {
     drawingHandleLayer.eventMode = 'passive';
     const effectsLayer = new Graphics();
     effectsLayer.eventMode = 'none';
-    const createBackgroundTexture = () => {
-      const width = Math.max(2, Math.round(app.screen.width * PIXEL_RATIO));
-      const height = Math.max(2, Math.round(app.screen.height * PIXEL_RATIO));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        return Texture.WHITE;
-      }
-
-      const gradient = ctx.createRadialGradient(
-        width * 0.12,
-        height * 0.08,
-        width * 0.06,
-        width * 0.52,
-        height * 0.56,
-        Math.max(width, height) * 0.9
-      );
-      gradient.addColorStop(0, '#325da3');
-      gradient.addColorStop(0.35, '#1d437e');
-      gradient.addColorStop(0.7, '#112d58');
-      gradient.addColorStop(1, '#08172f');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
-      return Texture.from(canvas);
-    };
-
-    const backgroundSprite = new Sprite(createBackgroundTexture());
+    const backgroundSprite = new Sprite(Texture.WHITE);
     backgroundSpriteRef.current = backgroundSprite;
     backgroundSprite.position.set(0, 0);
     backgroundSprite.width = app.screen.width;
@@ -2622,6 +2703,7 @@ function Canvas() {
     canvasElement.tabIndex = 0;
     canvasElement.style.outline = 'none';
     applyCanvasCursor();
+    refreshCanvasBackgroundTexture();
 
     const finishInteraction = () => {
       if (connectionDragStateRef.current) {
@@ -2991,16 +3073,7 @@ function Canvas() {
 
     const handleResize = () => {
       app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height);
-      const background = backgroundSpriteRef.current;
-      if (background) {
-        const previousTexture = background.texture;
-        background.texture = createBackgroundTexture();
-        background.width = app.screen.width;
-        background.height = app.screen.height;
-        if (previousTexture !== Texture.WHITE) {
-          previousTexture.destroy(true);
-        }
-      }
+      refreshCanvasBackgroundTexture();
       drawMinimap();
       drawEffects();
       drawFreehandStrokes();
@@ -3085,6 +3158,7 @@ function Canvas() {
       clearAllNodeGraphicsTextures();
       app.destroy(true);
       setCanvasReady(false);
+      appliedCanvasBackgroundSignatureRef.current = '';
       backgroundSpriteRef.current = null;
       appRef.current = null;
       viewportRef.current = null;
@@ -3094,7 +3168,7 @@ function Canvas() {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
+  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, refreshCanvasBackgroundTexture, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;

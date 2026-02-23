@@ -17,6 +17,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
 - `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: dragging a selected node card resize handle updates and persists node `cardWidth`/`cardHeight`.
 - `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
+- `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -35,6 +36,8 @@ Last reviewed: February 23, 2026.
 - `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
 - `A-FE-17` `packages/frontend/tests/textLayout.test.ts`: title truncation helper ellipsizes long text to fit bounded width.
 - `A-FE-18` `packages/frontend/tests/diagnostics.test.ts`: diagnostics formatter converts technical backend error strings into user-readable messages.
+- `A-FE-19` `packages/frontend/tests/canvasBackground.test.ts`: canvas background normalization applies safe defaults and deterministic gradient stop derivation.
+- `A-FE-20` `packages/frontend/tests/color.test.ts`: drawing color normalization supports hex values, legacy names, and fallback conversion.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -72,6 +75,8 @@ Last reviewed: February 23, 2026.
 - `A-BE-35` `packages/backend/tests/app.test.ts`: graph API accepts `numeric_input` nodes and compute returns numeric output.
 - `A-BE-36` `packages/backend/tests/app.test.ts`: `DELETE /api/graphs/:id` deletes existing graphs and returns 404 for missing graphs.
 - `A-BE-37` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` accepts graph updates with payloads larger than 100KB (large drawings + node additions).
+- `A-BE-38` `packages/backend/tests/app.test.ts`: graph API applies default canvas background settings and persists canvas background updates.
+- `A-BE-39` `packages/backend/tests/app.test.ts`: graph API normalizes drawing path colors to hex format.
 
 ## Manual Regression Test Cases
 
@@ -83,6 +88,7 @@ Last reviewed: February 23, 2026.
 - `M-GRAPH-06`: Graph panel shows current graph ID to avoid MCP/UI target mismatches.
 - `M-GRAPH-07`: Graph panel Python env editor add/edit/delete/save persists graph-level env definitions and reloads correctly.
 - `M-GRAPH-08`: Graph panel delete-graph action removes the selected graph and automatically switches to latest remaining graph (or creates a new graph if none remain).
+- `M-GRAPH-09`: Graph panel canvas background controls persist mode (`solid`/`gradient`) and selected base color.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift/Alt + wheel performs directional scroll without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
@@ -96,7 +102,7 @@ Last reviewed: February 23, 2026.
 - `M-CANVAS-11`: Canvas text remains sharp across zoom levels with antialiasing enabled.
 - `M-CANVAS-12`: Selecting a node does not reset canvas viewport (no zoom/pan jump).
 - `M-CANVAS-13`: Pencil mode draws freehand strokes on canvas while pan/select interactions are suppressed.
-- `M-CANVAS-14`: Pencil color selector applies white/green/red stroke colors.
+- `M-CANVAS-14`: Pencil color-selection dialog applies chosen draw color (default `#ffffff`) to new strokes.
 - `M-CANVAS-15`: Pencil thickness selector applies hairline (1px), 3px, and 9px stroke widths.
 - `M-CANVAS-16`: Drawing objects are explicitly created, selectable by handle/title, and can be moved by dragging handle.
 - `M-CANVAS-17`: While draw mode is enabled, paths are added to the currently selected drawing object.
@@ -150,11 +156,13 @@ Last reviewed: February 23, 2026.
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
+| Graph panel canvas background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-FE-19`, `M-GRAPH-09` | Automated + Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
 | Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
 | Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
+| Canvas per-graph background rendering (solid or base-color-driven gradient) | `A-FE-19`, `M-GRAPH-09` | Automated + Manual |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `M-CANVAS-01` | Manual |
@@ -174,8 +182,9 @@ Last reviewed: February 23, 2026.
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
-| Canvas pencil color selection (white/green/red) | `M-CANVAS-14` | Manual |
+| Canvas pencil color selection via reusable color dialog (default white) | `A-FE-20`, `A-BE-39`, `M-CANVAS-14` | Automated + Manual |
 | Canvas pencil thickness selection (1/3/9 px) | `M-CANVAS-15` | Manual |
+| Draw-toolbar hint text wraps without horizontal overflow in the narrow toolbar panel | `A-E2E-07` | Automated |
 | Persistent drawing objects (create/select/move/delete) | `A-FE-09`, `A-FE-10`, `A-BE-31`, `A-BE-32`, `A-BE-33`, `M-CANVAS-16`, `M-CANVAS-17`, `M-CANVAS-18` | Automated + Manual |
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
@@ -223,6 +232,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, and diagnostics error surfacing (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, and draw-toolbar hint wrapping (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

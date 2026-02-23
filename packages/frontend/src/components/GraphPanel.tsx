@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { PythonEnvironment } from '../types';
+import { CanvasBackgroundSettings, PythonEnvironment } from '../types';
+import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import ColorSelectionDialog from './ColorSelectionDialog';
 
 function formatGraphOptionLabel(name: string, id: string): string {
   return `${name} (${id.slice(0, 8)})`;
@@ -32,6 +34,10 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
 
   const [graphNameValue, setGraphNameValue] = useState('');
   const [newGraphName, setNewGraphName] = useState('Untitled Graph');
+  const [canvasBackgroundDraft, setCanvasBackgroundDraft] = useState<CanvasBackgroundSettings>(
+    normalizeCanvasBackground(undefined)
+  );
+  const [showCanvasBackgroundColorDialog, setShowCanvasBackgroundColorDialog] = useState(false);
   const [pythonEnvDrafts, setPythonEnvDrafts] = useState<PythonEnvironment[]>([]);
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
@@ -44,9 +50,11 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   useEffect(() => {
     if (graph) {
       setGraphNameValue(graph.name);
+      setCanvasBackgroundDraft(normalizeCanvasBackground(graph.canvasBackground));
       setPythonEnvDrafts(graph.pythonEnvs ?? []);
     } else {
       setGraphNameValue('');
+      setCanvasBackgroundDraft(normalizeCanvasBackground(undefined));
       setPythonEnvDrafts([]);
     }
     setPythonEnvValidationError(null);
@@ -119,6 +127,32 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       setIsGraphActionInFlight(false);
     }
   }, [deleteGraph, graph, refreshGraphSummaries]);
+
+  const commitCanvasBackground = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const normalized = normalizeCanvasBackground(canvasBackgroundDraft);
+    const currentNormalized = normalizeCanvasBackground(graph.canvasBackground);
+    if (
+      normalized.mode === currentNormalized.mode &&
+      normalized.baseColor === currentNormalized.baseColor
+    ) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({
+        canvasBackground: normalized,
+        updatedAt: Date.now(),
+      });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [canvasBackgroundDraft, graph, refreshGraphSummaries, updateGraph]);
 
   const updatePythonEnvDraftField = useCallback((
     index: number,
@@ -423,6 +457,109 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           }}
         >
           <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
+            Canvas Background
+          </div>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Mode
+          </label>
+          <select
+            data-testid="canvas-background-mode-select"
+            value={canvasBackgroundDraft.mode}
+            disabled={!graph || isGraphActionInFlight}
+            onChange={(event) =>
+              setCanvasBackgroundDraft((current) => ({
+                ...current,
+                mode: event.target.value === 'solid' ? 'solid' : 'gradient',
+              }))
+            }
+            style={{
+              width: '100%',
+              padding: '8px',
+              marginBottom: '8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+            }}
+          >
+            <option value="gradient">Gradient</option>
+            <option value="solid">Solid</option>
+          </select>
+
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Base color
+          </label>
+          <button
+            data-testid="canvas-background-color-input"
+            type="button"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              if (!graph || isGraphActionInFlight) {
+                return;
+              }
+              setShowCanvasBackgroundColorDialog(true);
+            }}
+            style={{
+              width: '100%',
+              height: '34px',
+              marginBottom: '8px',
+              padding: '6px 8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+              background: '#ffffff',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              color: '#0f172a',
+              fontSize: '11px',
+            }}
+          >
+            <span>{canvasBackgroundDraft.baseColor}</span>
+            <span
+              style={{
+                width: '14px',
+                height: '14px',
+                borderRadius: '50%',
+                border: '1px solid #334155',
+                background: canvasBackgroundDraft.baseColor,
+                flexShrink: 0,
+              }}
+            />
+          </button>
+
+          <button
+            data-testid="canvas-background-save"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              void commitCanvasBackground();
+            }}
+            style={{
+              width: '100%',
+              padding: '7px 8px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Save Background
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '8px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
             Python Environments
           </div>
           {pythonEnvDrafts.length === 0 ? (
@@ -558,6 +695,22 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           </div>
         )}
       </div>
+      <ColorSelectionDialog
+        open={showCanvasBackgroundColorDialog}
+        title="Canvas Base Color"
+        description="This color is used directly in solid mode and as the base tone in gradient mode."
+        initialColor={canvasBackgroundDraft.baseColor}
+        defaultColor="#1d437e"
+        confirmLabel="Use Color"
+        onCancel={() => setShowCanvasBackgroundColorDialog(false)}
+        onConfirm={(color) => {
+          setCanvasBackgroundDraft((current) => ({
+            ...current,
+            baseColor: color,
+          }));
+          setShowCanvasBackgroundColorDialog(false);
+        }}
+      />
     </div>
   );
 }
