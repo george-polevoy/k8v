@@ -283,6 +283,83 @@ function normalizeGraphProjections(
   };
 }
 
+function connectionSignature(connection: Connection): string {
+  return `${connection.sourceNodeId}:${connection.sourcePort}->${connection.targetNodeId}:${connection.targetPort}`;
+}
+
+function collectInboundConnectionChangedNodeIds(
+  previousConnections: Connection[],
+  nextConnections: Connection[]
+): Set<string> {
+  const previousByTarget = new Map<string, Set<string>>();
+  for (const connection of previousConnections) {
+    const signature = connectionSignature(connection);
+    const existing = previousByTarget.get(connection.targetNodeId);
+    if (existing) {
+      existing.add(signature);
+    } else {
+      previousByTarget.set(connection.targetNodeId, new Set([signature]));
+    }
+  }
+
+  const nextByTarget = new Map<string, Set<string>>();
+  for (const connection of nextConnections) {
+    const signature = connectionSignature(connection);
+    const existing = nextByTarget.get(connection.targetNodeId);
+    if (existing) {
+      existing.add(signature);
+    } else {
+      nextByTarget.set(connection.targetNodeId, new Set([signature]));
+    }
+  }
+
+  const changedNodeIds = new Set<string>();
+  const targetNodeIds = new Set<string>([
+    ...previousByTarget.keys(),
+    ...nextByTarget.keys(),
+  ]);
+
+  for (const targetNodeId of targetNodeIds) {
+    const previous = previousByTarget.get(targetNodeId) ?? new Set<string>();
+    const next = nextByTarget.get(targetNodeId) ?? new Set<string>();
+    if (previous.size !== next.size) {
+      changedNodeIds.add(targetNodeId);
+      continue;
+    }
+
+    let differs = false;
+    for (const signature of previous) {
+      if (!next.has(signature)) {
+        differs = true;
+        break;
+      }
+    }
+
+    if (differs) {
+      changedNodeIds.add(targetNodeId);
+    }
+  }
+
+  return changedNodeIds;
+}
+
+function bumpNodeVersions(nodes: GraphNode[], nodeIds: Set<string>): GraphNode[] {
+  if (nodeIds.size === 0) {
+    return nodes;
+  }
+
+  const versionPrefix = Date.now().toString();
+  return nodes.map((node) => {
+    if (!nodeIds.has(node.id)) {
+      return node;
+    }
+    return {
+      ...node,
+      version: `${versionPrefix}-${node.id}`,
+    };
+  });
+}
+
 function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
   const drawingIds = new Set<string>();
@@ -515,7 +592,11 @@ export function createApp(deps?: AppDependencies) {
       const graphUpdates = { ...req.body } as Partial<Graph> & { ifMatchUpdatedAt?: number };
       delete graphUpdates.ifMatchUpdatedAt;
       const mergedNodes = req.body.nodes ?? existing.nodes;
+      const mergedConnections = req.body.connections ?? existing.connections;
       const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
+      const inboundConnectionChangedNodeIds = req.body.connections
+        ? collectInboundConnectionChangedNodeIds(existing.connections, mergedConnections)
+        : new Set<string>();
       const projectionState = normalizeGraphProjections(
         mergedNodes,
         req.body.projections ?? existing.projections,
@@ -523,11 +604,12 @@ export function createApp(deps?: AppDependencies) {
         mergedCanvasBackground,
         req.body.canvasBackground
       );
+      const nextNodes = bumpNodeVersions(projectionState.nodes, inboundConnectionChangedNodeIds);
       const graph: Graph = {
         ...existing,
         ...graphUpdates,
         id: req.params.id,
-        nodes: projectionState.nodes,
+        nodes: nextNodes,
         canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,

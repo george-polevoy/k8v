@@ -351,6 +351,87 @@ test('POST /api/graphs clamps oversized fallback node card width to max', async 
   }
 });
 
+test('PUT /api/graphs recomputes target node after inbound connection changes without manual rename', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceNode = createNumericInputNode('source-node', 5);
+    sourceNode.version = 'source-v1';
+
+    const targetNode = createValidInlineNode();
+    targetNode.id = 'target-node';
+    targetNode.metadata.name = 'Inline Code';
+    targetNode.metadata.inputs = [{ name: 'A', schema: { type: 'number' } }];
+    targetNode.metadata.outputs = [{ name: 'output', schema: { type: 'number' } }];
+    targetNode.config.runtime = 'python_process';
+    targetNode.config.code = 'outputs.output = inputs.A + 1';
+    targetNode.version = 'target-v1';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [sourceNode, targetNode],
+      connections: [],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const computeSourceResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'source-node' }),
+    });
+    assert.equal(computeSourceResponse.status, 200);
+
+    const computeTargetBeforeConnectionResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'target-node' }),
+    });
+    assert.equal(computeTargetBeforeConnectionResponse.status, 200);
+    const beforeConnection = await computeTargetBeforeConnectionResponse.json();
+    assert.match(String(beforeConnection.textOutput ?? ''), /Error: A/);
+
+    const currentGraphResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`);
+    assert.equal(currentGraphResponse.status, 200);
+    const currentGraph = await currentGraphResponse.json();
+    const targetNodeBeforeUpdate = currentGraph.nodes.find((node: any) => node.id === 'target-node');
+    assert.ok(targetNodeBeforeUpdate);
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ifMatchUpdatedAt: currentGraph.updatedAt,
+        connections: [
+          {
+            id: 'conn-source-to-target',
+            sourceNodeId: 'source-node',
+            sourcePort: 'value',
+            targetNodeId: 'target-node',
+            targetPort: 'A',
+          },
+        ],
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    const targetNodeAfterUpdate = updatedGraph.nodes.find((node: any) => node.id === 'target-node');
+    assert.ok(targetNodeAfterUpdate);
+    assert.notEqual(targetNodeAfterUpdate.version, targetNodeBeforeUpdate.version);
+
+    const computeTargetAfterConnectionResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'target-node' }),
+    });
+    assert.equal(computeTargetAfterConnectionResponse.status, 200);
+    const afterConnection = await computeTargetAfterConnectionResponse.json();
+    assert.equal(afterConnection.outputs.output, 6);
+    assert.ok(!String(afterConnection.textOutput ?? '').includes('Error: A'));
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('PUT /api/graphs switches active projection and applies projected node coordinates', async () => {
   const ctx = await setupTestServer();
 

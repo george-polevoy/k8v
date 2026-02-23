@@ -90,6 +90,7 @@ Last reviewed: February 23, 2026.
 - `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
 - `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
 - `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` clamps oversized fallback node card width to `1920`.
+- `A-BE-46` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) clamps oversized fallback node card widths to `1920`.
 
 ## Manual Regression Test Cases
@@ -233,6 +234,7 @@ Last reviewed: February 23, 2026.
 | Compute entire graph from toolbar | `M-COMPUTE-02` | Manual |
 | Compute single selected node from node panel | `M-COMPUTE-01` | Manual |
 | Deterministic recomputation by node version + deps timestamps | `A-BE-08` | Automated |
+| Inbound connection topology updates invalidate affected target nodes for recomputation | `A-BE-46` | Automated |
 | Persist outputs/schema/text/graphics | `A-BE-09`, `A-BE-13` | Automated |
 | Output panel shows text/graphics for selected node | `M-COMPUTE-01` | Manual |
 | Cached frontend node graphics outputs hydrate from persisted results and refresh on compute | `A-FE-12`, `A-FE-13`, `A-FE-14` | Automated |

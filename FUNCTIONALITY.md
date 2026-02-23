@@ -97,6 +97,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Compute entire graph from toolbar.
 - Compute single selected node from node panel.
 - Deterministic recomputation in backend based on node version + dependency result timestamps.
+- Backend invalidates target-node compute cache on inbound connection topology changes by bumping affected node versions on graph updates.
 - Persist outputs, inferred schema, text output, and graphics output.
 - Output panel shows text and graphics result for selected node.
 - Canvas renders `python_process` node image outputs as raw projections below the card (no in-card frame/padding).
