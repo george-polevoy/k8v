@@ -13,6 +13,8 @@ interface AppDependencies {
   graphEngine: GraphEngine;
 }
 
+const JSON_BODY_LIMIT = '10mb';
+
 const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
   nodes: z.array(GraphNode).optional().default([]),
@@ -149,7 +151,7 @@ function validateGraphStructure(graph: Graph): string | null {
 export function createApp(deps?: AppDependencies) {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   const dataStore = deps?.dataStore ?? new DataStore('./k8v.db', './data');
   const graphEngine =

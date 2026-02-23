@@ -16,6 +16,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
 - `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: dragging a selected node card resize handle updates and persists node `cardWidth`/`cardHeight`.
+- `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -33,6 +34,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
 - `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
 - `A-FE-17` `packages/frontend/tests/textLayout.test.ts`: title truncation helper ellipsizes long text to fit bounded width.
+- `A-FE-18` `packages/frontend/tests/diagnostics.test.ts`: diagnostics formatter converts technical backend error strings into user-readable messages.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -69,6 +71,7 @@ Last reviewed: February 23, 2026.
 - `A-BE-34` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor computes `numeric_input` outputs with normalized `min`/`max`/`step`/`value`.
 - `A-BE-35` `packages/backend/tests/app.test.ts`: graph API accepts `numeric_input` nodes and compute returns numeric output.
 - `A-BE-36` `packages/backend/tests/app.test.ts`: `DELETE /api/graphs/:id` deletes existing graphs and returns 404 for missing graphs.
+- `A-BE-37` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` accepts graph updates with payloads larger than 100KB (large drawings + node additions).
 
 ## Manual Regression Test Cases
 
@@ -114,6 +117,7 @@ Last reviewed: February 23, 2026.
 - `M-PANEL-10`: For a `numeric_input` node, editing `min`/`max`/`step` in node panel updates slider behavior and persisted output value bounds.
 - `M-PANEL-11`: Right sidebar panels (Graph, Node, Output) are collapsible in accordion behavior (opening one collapses the others).
 - `M-PANEL-12`: Selecting a node from canvas auto-expands the Node panel in the right sidebar accordion.
+- `M-PANEL-13`: Diagnostics panel title shows red status when a backend failure exists and the panel body shows a user-readable failure message.
 - `M-STATUS-01`: Running compute shows amber indicator while executing.
 - `M-STATUS-02`: Runtime error shows red indicator and error message in node panel.
 - `M-STATUS-03`: Auto-recompute enabled and healthy shows green indicator.
@@ -139,7 +143,7 @@ Last reviewed: February 23, 2026.
 | Load last opened graph from localStorage on startup | `A-FE-01` | Automated |
 | Fallback to latest stored graph when saved graph ID is stale | `A-FE-01` | Automated |
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
-| Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02` | Automated |
+| Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02`, `A-BE-37` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02` | Manual |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
@@ -147,8 +151,9 @@ Last reviewed: February 23, 2026.
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
-| Right sidebar Graph/Node/Output panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
+| Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
+| Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
@@ -218,6 +223,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, and node card resize (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, and diagnostics error surfacing (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

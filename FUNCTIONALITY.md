@@ -41,8 +41,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
 - Drawing handles are selectable, draggable (move drawing), and deletable.
 - Drawing paths and handles are rendered in canvas and minimap.
-- Right sidebar uses collapsible accordion panels for graph editing, node editing, and output.
+- Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.
 - Selecting a node auto-expands the Node accordion panel.
+- Diagnostics panel shows backend failure state with a red header indicator and user-readable error message.
 - Canvas node card titles are ellipsized to prevent long names from overlapping the card layout.
 
 ## Node Editing (Node Panel)

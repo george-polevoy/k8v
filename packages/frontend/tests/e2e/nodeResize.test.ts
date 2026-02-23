@@ -41,8 +41,8 @@ async function locateResizeHandle(
   page: import('playwright').Page,
   region: SearchRegion
 ): Promise<{ x: number; y: number }> {
-  for (let y = region.minY; y <= region.maxY; y += 2) {
-    for (let x = region.minX; x <= region.maxX; x += 2) {
+  for (let y = region.minY; y <= region.maxY; y += 4) {
+    for (let x = region.minX; x <= region.maxX; x += 4) {
       await page.mouse.move(x, y);
       if ((await readCanvasCursor(page)) === 'nwse-resize') {
         return { x, y };
@@ -51,6 +51,40 @@ async function locateResizeHandle(
   }
 
   throw new Error(`Failed to find resize handle cursor within region ${JSON.stringify(region)}`);
+}
+
+async function ensureNodeSelected(
+  page: import('playwright').Page,
+  nodeBox: NodeScreenPosition
+): Promise<void> {
+  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
+  if (await nodeNameInput.isVisible()) {
+    return;
+  }
+
+  const selectionClicks = [
+    { x: nodeBox.centerX, y: nodeBox.centerY },
+    { x: nodeBox.left + 24, y: nodeBox.centerY - 30 },
+    { x: nodeBox.left + 24, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX - 80, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX + 80, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX, y: nodeBox.centerY - 56 },
+    { x: nodeBox.centerX, y: nodeBox.centerY + 28 },
+  ];
+
+  const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
+  let index = 0;
+  while (Date.now() < deadline) {
+    const click = selectionClicks[index % selectionClicks.length];
+    index += 1;
+    await page.mouse.click(click.x, click.y);
+    await page.waitForTimeout(120);
+    if (await nodeNameInput.isVisible()) {
+      return;
+    }
+  }
+
+  throw new Error('Failed to select centered node before resize interaction.');
 }
 
 test.before(async () => {
@@ -85,15 +119,13 @@ test(
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
 
       const nodeBox = resolveCenteredNodePosition(canvasBox);
-      const headerClickX = nodeBox.left + 24;
-      const headerClickY = nodeBox.centerY - 30;
-      await page.mouse.click(headerClickX, headerClickY);
+      await ensureNodeSelected(page, nodeBox);
 
       const resizePoint = await locateResizeHandle(page, {
-        minX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH - 24),
-        maxX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH + 8),
-        minY: Math.round(nodeBox.centerY + 8),
-        maxY: Math.round(nodeBox.centerY + 54),
+        minX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH - 80),
+        maxX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH + 60),
+        minY: Math.round(nodeBox.centerY - 20),
+        maxY: Math.round(nodeBox.centerY + 90),
       });
 
       await page.mouse.down();

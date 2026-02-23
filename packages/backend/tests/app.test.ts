@@ -145,6 +145,25 @@ function createSampleDrawing(id: string) {
   };
 }
 
+function createLargeDrawing(id: string, pointCount = 12_000) {
+  return {
+    id,
+    name: `Large Drawing ${id}`,
+    position: { x: 80, y: 90 },
+    paths: [
+      {
+        id: `${id}-path-1`,
+        color: 'white',
+        thickness: 3,
+        points: Array.from({ length: pointCount }, (_value, index) => ({
+          x: index % 480,
+          y: Math.floor(index / 480),
+        })),
+      },
+    ],
+  };
+}
+
 test('POST /api/graphs accepts runtime in node config', async () => {
   const ctx = await setupTestServer();
 
@@ -347,6 +366,44 @@ test('POST /api/graphs accepts persisted drawings payload', async () => {
     assert.equal(graph.drawings.length, 1);
     assert.equal(graph.drawings[0].paths.length, 1);
     assert.equal(graph.drawings[0].paths[0].points.length, 2);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs/:id accepts updates with payload larger than 100KB', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      drawings: [createSampleDrawing('seed-drawing')],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updatePayload = {
+      nodes: [...createdGraph.nodes, createPassThroughNode('node-2')],
+      connections: createdGraph.connections,
+      drawings: [...createdGraph.drawings, createLargeDrawing('large-drawing')],
+    };
+
+    const serializedPayload = JSON.stringify(updatePayload);
+    assert.ok(
+      serializedPayload.length > 102_400,
+      `Expected test payload > 100KB, received ${serializedPayload.length} bytes`
+    );
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: serializedPayload,
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.nodes.length, 2);
+    assert.equal(updatedGraph.drawings.length, 2);
+    assert.equal(updatedGraph.drawings[1].paths[0].points.length, 12_000);
   } finally {
     await ctx.close();
   }

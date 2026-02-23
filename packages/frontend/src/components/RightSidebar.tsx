@@ -2,14 +2,16 @@ import { ReactNode, useEffect, useState } from 'react';
 import GraphPanel from './GraphPanel';
 import NodePanel from './NodePanel';
 import OutputPanel from './OutputPanel';
+import DiagnosticsPanel from './DiagnosticsPanel';
 import { useGraphStore } from '../store/graphStore';
 
-type SidebarSectionId = 'graph' | 'node' | 'output';
+type SidebarSectionId = 'graph' | 'node' | 'output' | 'diagnostics';
 
 interface AccordionSectionProps {
   id: SidebarSectionId;
   title: string;
   expanded: boolean;
+  hasAlert?: boolean;
   onToggle: (id: SidebarSectionId) => void;
   children: ReactNode;
 }
@@ -18,6 +20,7 @@ function AccordionSection({
   id,
   title,
   expanded,
+  hasAlert = false,
   onToggle,
   children,
 }: AccordionSectionProps) {
@@ -51,7 +54,31 @@ function AccordionSection({
           justifyContent: 'space-between',
         }}
       >
-        <span>{title}</span>
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: hasAlert ? '#b91c1c' : '#1e293b',
+          }}
+        >
+          <span>{title}</span>
+          {hasAlert && (
+            <span
+              data-testid={`sidebar-alert-${id}`}
+              aria-label={`${title} has errors`}
+              title={`${title} has errors`}
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '999px',
+                background: '#dc2626',
+                boxShadow: '0 0 0 2px rgba(220, 38, 38, 0.2)',
+                display: 'inline-block',
+              }}
+            />
+          )}
+        </span>
         <span>{expanded ? '▼' : '▶'}</span>
       </button>
       {expanded && (
@@ -74,7 +101,9 @@ function AccordionSection({
 
 function RightSidebar() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const error = useGraphStore((state) => state.error);
   const [expandedSection, setExpandedSection] = useState<SidebarSectionId | null>('graph');
+  const diagnosticsHasAlert = Boolean(error);
 
   const handleToggleSection = (sectionId: SidebarSectionId) => {
     setExpandedSection((current) => (current === sectionId ? null : sectionId));
@@ -123,6 +152,15 @@ function RightSidebar() {
         onToggle={handleToggleSection}
       >
         <OutputPanel embedded />
+      </AccordionSection>
+      <AccordionSection
+        id="diagnostics"
+        title="Diagnostics"
+        hasAlert={diagnosticsHasAlert}
+        expanded={expandedSection === 'diagnostics'}
+        onToggle={handleToggleSection}
+      >
+        <DiagnosticsPanel embedded />
       </AccordionSection>
     </aside>
   );
