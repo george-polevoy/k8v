@@ -16,6 +16,7 @@ import { useGraphStore } from '../store/graphStore';
 import type { NodeExecutionState, PencilColor } from '../store/graphStore';
 import { DrawingPath, GraphDrawing, GraphNode, NodeType, Position } from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
+import { truncateTextToWidth } from '../utils/textLayout';
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
@@ -49,6 +50,13 @@ const SMOKE_MAX_DURATION_MS = 1320;
 const SMOKE_MAX_PARTICLES = 96;
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
 const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
+const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
+const NODE_TITLE_TEXT_STYLE = {
+  fontFamily: 'Arial',
+  fontSize: 14,
+  fontWeight: 'bold',
+  fill: 0x0f172a,
+};
 const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
   isComputing: false,
   hasError: false,
@@ -1703,12 +1711,12 @@ function Canvas() {
       statusLight.endFill();
       container.addChild(statusLight);
 
-      const title = new Text(node.metadata.name, {
-        fontFamily: 'Arial',
-        fontSize: 14,
-        fontWeight: 'bold',
-        fill: 0x0f172a,
-      });
+      const titleText = truncateTextToWidth(
+        node.metadata.name,
+        width - 34,
+        (candidate) => candidate.length * NODE_TITLE_CHAR_WIDTH_ESTIMATE
+      );
+      const title = new Text(titleText, NODE_TITLE_TEXT_STYLE);
       title.resolution = PIXEL_RATIO;
       textNodesRef.current.add(title);
       title.position.set(12, 8);

@@ -31,6 +31,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-14` `packages/frontend/tests/graphStore.test.ts`: `computeGraph` clears stale cached graphics when latest result omits graphics output.
 - `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
 - `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
+- `A-FE-17` `packages/frontend/tests/textLayout.test.ts`: title truncation helper ellipsizes long text to fit bounded width.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -146,6 +147,7 @@ Last reviewed: February 23, 2026.
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
 | Right sidebar Graph/Node/Output panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
+| Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `M-CANVAS-01` | Manual |
