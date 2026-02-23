@@ -174,7 +174,7 @@ const RENDERER_HTML = String.raw`<!doctype html>
         const NODE_BODY_PADDING = 14;
         const PORT_SPACING = 22;
         const PORT_RADIUS = 4;
-        const NUMERIC_INPUT_NODE_MIN_HEIGHT = 136;
+        const NUMERIC_INPUT_NODE_MIN_HEIGHT = 108;
         const NUMERIC_SLIDER_LEFT_PADDING = 14;
         const NUMERIC_SLIDER_RIGHT_PADDING = 58;
         const NUMERIC_SLIDER_Y_OFFSET = 22;
@@ -469,9 +469,11 @@ const RENDERER_HTML = String.raw`<!doctype html>
             ctx.textBaseline = 'top';
             ctx.fillText(node.metadata.name, titleX, mappedTopLeft.y + (10 * scaleY));
 
-            ctx.fillStyle = '#475569';
-            ctx.font = '400 ' + subtitleFont + 'px Arial';
-            ctx.fillText(String(node.type).replace(/_/g, ' '), titleX, mappedTopLeft.y + (28 * scaleY));
+            if (node.type !== 'numeric_input') {
+              ctx.fillStyle = '#475569';
+              ctx.font = '400 ' + subtitleFont + 'px Arial';
+              ctx.fillText(String(node.type).replace(/_/g, ' '), titleX, mappedTopLeft.y + (28 * scaleY));
+            }
 
             if (node.type === 'numeric_input') {
               const numericConfig = normalizeNumericInputConfig(node.config && node.config.config);

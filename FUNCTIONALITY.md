@@ -11,9 +11,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Persist graph edits through `PUT /api/graphs/:id`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
-- Node panel graph management: select existing graph, create new graph, and rename current graph.
-- Node panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
-- Current graph ID is shown in node panel for explicit graph-target confirmation.
+- Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
+- Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
+- Current graph ID is shown in graph panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
 
@@ -40,6 +40,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
 - Drawing handles are selectable, draggable (move drawing), and deletable.
 - Drawing paths and handles are rendered in canvas and minimap.
+- Right sidebar uses collapsible accordion panels for graph editing, node editing, and output.
 
 ## Node Editing (Node Panel)
 

@@ -76,6 +76,123 @@ test('initializeGraph recovers from stale saved graph id by loading latest graph
   }
 });
 
+test('deleteGraph replaces current graph with latest remaining graph', async () => {
+  const localStorage = new MemoryLocalStorage();
+  localStorage.setItem('k8v-current-graph-id', 'g-delete-current');
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const originalDelete = (axios as any).delete;
+  const currentGraph = makeGraph('g-delete-current');
+  const fallbackGraph = makeGraph('g-fallback');
+
+  (axios as any).delete = async (url: string) => {
+    assert.equal(url, '/api/graphs/g-delete-current');
+    return { status: 204 };
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/latest') {
+      return { data: fallbackGraph };
+    }
+    if (url === '/api/graphs') {
+      return {
+        data: {
+          graphs: [{ id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt }],
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: currentGraph,
+    graphSummaries: [
+      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
+      { id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt },
+    ],
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
+  });
+
+  try {
+    await useGraphStore.getState().deleteGraph(currentGraph.id);
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, fallbackGraph.id);
+    assert.equal(localStorage.getItem('k8v-current-graph-id'), fallbackGraph.id);
+    assert.deepEqual(
+      state.graphSummaries.map((summary) => summary.id),
+      [fallbackGraph.id]
+    );
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).delete = originalDelete;
+  }
+});
+
+test('deleteGraph removes non-selected graph without switching current graph', async () => {
+  const localStorage = new MemoryLocalStorage();
+  localStorage.setItem('k8v-current-graph-id', 'g-keep');
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const originalDelete = (axios as any).delete;
+  const currentGraph = makeGraph('g-keep');
+  const deletedGraph = makeGraph('g-drop');
+
+  (axios as any).delete = async (url: string) => {
+    assert.equal(url, '/api/graphs/g-drop');
+    return { status: 204 };
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs') {
+      return {
+        data: {
+          graphs: [{ id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt }],
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: currentGraph,
+    graphSummaries: [
+      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
+      { id: deletedGraph.id, name: deletedGraph.name, updatedAt: deletedGraph.updatedAt },
+    ],
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    resultRefreshKey: 0,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
+  });
+
+  try {
+    await useGraphStore.getState().deleteGraph(deletedGraph.id);
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, currentGraph.id);
+    assert.equal(localStorage.getItem('k8v-current-graph-id'), currentGraph.id);
+    assert.deepEqual(
+      state.graphSummaries.map((summary) => summary.id),
+      [currentGraph.id]
+    );
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).delete = originalDelete;
+  }
+});
+
 test('updateNodePosition persists position without changing node version', async () => {
   const originalPut = axios.put;
   let capturedPayload: any = null;

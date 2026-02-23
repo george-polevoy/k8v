@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
 import Canvas from './components/Canvas';
 import Toolbar from './components/Toolbar';
-import NodePanel from './components/NodePanel';
-import OutputPanel from './components/OutputPanel';
+import RightSidebar from './components/RightSidebar';
 import { useGraphStore } from './store/graphStore';
 
 function App() {
@@ -29,8 +28,7 @@ function App() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Canvas />
       </div>
-      <NodePanel />
-      <OutputPanel />
+      <RightSidebar />
     </div>
   );
 }

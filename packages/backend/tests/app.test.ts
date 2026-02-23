@@ -186,6 +186,43 @@ test('POST /api/graphs accepts numeric_input nodes and compute returns numeric v
   }
 });
 
+test('DELETE /api/graphs/:id deletes graph and subsequent fetch returns 404', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      name: 'Delete Target Graph',
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const deleteResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'DELETE',
+    });
+    assert.equal(deleteResponse.status, 204);
+
+    const getDeletedResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`);
+    assert.equal(getDeletedResponse.status, 404);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('DELETE /api/graphs/:id returns 404 for missing graph', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const deleteResponse = await fetch(`${ctx.baseUrl}/api/graphs/missing-graph-id`, {
+      method: 'DELETE',
+    });
+    assert.equal(deleteResponse.status, 404);
+    const payload = await deleteResponse.json();
+    assert.match(payload.error, /graph not found/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs accepts graph python env definitions and node env references', async () => {
   const ctx = await setupTestServer();
 

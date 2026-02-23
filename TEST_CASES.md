@@ -11,6 +11,9 @@ Last reviewed: February 23, 2026.
 
 ## Automated Test Cases
 
+- `A-E2E-01` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag maintains `ew-resize` cursor and persists dragged value.
+- `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
+- `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -26,6 +29,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-13` `packages/frontend/tests/graphStore.test.ts`: `computeNode` updates per-node graphics-output cache from compute response.
 - `A-FE-14` `packages/frontend/tests/graphStore.test.ts`: `computeGraph` clears stale cached graphics when latest result omits graphics output.
 - `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
+- `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -61,16 +65,18 @@ Last reviewed: February 23, 2026.
 - `A-BE-33` `packages/backend/tests/app.test.ts`: graph API rejects duplicate path ids within a drawing.
 - `A-BE-34` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor computes `numeric_input` outputs with normalized `min`/`max`/`step`/`value`.
 - `A-BE-35` `packages/backend/tests/app.test.ts`: graph API accepts `numeric_input` nodes and compute returns numeric output.
+- `A-BE-36` `packages/backend/tests/app.test.ts`: `DELETE /api/graphs/:id` deletes existing graphs and returns 404 for missing graphs.
 
 ## Manual Regression Test Cases
 
 - `M-GRAPH-01`: On first launch with no existing graph, app auto-creates a graph and persists it.
 - `M-GRAPH-02`: Graph changes persist optimistically without UI jump/snap-back.
-- `M-GRAPH-03`: Node panel graph selector loads the selected graph and updates localStorage current graph ID.
-- `M-GRAPH-04`: Node panel create-graph action creates and immediately switches to the new graph.
-- `M-GRAPH-05`: Node panel rename-graph input persists graph name updates.
-- `M-GRAPH-06`: Node panel shows current graph ID to avoid MCP/UI target mismatches.
-- `M-GRAPH-07`: Node panel graph Python env editor add/edit/delete/save persists graph-level env definitions and reloads correctly.
+- `M-GRAPH-03`: Graph panel graph selector loads the selected graph and updates localStorage current graph ID.
+- `M-GRAPH-04`: Graph panel create-graph action creates and immediately switches to the new graph.
+- `M-GRAPH-05`: Graph panel rename-graph input persists graph name updates.
+- `M-GRAPH-06`: Graph panel shows current graph ID to avoid MCP/UI target mismatches.
+- `M-GRAPH-07`: Graph panel Python env editor add/edit/delete/save persists graph-level env definitions and reloads correctly.
+- `M-GRAPH-08`: Graph panel delete-graph action removes the selected graph and automatically switches to latest remaining graph (or creates a new graph if none remain).
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift/Alt + wheel performs directional scroll without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
@@ -102,6 +108,7 @@ Last reviewed: February 23, 2026.
 - `M-PANEL-08`: For a `python_process` node, selecting a graph-level Python env in node panel persists and is used on compute.
 - `M-PANEL-09`: Selecting a drawing allows rename/delete operations from node panel.
 - `M-PANEL-10`: For a `numeric_input` node, editing `min`/`max`/`step` in node panel updates slider behavior and persisted output value bounds.
+- `M-PANEL-11`: Right sidebar panels (Graph, Node, Output) are collapsible in accordion behavior (opening one collapses the others).
 - `M-STATUS-01`: Running compute shows amber indicator while executing.
 - `M-STATUS-02`: Runtime error shows red indicator and error message in node panel.
 - `M-STATUS-03`: Auto-recompute enabled and healthy shows green indicator.
@@ -129,11 +136,13 @@ Last reviewed: February 23, 2026.
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
 | Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02` | Manual |
-| Node panel graph selection | `M-GRAPH-03` | Manual |
-| Node panel graph creation | `M-GRAPH-04` | Manual |
-| Node panel graph rename | `M-GRAPH-05` | Manual |
-| Node panel graph Python env management | `M-GRAPH-07` | Manual |
+| Graph panel graph selection | `M-GRAPH-03` | Manual |
+| Graph panel graph creation | `M-GRAPH-04` | Manual |
+| Graph panel graph rename | `M-GRAPH-05` | Manual |
+| Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
+| Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
+| Right sidebar Graph/Node/Output panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `M-CANVAS-01` | Manual |
@@ -148,7 +157,7 @@ Last reviewed: February 23, 2026.
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
-| Canvas `numeric_input` nodes render interactive in-card slider controls | `M-CANVAS-21` | Manual |
+| Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `M-CANVAS-21` | Automated + Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
@@ -161,7 +170,7 @@ Last reviewed: February 23, 2026.
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `M-PANEL-07` | Manual |
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
-| Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
+| Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `A-E2E-01`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
@@ -201,6 +210,6 @@ Last reviewed: February 23, 2026.
 
 ## Open Gaps
 
-- No committed automated UI/e2e suite currently covers Pixi canvas interactions.
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, and sidebar accordion behavior (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`).
 - No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

@@ -37,7 +37,7 @@ const NODE_DRAG_START_THRESHOLD = 2;
 const LIGHTNING_DURATION_MS = 900;
 const NODE_SHOCK_DURATION_MS = 1200;
 const DRAW_SMOOTHING_STEP = 1;
-const NUMERIC_INPUT_NODE_MIN_HEIGHT = 136;
+const NUMERIC_INPUT_NODE_MIN_HEIGHT = 108;
 const NUMERIC_SLIDER_LEFT_PADDING = 14;
 const NUMERIC_SLIDER_RIGHT_PADDING = 58;
 const NUMERIC_SLIDER_Y_OFFSET = 22;
@@ -1714,15 +1714,17 @@ function Canvas() {
       title.position.set(12, 10);
       container.addChild(title);
 
-      const subtitle = new Text(node.type.replace(/_/g, ' '), {
-        fontFamily: 'Arial',
-        fontSize: 11,
-        fill: 0x475569,
-      });
-      subtitle.resolution = PIXEL_RATIO;
-      textNodesRef.current.add(subtitle);
-      subtitle.position.set(12, 28);
-      container.addChild(subtitle);
+      if (node.type !== NodeType.NUMERIC_INPUT) {
+        const subtitle = new Text(node.type.replace(/_/g, ' '), {
+          fontFamily: 'Arial',
+          fontSize: 11,
+          fill: 0x475569,
+        });
+        subtitle.resolution = PIXEL_RATIO;
+        textNodesRef.current.add(subtitle);
+        subtitle.position.set(12, 28);
+        container.addChild(subtitle);
+      }
 
       const inputPortOffsets = new Map<string, number>();
       const outputPortOffsets = new Map<string, number>();

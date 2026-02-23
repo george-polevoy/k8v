@@ -81,13 +81,19 @@ function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericI
   return { value, min, max, step };
 }
 
-function NodePanel() {
+interface NodePanelProps {
+  embedded?: boolean;
+  showGraphSection?: boolean;
+}
+
+function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps) {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const graph = useGraphStore((state) => state.graph);
   const graphSummaries = useGraphStore((state) => state.graphSummaries);
   const loadGraph = useGraphStore((state) => state.loadGraph);
   const createGraph = useGraphStore((state) => state.createGraph);
+  const deleteGraph = useGraphStore((state) => state.deleteGraph);
   const refreshGraphSummaries = useGraphStore((state) => state.refreshGraphSummaries);
   const updateNode = useGraphStore((state) => state.updateNode);
   const updateGraph = useGraphStore((state) => state.updateGraph);
@@ -116,10 +122,14 @@ function NodePanel() {
   const [pythonEnvDrafts, setPythonEnvDrafts] = useState<PythonEnvironment[]>([]);
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
+  const [isDeleteGraphConfirming, setIsDeleteGraphConfirming] = useState(false);
 
   useEffect(() => {
+    if (!showGraphSection) {
+      return;
+    }
     void refreshGraphSummaries();
-  }, [refreshGraphSummaries]);
+  }, [refreshGraphSummaries, showGraphSection]);
 
   useEffect(() => {
     if (selectedNode?.config.code !== undefined) {
@@ -162,6 +172,10 @@ function NodePanel() {
   }, [selectedDrawing]);
 
   useEffect(() => {
+    if (!showGraphSection) {
+      return;
+    }
+
     if (graph) {
       setGraphNameValue(graph.name);
       setPythonEnvDrafts(graph.pythonEnvs ?? []);
@@ -170,7 +184,14 @@ function NodePanel() {
       setPythonEnvDrafts([]);
     }
     setPythonEnvValidationError(null);
-  }, [graph]);
+  }, [graph, showGraphSection]);
+
+  useEffect(() => {
+    if (!showGraphSection) {
+      return;
+    }
+    setIsDeleteGraphConfirming(false);
+  }, [graph?.id, showGraphSection]);
 
   const commitInlineCode = useCallback(() => {
     if (!selectedNode || selectedNode.config.type !== NodeType.INLINE_CODE) {
@@ -558,6 +579,21 @@ function NodePanel() {
     }
   }, [createGraph, newGraphName, refreshGraphSummaries]);
 
+  const handleDeleteCurrentGraph = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await deleteGraph(graph.id);
+      await refreshGraphSummaries();
+      setIsDeleteGraphConfirming(false);
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [deleteGraph, graph, refreshGraphSummaries]);
+
   const updatePythonEnvDraftField = useCallback((
     index: number,
     field: keyof PythonEnvironment,
@@ -668,15 +704,18 @@ function NodePanel() {
   return (
     <div
       data-testid="node-panel"
-      style={{
-        width: '300px',
-        background: '#f9f9f9',
-        borderLeft: '1px solid #ddd',
-        padding: '16px',
-        overflowY: 'auto',
-      }}
+      style={embedded
+        ? {}
+        : {
+            width: '300px',
+            background: '#f9f9f9',
+            borderLeft: '1px solid #ddd',
+            padding: '16px',
+            overflowY: 'auto',
+          }}
     >
-      <h3 style={{ marginBottom: '16px' }}>Node Panel</h3>
+      {!embedded && <h3 style={{ marginBottom: '16px' }}>Node Panel</h3>}
+      {showGraphSection && (
       <div
         style={{
           marginBottom: '16px',
@@ -747,6 +786,84 @@ function NodePanel() {
             boxSizing: 'border-box',
           }}
         />
+
+        {!isDeleteGraphConfirming ? (
+          <button
+            data-testid="delete-graph-button"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              if (!graph || isGraphActionInFlight) {
+                return;
+              }
+              setIsDeleteGraphConfirming(true);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              marginBottom: '10px',
+              background: '#b91c1c',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            Delete Current Graph
+          </button>
+        ) : (
+          <div
+            style={{
+              marginBottom: '10px',
+              padding: '8px',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              background: '#fef2f2',
+            }}
+          >
+            <div style={{ fontSize: '11px', color: '#7f1d1d', marginBottom: '8px' }}>
+              Delete this graph permanently?
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                data-testid="confirm-delete-graph-button"
+                disabled={!graph || isGraphActionInFlight}
+                onClick={() => {
+                  void handleDeleteCurrentGraph();
+                }}
+                style={{
+                  flex: 1,
+                  padding: '7px 8px',
+                  background: '#b91c1c',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                Confirm Delete
+              </button>
+              <button
+                data-testid="cancel-delete-graph-button"
+                disabled={isGraphActionInFlight}
+                onClick={() => setIsDeleteGraphConfirming(false)}
+                style={{
+                  flex: 1,
+                  padding: '7px 8px',
+                  background: '#e2e8f0',
+                  color: '#0f172a',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  cursor: isGraphActionInFlight ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           New graph
@@ -936,6 +1053,7 @@ function NodePanel() {
           </div>
         )}
       </div>
+      )}
 
       {selectedNode ? (
         <div>

@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "snapshot:canvas": "node scripts/captureCanvasSnapshot.mjs"
+    "snapshot:canvas": "node scripts/captureCanvasSnapshot.mjs",
+    "test:e2e": "find tests/e2e -name '*.test.ts' -print0 | xargs -0 tsx --test --test-concurrency=1"
   },
   "dependencies": {
     "axios": "^1.6.2",

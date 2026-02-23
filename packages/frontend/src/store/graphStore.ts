@@ -40,6 +40,7 @@ interface GraphStore {
   loadLatestGraph: () => Promise<void>;
   refreshGraphSummaries: () => Promise<void>;
   createGraph: (name: string) => Promise<void>;
+  deleteGraph: (id: string) => Promise<void>;
   updateGraph: (graph: Partial<Graph>) => Promise<void>;
   initializeGraph: () => Promise<void>;
   addNode: (node: GraphNode) => void;
@@ -595,6 +596,36 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       } catch (error: any) {
         console.error('Error creating graph:', error);
         set({ error: resolveErrorMessage(error, 'Failed to create graph'), isLoading: false });
+        throw error;
+      }
+    },
+
+    deleteGraph: async (id: string) => {
+      const currentGraphId = get().graph?.id ?? null;
+      const deletingCurrentGraph = currentGraphId === id;
+      set({ isLoading: deletingCurrentGraph, error: null });
+
+      try {
+        await axios.delete(`/api/graphs/${id}`);
+        removeGraphSummary(id);
+
+        try {
+          if (localStorage.getItem('k8v-current-graph-id') === id) {
+            localStorage.removeItem('k8v-current-graph-id');
+          }
+        } catch (storageError) {
+          console.warn('Could not update localStorage after graph deletion:', storageError);
+        }
+
+        if (deletingCurrentGraph) {
+          await get().loadLatestGraph();
+        } else {
+          set({ isLoading: false, error: null });
+        }
+
+        await get().refreshGraphSummaries();
+      } catch (error: any) {
+        set({ error: resolveErrorMessage(error, 'Failed to delete graph'), isLoading: false });
         throw error;
       }
     },

@@ -241,6 +241,18 @@ export function createApp(deps?: AppDependencies) {
     }
   });
 
+  app.delete('/api/graphs/:id', async (req, res) => {
+    try {
+      const deleted = await dataStore.deleteGraph(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Graph not found' });
+      }
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/graphs/:id/compute', validate(ComputeRequestSchema), async (req, res) => {
     try {
       const graph = await dataStore.getGraph(req.params.id);

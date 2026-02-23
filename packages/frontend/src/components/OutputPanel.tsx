@@ -2,7 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import axios from 'axios';
 
-function OutputPanel() {
+interface OutputPanelProps {
+  embedded?: boolean;
+}
+
+function OutputPanel({ embedded = false }: OutputPanelProps) {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedNodeName = useGraphStore((state) => {
     if (!state.selectedNodeId) return null;
@@ -17,6 +21,24 @@ function OutputPanel() {
   const [graphicsExpanded, setGraphicsExpanded] = useState(true);
   const hasAnyOutput = Boolean(textOutput) || Boolean(graphicsOutput);
   const hasAnyOutputRef = useRef(false);
+  const panelContainerStyle = embedded
+    ? {
+        display: 'flex',
+        flexDirection: 'column' as const,
+        minHeight: 0,
+        height: '100%',
+        overflowY: 'auto' as const,
+      }
+    : {
+        width: '400px',
+        background: '#f9f9f9',
+        borderLeft: '1px solid #ddd',
+        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        height: '100vh',
+        overflowY: 'auto' as const,
+      };
 
   useEffect(() => {
     hasAnyOutputRef.current = hasAnyOutput;
@@ -110,17 +132,10 @@ function OutputPanel() {
   if (!selectedNodeId) {
     return (
       <div
-        style={{
-          width: '400px',
-          background: '#f9f9f9',
-          borderLeft: '1px solid #ddd',
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-        }}
+        data-testid="output-panel"
+        style={panelContainerStyle}
       >
-        <h3 style={{ marginBottom: '16px' }}>Output</h3>
+        {!embedded && <h3 style={{ marginBottom: '16px' }}>Output</h3>}
         <p style={{ color: '#666', fontSize: '14px' }}>Select a node to view its output</p>
       </div>
     );
@@ -128,18 +143,10 @@ function OutputPanel() {
 
   return (
     <div
-      style={{
-        width: '400px',
-        background: '#f9f9f9',
-        borderLeft: '1px solid #ddd',
-        padding: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflowY: 'auto',
-      }}
+      data-testid="output-panel"
+      style={panelContainerStyle}
     >
-      <h3 style={{ marginBottom: '16px' }}>
+      <h3 style={{ marginBottom: embedded ? '12px' : '16px' }}>
         Output: {selectedNodeName || 'Unknown Node'}
       </h3>
 

@@ -301,6 +301,15 @@ export class DataStore {
   }
 
   /**
+   * Delete graph by id
+   */
+  async deleteGraph(graphId: string): Promise<boolean> {
+    const stmt = this.db.prepare('DELETE FROM graphs WHERE id = ?');
+    const result = stmt.run(graphId);
+    return result.changes > 0;
+  }
+
+  /**
    * Store library node
    */
   async storeLibraryNode(manifest: any, graphId?: string): Promise<void> {
