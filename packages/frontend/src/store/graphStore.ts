@@ -1,5 +1,14 @@
 import { create } from 'zustand';
-import { Graph, GraphDrawing, DrawingPath, GraphNode, Connection, Position, ComputationResult } from '../types';
+import {
+  Graph,
+  GraphDrawing,
+  DrawingPath,
+  GraphNode,
+  Connection,
+  Position,
+  ComputationResult,
+  GraphicsArtifact,
+} from '../types';
 import axios from 'axios';
 
 export type PencilColor = 'white' | 'green' | 'red';
@@ -13,7 +22,7 @@ export interface NodeExecutionState {
   lastRunAt: number | null;
 }
 
-export type NodeGraphicsOutputMap = Record<string, string | null>;
+export type NodeGraphicsOutputMap = Record<string, GraphicsArtifact | null>;
 
 export interface GraphSummary {
   id: string;
@@ -122,17 +131,56 @@ function buildNodeStateMapForGraph(
   return nextStates;
 }
 
-function normalizeGraphicsOutput(graphicsOutput: unknown): string | null {
-  if (typeof graphicsOutput !== 'string') {
+function normalizeGraphicsOutput(graphics: unknown): GraphicsArtifact | null {
+  if (!graphics || typeof graphics !== 'object') {
     return null;
   }
 
-  const trimmed = graphicsOutput.trim();
-  if (!trimmed.startsWith('data:image/')) {
+  const maybeGraphics = graphics as Partial<GraphicsArtifact>;
+  if (typeof maybeGraphics.id !== 'string' || !maybeGraphics.id.trim()) {
     return null;
   }
 
-  return trimmed;
+  if (typeof maybeGraphics.mimeType !== 'string' || !maybeGraphics.mimeType.trim()) {
+    return null;
+  }
+
+  if (!Array.isArray(maybeGraphics.levels) || maybeGraphics.levels.length === 0) {
+    return null;
+  }
+
+  const normalizedLevels = maybeGraphics.levels
+    .filter((level) =>
+      level &&
+      typeof level.level === 'number' &&
+      Number.isFinite(level.level) &&
+      typeof level.width === 'number' &&
+      Number.isFinite(level.width) &&
+      level.width > 0 &&
+      typeof level.height === 'number' &&
+      Number.isFinite(level.height) &&
+      level.height > 0 &&
+      typeof level.pixelCount === 'number' &&
+      Number.isFinite(level.pixelCount) &&
+      level.pixelCount > 0
+    )
+    .map((level) => ({
+      level: Math.max(0, Math.floor(level.level)),
+      width: Math.max(1, Math.floor(level.width)),
+      height: Math.max(1, Math.floor(level.height)),
+      pixelCount: Math.max(1, Math.floor(level.pixelCount)),
+    }))
+    .sort((left, right) => left.level - right.level);
+
+  if (normalizedLevels.length === 0) {
+    return null;
+  }
+
+  return {
+    id: maybeGraphics.id.trim(),
+    mimeType: maybeGraphics.mimeType.trim().toLowerCase(),
+    levels: normalizedLevels,
+  };
 }
 
 function buildNodeGraphicsOutputMapForGraph(
@@ -400,7 +448,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         return {
           nodeId: node.id,
           executionState: getNodeExecutionStateFromResult(response.data),
-          graphicsOutput: normalizeGraphicsOutput(response.data?.graphicsOutput),
+          graphicsOutput: normalizeGraphicsOutput(response.data?.graphics),
         };
       } catch (error: any) {
         if (error?.response?.status === 404) {
@@ -1121,7 +1169,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         set((state) => ({
           nodeGraphicsOutputs: {
             ...state.nodeGraphicsOutputs,
-            [nodeId]: normalizeGraphicsOutput(result?.graphicsOutput),
+            [nodeId]: normalizeGraphicsOutput(result?.graphics),
           },
         }));
         set({ resultRefreshKey: Date.now() });
@@ -1177,7 +1225,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           for (const result of results) {
             if (result?.nodeId) {
               nextStates[result.nodeId] = getNodeExecutionStateFromResult(result);
-              nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphicsOutput);
+              nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphics);
             }
           }
 

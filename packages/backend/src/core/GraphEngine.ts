@@ -38,10 +38,15 @@ export class GraphEngine {
       const inputs = await this.getNodeInputs(graph, nodeId);
 
       // Execute node
-      const result = await this.nodeExecutor.execute(node, inputs, graph);
+      const executedResult = await this.nodeExecutor.execute(node, inputs, graph);
 
       // Store result
-      await this.dataStore.storeResult(nodeId, result);
+      await this.dataStore.storeResult(nodeId, executedResult);
+      const storedResult = await this.dataStore.getResult(nodeId, executedResult.version);
+      const result = storedResult ?? {
+        ...executedResult,
+        graphicsOutput: undefined,
+      };
       this.computationCache.set(nodeId, result);
 
       // Update node version to mark as computed

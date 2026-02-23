@@ -14,8 +14,13 @@ import {
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
 import type { NodeExecutionState, PencilColor } from '../store/graphStore';
-import { DrawingPath, GraphDrawing, GraphNode, NodeType, Position } from '../types';
+import { DrawingPath, GraphDrawing, GraphNode, GraphicsArtifact, NodeType, Position } from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
+import {
+  buildGraphicsImageUrl,
+  estimateProjectedPixelBudget,
+  isRenderableGraphicsArtifact,
+} from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -59,7 +64,7 @@ const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
 const NODE_TITLE_TEXT_STYLE = {
   fontFamily: 'Arial',
   fontSize: 14,
-  fontWeight: 'bold',
+  fontWeight: 'bold' as const,
   fill: 0x0f172a,
 };
 const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
@@ -380,11 +385,10 @@ function getNextDrawingName(drawings: GraphDrawing[]): string {
 
 function isRenderablePythonGraphicsOutput(
   node: GraphNode,
-  graphicsOutput: string | null | undefined
-): graphicsOutput is string {
+  graphicsOutput: GraphicsArtifact | null | undefined
+): graphicsOutput is GraphicsArtifact {
   return node.config.runtime === 'python_process' &&
-    typeof graphicsOutput === 'string' &&
-    graphicsOutput.startsWith('data:image/');
+    isRenderableGraphicsArtifact(graphicsOutput);
 }
 
 function getNodeMinHeight(node: GraphNode): number {
@@ -2148,18 +2152,23 @@ function Canvas() {
 
       let projectedGraphicsHeight = 0;
       if (shouldProjectGraphics && graphicsOutput) {
-        const texture = getNodeGraphicsTextureForNode(node.id, graphicsOutput);
-        activeNodeGraphicsTextureIds.add(node.id);
-        const { width: textureWidth, height: textureHeight, valid: textureValid } = getTextureDimensions(texture);
         const projectionWidth = width;
-        projectedGraphicsHeight = textureValid
-          ? (projectionWidth * textureHeight) / textureWidth
+        const maxPixels = estimateProjectedPixelBudget(graphicsOutput, projectionWidth, PIXEL_RATIO);
+        const source = buildGraphicsImageUrl(graphicsOutput, maxPixels);
+        const texture = getNodeGraphicsTextureForNode(node.id, source);
+        activeNodeGraphicsTextureIds.add(node.id);
+        const textureDimensions = getTextureDimensions(texture);
+        const resolvedTextureWidth = textureDimensions.width;
+        const resolvedTextureHeight = textureDimensions.height;
+        const resolvedTextureValid = textureDimensions.valid;
+        projectedGraphicsHeight = resolvedTextureValid
+          ? (projectionWidth * resolvedTextureHeight) / resolvedTextureWidth
           : projectionWidth * NODE_GRAPHICS_FALLBACK_ASPECT_RATIO;
 
-        if (textureValid) {
+        if (resolvedTextureValid) {
           const imageSprite = new Sprite(texture);
           imageSprite.eventMode = 'none';
-          const scale = projectionWidth / textureWidth;
+          const scale = projectionWidth / resolvedTextureWidth;
           imageSprite.scale.set(scale);
           imageSprite.position.set(0, height);
           container.addChild(imageSprite);

@@ -641,6 +641,36 @@ async function requestJson<T>(
   return parsed as T;
 }
 
+async function requestBinary(
+  baseUrl: string,
+  endpoint: string,
+  init?: RequestInit
+): Promise<{ buffer: Buffer; headers: Headers }> {
+  const normalizedBaseUrl = sanitizeBaseUrl(baseUrl);
+  const response = await fetch(`${normalizedBaseUrl}${endpoint}`, init);
+
+  if (!response.ok) {
+    const raw = await response.text();
+    let errorMessage = `Request failed (${response.status} ${response.statusText})`;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { error?: unknown };
+        if (typeof parsed.error === 'string' && parsed.error.trim()) {
+          errorMessage = parsed.error;
+        }
+      } catch {
+        // Keep default error message.
+      }
+    }
+    throw new Error(errorMessage);
+  }
+
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    headers: response.headers,
+  };
+}
+
 function resolveBackendUrl(explicitUrl?: string): string {
   return sanitizeBaseUrl(explicitUrl ?? DEFAULT_BACKEND_URL);
 }
@@ -1845,6 +1875,72 @@ server.registerTool(
     );
 
     return textResult(result);
+  }
+);
+
+server.registerTool(
+  'graphics_get',
+  {
+    description:
+      'Fetch a graphics artifact by id as binary image data, with optional backend mip-level selection by maxPixels.',
+    inputSchema: {
+      graphicsId: z.string(),
+      maxPixels: z.number().int().positive().optional(),
+      includeImage: z.boolean().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphicsId, maxPixels, includeImage, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const params = new URLSearchParams();
+    if (typeof maxPixels === 'number' && Number.isFinite(maxPixels) && maxPixels > 0) {
+      params.set('maxPixels', String(Math.floor(maxPixels)));
+    }
+    const query = params.toString();
+
+    const { buffer, headers } = await requestBinary(
+      resolvedBackendUrl,
+      `/api/graphics/${encodeURIComponent(graphicsId)}/image${query ? `?${query}` : ''}`
+    );
+
+    const mimeType = headers.get('content-type') || 'application/octet-stream';
+    const selectedLevel = {
+      level: Number(headers.get('x-k8v-graphics-level') ?? '0'),
+      width: Number(headers.get('x-k8v-graphics-width') ?? '0'),
+      height: Number(headers.get('x-k8v-graphics-height') ?? '0'),
+      pixelCount: Number(headers.get('x-k8v-graphics-pixels') ?? '0'),
+    };
+
+    const content: Array<{
+      type: 'text' | 'image';
+      text?: string;
+      mimeType?: string;
+      data?: string;
+    }> = [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            graphicsId,
+            mimeType,
+            bytes: buffer.byteLength,
+            selectedLevel,
+          },
+          null,
+          2
+        ),
+      },
+    ];
+
+    if (includeImage !== false && mimeType.startsWith('image/')) {
+      content.push({
+        type: 'image',
+        mimeType,
+        data: buffer.toString('base64'),
+      });
+    }
+
+    return { content };
   }
 );
 

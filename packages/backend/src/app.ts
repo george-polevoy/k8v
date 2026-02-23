@@ -35,6 +35,10 @@ const ComputeRequestSchema = z.object({
   nodeId: z.string().optional(),
 });
 
+const GraphicsBinaryQuerySchema = z.object({
+  maxPixels: z.coerce.number().int().positive().optional(),
+});
+
 const CreateLibraryNodeSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
@@ -320,6 +324,45 @@ export function createApp(deps?: AppDependencies) {
         return res.status(404).json({ error: 'Result not found' });
       }
       res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/graphics/:id', async (req, res) => {
+    try {
+      const graphics = await dataStore.getGraphicsArtifact(req.params.id);
+      if (!graphics) {
+        return res.status(404).json({ error: 'Graphics not found' });
+      }
+      res.json(graphics);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/graphics/:id/image', async (req, res) => {
+    try {
+      const parsedQuery = GraphicsBinaryQuerySchema.safeParse(req.query);
+      if (!parsedQuery.success) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: parsedQuery.error.flatten(),
+        });
+      }
+
+      const result = await dataStore.getGraphicsBinary(req.params.id, parsedQuery.data.maxPixels);
+      if (!result) {
+        return res.status(404).json({ error: 'Graphics not found' });
+      }
+
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('X-K8V-Graphics-Level', String(result.selectedLevel.level));
+      res.setHeader('X-K8V-Graphics-Width', String(result.selectedLevel.width));
+      res.setHeader('X-K8V-Graphics-Height', String(result.selectedLevel.height));
+      res.setHeader('X-K8V-Graphics-Pixels', String(result.selectedLevel.pixelCount));
+      res.send(result.buffer);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

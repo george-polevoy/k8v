@@ -810,7 +810,18 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
           schema: {},
           timestamp: Date.now(),
           version: 'r1',
-          graphicsOutput: 'data:image/png;base64,abc123',
+          graphics: {
+            id: 'gfx-hydrated',
+            mimeType: 'image/png',
+            levels: [
+              {
+                level: 0,
+                width: 64,
+                height: 32,
+                pixelCount: 2048,
+              },
+            ],
+          },
         },
       };
     }
@@ -831,7 +842,8 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
   try {
     await useGraphStore.getState().loadGraph('g-graphics-hydrate');
     const state = useGraphStore.getState();
-    assert.equal(state.nodeGraphicsOutputs['node-python'], 'data:image/png;base64,abc123');
+    assert.equal(state.nodeGraphicsOutputs['node-python']?.id, 'gfx-hydrated');
+    assert.equal(state.nodeGraphicsOutputs['node-python']?.levels[0]?.pixelCount, 2048);
   } finally {
     (axios as any).get = originalGet;
   }
@@ -876,7 +888,18 @@ test('computeNode updates graphics output cache for the computed node', async ()
         schema: {},
         timestamp: Date.now(),
         version: 'r1',
-        graphicsOutput: ' data:image/png;base64,xyz987 ',
+        graphics: {
+          id: 'gfx-compute-node',
+          mimeType: 'image/png',
+          levels: [
+            {
+              level: 0,
+              width: 80,
+              height: 40,
+              pixelCount: 3200,
+            },
+          ],
+        },
       },
     };
   };
@@ -897,7 +920,7 @@ test('computeNode updates graphics output cache for the computed node', async ()
   try {
     await useGraphStore.getState().computeNode('node-python');
     const state = useGraphStore.getState();
-    assert.equal(state.nodeGraphicsOutputs['node-python'], 'data:image/png;base64,xyz987');
+    assert.equal(state.nodeGraphicsOutputs['node-python']?.id, 'gfx-compute-node');
   } finally {
     (axios as any).post = originalPost;
   }
@@ -957,7 +980,18 @@ test('computeGraph clears cached graphics output when latest result has no graph
     resultRefreshKey: 0,
     nodeExecutionStates: {},
     nodeGraphicsOutputs: {
-      'node-python': 'data:image/png;base64,oldvalue',
+      'node-python': {
+        id: 'gfx-old',
+        mimeType: 'image/png',
+        levels: [
+          {
+            level: 0,
+            width: 64,
+            height: 32,
+            pixelCount: 2048,
+          },
+        ],
+      },
     },
   } as any);
 

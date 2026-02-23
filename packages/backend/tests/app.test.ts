@@ -16,6 +16,8 @@ interface AppTestContext {
 }
 
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
+const PNG_4X4_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAIUlEQVR4AVXBMQ0AIAADsJJM1mTjD+61h/uKoogaUSNqfK+QAylVq4ulAAAAAElFTkSuQmCC';
 
 function toAutotestGraphName(name: string): string {
   return name.startsWith(AUTOTEST_GRAPH_PREFIX)
@@ -79,6 +81,25 @@ function createNumericInputNode(id: string, value: number) {
         max: 100,
         step: 1,
       },
+    },
+    version: '1',
+  };
+}
+
+function createPngGraphicsNode(id: string) {
+  return {
+    id,
+    type: 'inline_code',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: `Graphics ${id}`,
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'inline_code',
+      runtime: 'javascript_vm',
+      code: `outputGraphics("data:image/png;base64,${PNG_4X4_BASE64}");`,
     },
     version: '1',
   };
@@ -650,6 +671,78 @@ test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', as
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
     assert.match(payload.error, /circular dependency/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('compute responses include graphics metadata without embedding raw image payload', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const graphicsNode = createPngGraphicsNode('node-graphics');
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [graphicsNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const graph = await createResponse.json();
+
+    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: graphicsNode.id }),
+    });
+    assert.equal(computeResponse.status, 200);
+    const computed = await computeResponse.json();
+
+    assert.equal(typeof computed.graphics?.id, 'string');
+    assert.equal(computed.graphics?.mimeType, 'image/png');
+    assert.ok(Array.isArray(computed.graphics?.levels));
+    assert.equal(computed.graphics?.levels[0]?.width, 4);
+    assert.equal(computed.graphics?.levels[0]?.height, 4);
+    assert.equal(computed.graphicsOutput, undefined);
+
+    const resultResponse = await fetch(`${ctx.baseUrl}/api/nodes/${graphicsNode.id}/result`);
+    assert.equal(resultResponse.status, 200);
+    const stored = await resultResponse.json();
+    assert.equal(stored.graphics?.id, computed.graphics?.id);
+    assert.equal(stored.graphicsOutput, undefined);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('GET /api/graphics/:id/image selects mip level by maxPixels and returns binary', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const graphicsNode = createPngGraphicsNode('node-graphics-image');
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [graphicsNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const graph = await createResponse.json();
+
+    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: graphicsNode.id }),
+    });
+    assert.equal(computeResponse.status, 200);
+    const computed = await computeResponse.json();
+    const graphicsId = computed.graphics?.id as string;
+    assert.ok(graphicsId);
+
+    const imageResponse = await fetch(
+      `${ctx.baseUrl}/api/graphics/${encodeURIComponent(graphicsId)}/image?maxPixels=4`
+    );
+    assert.equal(imageResponse.status, 200);
+    assert.equal(imageResponse.headers.get('content-type'), 'image/png');
+    assert.equal(imageResponse.headers.get('x-k8v-graphics-width'), '2');
+    assert.equal(imageResponse.headers.get('x-k8v-graphics-height'), '2');
+    assert.equal(imageResponse.headers.get('x-k8v-graphics-pixels'), '4');
+    const binary = Buffer.from(await imageResponse.arrayBuffer());
+    assert.ok(binary.byteLength > 0);
   } finally {
     await ctx.close();
   }

@@ -3,6 +3,17 @@ import { ComputationResult } from '../types/index.js';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
+import {
+  buildStoredGraphicsLevels,
+  chooseGraphicsLevel,
+  parseGraphicsPayload,
+  PublicGraphicsArtifact,
+  StoredGraphicsArtifact,
+  toPublicGraphicsArtifact,
+} from './graphicsArtifacts.js';
+
+const GRAPHICS_ID_PREFIX = 'gfx_';
 
 /**
  * Data store for persisting computation results and metadata
@@ -10,10 +21,12 @@ import * as path from 'path';
 export class DataStore {
   private db: Database.Database;
   private dataDir: string;
+  private graphicsDir: string;
 
   constructor(dbPath: string = ':memory:', dataDir: string = './data') {
     this.db = new Database(dbPath);
     this.dataDir = dataDir;
+    this.graphicsDir = path.join(this.dataDir, 'graphics');
     this.initializeDatabase();
     this.ensureDataDirectorySync();
   }
@@ -115,6 +128,7 @@ export class DataStore {
   private ensureDataDirectorySync(): void {
     try {
       fsSync.mkdirSync(this.dataDir, { recursive: true });
+      fsSync.mkdirSync(this.graphicsDir, { recursive: true });
     } catch (error) {
       console.error('Failed to create data directory:', error);
     }
@@ -126,12 +140,13 @@ export class DataStore {
   async storeResult(nodeId: string, result: ComputationResult): Promise<void> {
     const dataPath = path.join(this.dataDir, `${nodeId}_${result.timestamp}.json`);
     const schemaPath = path.join(this.dataDir, `${nodeId}_${result.timestamp}_schema.json`);
-    const textOutputPath = result.textOutput 
+    const textOutputPath = result.textOutput
       ? path.join(this.dataDir, `${nodeId}_${result.timestamp}_text.txt`)
       : null;
-    const graphicsOutputPath = result.graphicsOutput
-      ? path.join(this.dataDir, `${nodeId}_${result.timestamp}_graphics`)
+    const graphics = result.graphicsOutput
+      ? await this.storeGraphicsArtifact(result.graphicsOutput)
       : null;
+    const graphicsOutputPath = graphics?.id ?? null;
 
     // Serialize outputs
     await fs.writeFile(dataPath, JSON.stringify(result.outputs, null, 2));
@@ -142,22 +157,6 @@ export class DataStore {
     // Store text output
     if (result.textOutput && textOutputPath) {
       await fs.writeFile(textOutputPath, result.textOutput);
-    }
-
-    // Store graphics output (could be base64, data URL, etc.)
-    if (result.graphicsOutput && graphicsOutputPath) {
-      // If it's a data URL, extract the base64 part and save as appropriate format
-      if (result.graphicsOutput.startsWith('data:image/')) {
-        const base64Data = result.graphicsOutput.split(',')[1];
-        const buffer = Buffer.from(base64Data, 'base64');
-        // Try to detect format from data URL
-        const formatMatch = result.graphicsOutput.match(/data:image\/(\w+);/);
-        const format = formatMatch ? formatMatch[1] : 'png';
-        await fs.writeFile(`${graphicsOutputPath}.${format}`, buffer);
-      } else {
-        // Assume it's already base64 or raw data
-        await fs.writeFile(`${graphicsOutputPath}.dat`, result.graphicsOutput);
-      }
     }
 
     // Store metadata in database without replacing previous versions.
@@ -223,35 +222,20 @@ export class DataStore {
       }
     }
 
-    // Load graphics output if exists
-    let graphicsOutput: string | undefined;
-    if (row.graphics_output_path) {
-      try {
-        // The path might have an extension, try to read it
-        let graphicsPath = row.graphics_output_path;
-        // Check if file exists with extension
-        const possibleExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'dat'];
-        let found = false;
-        for (const ext of possibleExtensions) {
-          const testPath = `${graphicsPath}.${ext}`;
-          try {
-            await fs.access(testPath);
-            graphicsPath = testPath;
-            found = true;
-            break;
-          } catch {
-            // Continue to next extension
-          }
+    // Load graphics metadata if exists
+    let graphics: PublicGraphicsArtifact | undefined;
+    if (typeof row.graphics_output_path === 'string' && row.graphics_output_path.trim()) {
+      const graphicsValue = row.graphics_output_path.trim();
+      if (this.isGraphicsArtifactId(graphicsValue)) {
+        const metadata = await this.readStoredGraphicsArtifact(graphicsValue);
+        if (metadata) {
+          graphics = toPublicGraphicsArtifact(metadata);
         }
-        
-        if (found) {
-          const buffer = await fs.readFile(graphicsPath);
-          const base64 = buffer.toString('base64');
-          const ext = graphicsPath.split('.').pop() || 'png';
-          graphicsOutput = `data:image/${ext === 'dat' ? 'png' : ext};base64,${base64}`;
+      } else if (typeof row.id === 'number') {
+        const migrated = await this.migrateLegacyGraphicsPath(row.id, graphicsValue);
+        if (migrated) {
+          graphics = toPublicGraphicsArtifact(migrated);
         }
-      } catch {
-        // File might not exist, ignore
       }
     }
 
@@ -262,8 +246,199 @@ export class DataStore {
       timestamp: row.timestamp,
       version: row.version,
       textOutput,
-      graphicsOutput,
+      graphics,
     };
+  }
+
+  async getGraphicsArtifact(graphicsId: string): Promise<PublicGraphicsArtifact | null> {
+    if (!this.isGraphicsArtifactId(graphicsId)) {
+      return null;
+    }
+
+    const metadata = await this.readStoredGraphicsArtifact(graphicsId);
+    if (!metadata) {
+      return null;
+    }
+
+    return toPublicGraphicsArtifact(metadata);
+  }
+
+  async getGraphicsBinary(
+    graphicsId: string,
+    maxPixels?: number
+  ): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    selectedLevel: { level: number; width: number; height: number; pixelCount: number };
+  } | null> {
+    if (!this.isGraphicsArtifactId(graphicsId)) {
+      return null;
+    }
+
+    const metadata = await this.readStoredGraphicsArtifact(graphicsId);
+    if (!metadata) {
+      return null;
+    }
+
+    const selectedLevel = chooseGraphicsLevel(metadata.levels, maxPixels);
+    const levelPath = path.join(this.getGraphicsArtifactDir(graphicsId), selectedLevel.fileName);
+    const buffer = await fs.readFile(levelPath);
+    return {
+      buffer,
+      mimeType: metadata.mimeType,
+      selectedLevel: {
+        level: selectedLevel.level,
+        width: selectedLevel.width,
+        height: selectedLevel.height,
+        pixelCount: selectedLevel.pixelCount,
+      },
+    };
+  }
+
+  private async storeGraphicsArtifact(raw: string): Promise<StoredGraphicsArtifact | null> {
+    const parsed = parseGraphicsPayload(raw);
+    if (!parsed.buffer || parsed.buffer.length === 0) {
+      return null;
+    }
+
+    return this.persistGraphicsArtifactBuffer(parsed.mimeType, parsed.buffer);
+  }
+
+  private async persistGraphicsArtifactBuffer(
+    mimeType: string,
+    buffer: Buffer
+  ): Promise<StoredGraphicsArtifact> {
+    const graphicsId = this.createGraphicsArtifactId();
+    const artifactDir = this.getGraphicsArtifactDir(graphicsId);
+    await fs.mkdir(artifactDir, { recursive: true });
+
+    const storedLevels = buildStoredGraphicsLevels(mimeType, buffer).map((level, index) => ({
+      level: index,
+      width: Math.max(1, level.width),
+      height: Math.max(1, level.height),
+      pixelCount: Math.max(1, level.width * level.height),
+      fileName: level.fileName,
+      buffer: level.buffer,
+    }));
+
+    await Promise.all(
+      storedLevels.map((level) => fs.writeFile(path.join(artifactDir, level.fileName), level.buffer))
+    );
+
+    const metadata: StoredGraphicsArtifact = {
+      id: graphicsId,
+      mimeType,
+      createdAt: Date.now(),
+      levels: storedLevels.map((level) => ({
+        level: level.level,
+        width: level.width,
+        height: level.height,
+        pixelCount: level.pixelCount,
+        fileName: level.fileName,
+      })),
+    };
+
+    await fs.writeFile(this.getGraphicsMetadataPath(graphicsId), JSON.stringify(metadata, null, 2));
+    return metadata;
+  }
+
+  private async readStoredGraphicsArtifact(graphicsId: string): Promise<StoredGraphicsArtifact | null> {
+    try {
+      const metadataRaw = await fs.readFile(this.getGraphicsMetadataPath(graphicsId), 'utf-8');
+      const parsed = JSON.parse(metadataRaw) as StoredGraphicsArtifact;
+      if (!parsed?.id || !Array.isArray(parsed.levels) || parsed.levels.length === 0) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  private async migrateLegacyGraphicsPath(
+    rowId: number,
+    legacyPathWithoutExtension: string
+  ): Promise<StoredGraphicsArtifact | null> {
+    const legacyPath = await this.resolveLegacyGraphicsPath(legacyPathWithoutExtension);
+    if (!legacyPath) {
+      return null;
+    }
+
+    try {
+      const buffer = await fs.readFile(legacyPath);
+      const extension = path.extname(legacyPath).slice(1).toLowerCase();
+      const mimeType = this.mimeTypeFromExtension(extension);
+      const stored = await this.persistGraphicsArtifactBuffer(mimeType, buffer);
+
+      this.db
+        .prepare('UPDATE computation_results SET graphics_output_path = ? WHERE id = ?')
+        .run(stored.id, rowId);
+
+      return stored;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveLegacyGraphicsPath(basePath: string): Promise<string | null> {
+    const trimmed = basePath.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (path.extname(trimmed)) {
+      try {
+        await fs.access(trimmed);
+        return trimmed;
+      } catch {
+        return null;
+      }
+    }
+
+    const possibleExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'dat'];
+    for (const extension of possibleExtensions) {
+      const candidate = `${trimmed}.${extension}`;
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        // Continue probing.
+      }
+    }
+
+    return null;
+  }
+
+  private mimeTypeFromExtension(extension: string): string {
+    switch (extension) {
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'gif':
+        return 'image/gif';
+      case 'svg':
+        return 'image/svg+xml';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  private createGraphicsArtifactId(): string {
+    return `${GRAPHICS_ID_PREFIX}${randomUUID()}`;
+  }
+
+  private isGraphicsArtifactId(value: string): boolean {
+    return value.startsWith(GRAPHICS_ID_PREFIX);
+  }
+
+  private getGraphicsArtifactDir(graphicsId: string): string {
+    return path.join(this.graphicsDir, graphicsId);
+  }
+
+  private getGraphicsMetadataPath(graphicsId: string): string {
+    return path.join(this.getGraphicsArtifactDir(graphicsId), 'metadata.json');
   }
 
   /**

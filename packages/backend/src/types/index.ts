@@ -143,7 +143,23 @@ export const ComputationResult = z.object({
   timestamp: z.number(),
   version: z.string(),
   textOutput: z.string().optional(), // Captured stdout/stderr
-  graphicsOutput: z.string().optional(), // Base64 encoded image or data URL
+  graphicsOutput: z.string().optional(), // Internal runtime payload (legacy/data URL)
+  graphics: z
+    .object({
+      id: z.string(),
+      mimeType: z.string(),
+      levels: z
+        .array(
+          z.object({
+            level: z.number().int().nonnegative(),
+            width: z.number().int().positive(),
+            height: z.number().int().positive(),
+            pixelCount: z.number().int().positive(),
+          })
+        )
+        .min(1),
+    })
+    .optional(),
 });
 
 export type ComputationResult = z.infer<typeof ComputationResult>;

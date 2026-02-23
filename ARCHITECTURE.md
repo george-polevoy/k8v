@@ -19,6 +19,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Stores graph metadata in SQLite
 - Manages library node manifests
 - Serializes outputs and schemas separately for type inference
+- Persists graphics as id-addressable artifacts with PNG mip-map levels and metadata-only compute responses
 
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
 - Executes different node types (inline code, library, subgraph, external I/O)

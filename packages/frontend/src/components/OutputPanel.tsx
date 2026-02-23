@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import axios from 'axios';
+import { GraphicsArtifact } from '../types';
+import { buildGraphicsImageUrl } from '../utils/graphics';
 
 interface OutputPanelProps {
   embedded?: boolean;
@@ -14,13 +16,15 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
   });
   const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
   const [textOutput, setTextOutput] = useState<string>('');
-  const [graphicsOutput, setGraphicsOutput] = useState<string | null>(null);
+  const [graphicsOutput, setGraphicsOutput] = useState<GraphicsArtifact | null>(null);
+  const [graphicsMaxPixels, setGraphicsMaxPixels] = useState(1_000_000);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [textExpanded, setTextExpanded] = useState(true);
   const [graphicsExpanded, setGraphicsExpanded] = useState(true);
   const hasAnyOutput = Boolean(textOutput) || Boolean(graphicsOutput);
   const hasAnyOutputRef = useRef(false);
+  const graphicsViewportRef = useRef<HTMLDivElement | null>(null);
   const panelContainerStyle = embedded
     ? {
         display: 'flex',
@@ -45,6 +49,25 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
   }, [hasAnyOutput]);
 
   useEffect(() => {
+    if (!graphicsViewportRef.current || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const element = graphicsViewportRef.current;
+    const updateBudget = () => {
+      const bounds = element.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const budget = Math.max(1, Math.floor(bounds.width * bounds.height * dpr * dpr));
+      setGraphicsMaxPixels(budget);
+    };
+
+    updateBudget();
+    const observer = new ResizeObserver(() => updateBudget());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const fetchResult = async () => {
@@ -61,7 +84,7 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
         if (cancelled) return;
         if (response.data) {
           setTextOutput(response.data.textOutput || '');
-          setGraphicsOutput(response.data.graphicsOutput || null);
+          setGraphicsOutput(response.data.graphics || null);
         } else {
           setTextOutput('');
           setGraphicsOutput(null);
@@ -101,7 +124,7 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
           if (cancelled) return;
           if (response.data) {
             setTextOutput(response.data.textOutput || '');
-            setGraphicsOutput(response.data.graphicsOutput || null);
+            setGraphicsOutput(response.data.graphics || null);
           }
         } catch (error: any) {
           if (cancelled) return;
@@ -128,6 +151,13 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
       };
     }
   }, [resultRefreshKey, selectedNodeId]);
+
+  const graphicsImageSrc = useMemo(() => {
+    if (!graphicsOutput) {
+      return null;
+    }
+    return buildGraphicsImageUrl(graphicsOutput, graphicsMaxPixels);
+  }, [graphicsOutput, graphicsMaxPixels]);
 
   if (!selectedNodeId) {
     return (
@@ -233,6 +263,7 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
         </div>
         {graphicsExpanded && (
           <div
+            ref={graphicsViewportRef}
             style={{
               padding: '12px',
               flex: 1,
@@ -246,9 +277,9 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
           >
             {isLoading && !hasAnyOutput ? (
               <div style={{ color: '#888' }}>Loading...</div>
-            ) : graphicsOutput ? (
+            ) : graphicsImageSrc ? (
               <img
-                src={graphicsOutput}
+                src={graphicsImageSrc}
                 alt="Node output"
                 style={{
                   maxWidth: '100%',

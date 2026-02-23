@@ -98,6 +98,19 @@ export interface Graph {
   updatedAt: number;
 }
 
+export interface GraphicsMipLevel {
+  level: number;
+  width: number;
+  height: number;
+  pixelCount: number;
+}
+
+export interface GraphicsArtifact {
+  id: string;
+  mimeType: string;
+  levels: GraphicsMipLevel[];
+}
+
 export interface ComputationResult {
   nodeId: string;
   outputs: Record<string, any>;
@@ -105,7 +118,7 @@ export interface ComputationResult {
   timestamp: number;
   version: string;
   textOutput?: string; // Captured stdout/stderr
-  graphicsOutput?: string; // Base64 encoded image or data URL
+  graphics?: GraphicsArtifact;
 }
 
 export interface LibraryManifest {
