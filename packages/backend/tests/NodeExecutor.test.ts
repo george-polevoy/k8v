@@ -40,6 +40,29 @@ function createInlineNode(runtime?: string): GraphNode {
   };
 }
 
+function createNumericInputNode(config?: Record<string, unknown>): GraphNode {
+  return {
+    id: 'numeric-node',
+    type: NodeType.NUMERIC_INPUT,
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: 'Numeric Input',
+      inputs: [],
+      outputs: [{ name: 'value', schema: { type: 'number' } }],
+    },
+    config: {
+      type: NodeType.NUMERIC_INPUT,
+      config: config ?? {
+        value: 0,
+        min: 0,
+        max: 100,
+        step: 1,
+      },
+    },
+    version: '1',
+  };
+}
+
 function hasPythonAvailable(): boolean {
   const result = spawnSync(process.env.K8V_PYTHON_BIN || 'python3', ['--version'], {
     encoding: 'utf8',
@@ -222,6 +245,35 @@ test('NodeExecutor throws when python env is set on non-python runtime node', as
       () => executor.execute(jsNode, { input: 2 }),
       /runtime .* is not 'python_process'/i
     );
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor executes numeric_input nodes with normalized min/max/step/value', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const executor = new NodeExecutor(dataStore);
+  const numericNode = createNumericInputNode({
+    value: 7.8,
+    min: 0,
+    max: 10,
+    step: 0.5,
+  });
+
+  try {
+    const result = await executor.execute(numericNode, {});
+    assert.equal(result.outputs.value, 8);
+
+    numericNode.config.config = {
+      value: 12,
+      min: 3,
+      max: 1,
+      step: -1,
+    };
+    const normalizedResult = await executor.execute(numericNode, {});
+    assert.equal(normalizedResult.outputs.value, 3);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

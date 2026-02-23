@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: February 21, 2026.
+Last reviewed: February 23, 2026.
 
 ## Coverage Legend
 
@@ -25,6 +25,7 @@ Last reviewed: February 21, 2026.
 - `A-FE-12` `packages/frontend/tests/graphStore.test.ts`: `loadGraph` hydrates per-node graphics-output cache from persisted node results.
 - `A-FE-13` `packages/frontend/tests/graphStore.test.ts`: `computeNode` updates per-node graphics-output cache from compute response.
 - `A-FE-14` `packages/frontend/tests/graphStore.test.ts`: `computeGraph` clears stale cached graphics when latest result omits graphics output.
+- `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -58,6 +59,8 @@ Last reviewed: February 21, 2026.
 - `A-BE-31` `packages/backend/tests/app.test.ts`: graph API accepts persisted drawings payload.
 - `A-BE-32` `packages/backend/tests/app.test.ts`: graph API rejects duplicate drawing ids.
 - `A-BE-33` `packages/backend/tests/app.test.ts`: graph API rejects duplicate path ids within a drawing.
+- `A-BE-34` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor computes `numeric_input` outputs with normalized `min`/`max`/`step`/`value`.
+- `A-BE-35` `packages/backend/tests/app.test.ts`: graph API accepts `numeric_input` nodes and compute returns numeric output.
 
 ## Manual Regression Test Cases
 
@@ -88,6 +91,7 @@ Last reviewed: February 21, 2026.
 - `M-CANVAS-18`: Deleting selected drawing removes all persisted paths and handle from canvas.
 - `M-CANVAS-19`: Canvas redraw loop idles when no interactions/effects are active and resumes on the next interaction or status animation trigger.
 - `M-CANVAS-20`: `python_process` node graphics output projects below the node card with no in-card frame/padding.
+- `M-CANVAS-21`: `numeric_input` node shows an in-card slider; dragging the slider updates and persists the node output value.
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
@@ -97,6 +101,7 @@ Last reviewed: February 21, 2026.
 - `M-PANEL-07`: Edit inline code, verify draft is stable while typing, and persist on blur.
 - `M-PANEL-08`: For a `python_process` node, selecting a graph-level Python env in node panel persists and is used on compute.
 - `M-PANEL-09`: Selecting a drawing allows rename/delete operations from node panel.
+- `M-PANEL-10`: For a `numeric_input` node, editing `min`/`max`/`step` in node panel updates slider behavior and persisted output value bounds.
 - `M-STATUS-01`: Running compute shows amber indicator while executing.
 - `M-STATUS-02`: Runtime error shows red indicator and error message in node panel.
 - `M-STATUS-03`: Auto-recompute enabled and healthy shows green indicator.
@@ -143,6 +148,7 @@ Last reviewed: February 21, 2026.
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
+| Canvas `numeric_input` nodes render interactive in-card slider controls | `M-CANVAS-21` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
@@ -155,6 +161,7 @@ Last reviewed: February 21, 2026.
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `M-PANEL-07` | Manual |
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
+| Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
@@ -182,7 +189,7 @@ Last reviewed: February 21, 2026.
 | Reject cycles on `POST` | `A-BE-05` | Automated |
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |
 | Reject updates on legacy cyclic graphs | `A-BE-07` | Automated |
-| NodeExecutor supports inline/library/subgraph/external I/O | `A-BE-10`, `A-BE-11`, `A-BE-12` | Partial Automated |
+| NodeExecutor supports inline/library/subgraph/external/numeric I/O | `A-BE-10`, `A-BE-11`, `A-BE-12`, `A-BE-34`, `A-BE-35` | Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |

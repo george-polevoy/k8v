@@ -53,6 +53,29 @@ function createPassThroughNode(id: string) {
   };
 }
 
+function createNumericInputNode(id: string, value: number) {
+  return {
+    id,
+    type: 'numeric_input',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: `Numeric ${id}`,
+      inputs: [],
+      outputs: [{ name: 'value', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'numeric_input',
+      config: {
+        value,
+        min: 0,
+        max: 100,
+        step: 1,
+      },
+    },
+    version: '1',
+  };
+}
+
 async function setupTestServer(): Promise<AppTestContext> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-app-test-'));
   const dataStore = new DataStore(':memory:', tmpDir);
@@ -133,6 +156,31 @@ test('POST /api/graphs accepts python_process runtime in node config', async () 
     assert.equal(response.status, 200);
     const graph = await response.json();
     assert.equal(graph.nodes[0].config.runtime, 'python_process');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs accepts numeric_input nodes and compute returns numeric value', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const numericNode = createNumericInputNode('numeric-1', 42);
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [numericNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.equal(createdGraph.nodes[0].type, 'numeric_input');
+
+    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'numeric-1' }),
+    });
+    assert.equal(computeResponse.status, 200);
+    const result = await computeResponse.json();
+    assert.equal(result.outputs.value, 42);
   } finally {
     await ctx.close();
   }

@@ -17,6 +17,7 @@ type NodeType =
   | 'library'
   | 'subgraph'
   | 'external_input'
+  | 'numeric_input'
   | 'external_output';
 
 interface DataSchema {
@@ -173,6 +174,10 @@ const RENDERER_HTML = String.raw`<!doctype html>
         const NODE_BODY_PADDING = 14;
         const PORT_SPACING = 22;
         const PORT_RADIUS = 4;
+        const NUMERIC_INPUT_NODE_MIN_HEIGHT = 136;
+        const NUMERIC_SLIDER_LEFT_PADDING = 14;
+        const NUMERIC_SLIDER_RIGHT_PADDING = 58;
+        const NUMERIC_SLIDER_Y_OFFSET = 22;
 
         function clamp(value, min, max) {
           return Math.min(Math.max(value, min), max);
@@ -180,7 +185,59 @@ const RENDERER_HTML = String.raw`<!doctype html>
 
         function getNodeHeight(node) {
           const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
-          return Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+          const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+          if (node.type === 'numeric_input') {
+            return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
+          }
+          return baseHeight;
+        }
+
+        function toFiniteNumber(value, fallback) {
+          return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+        }
+
+        function countStepDecimals(step) {
+          const text = String(step).toLowerCase();
+          if (text.includes('e-')) {
+            const exponent = Number.parseInt(text.split('e-')[1] || '0', 10);
+            return Number.isFinite(exponent) ? exponent : 0;
+          }
+          const decimalIndex = text.indexOf('.');
+          if (decimalIndex === -1) {
+            return 0;
+          }
+          return text.length - decimalIndex - 1;
+        }
+
+        function snapNumericInputValue(value, min, max, step) {
+          if (max <= min) {
+            return min;
+          }
+          const clamped = clamp(value, min, max);
+          const steps = Math.round((clamped - min) / step);
+          const snapped = min + (steps * step);
+          const decimals = countStepDecimals(step);
+          const rounded = Number(snapped.toFixed(decimals));
+          return clamp(rounded, min, max);
+        }
+
+        function normalizeNumericInputConfig(config) {
+          const min = toFiniteNumber(config && config.min, 0);
+          const maxCandidate = toFiniteNumber(config && config.max, 100);
+          const max = maxCandidate >= min ? maxCandidate : min;
+          const stepCandidate = toFiniteNumber(config && config.step, 1);
+          const step = stepCandidate > 0 ? stepCandidate : 1;
+          const valueCandidate = toFiniteNumber(config && config.value, min);
+          const value = snapNumericInputValue(valueCandidate, min, max, step);
+          return { value, min, max, step };
+        }
+
+        function formatNumericInputValue(value, step) {
+          const decimals = Math.min(countStepDecimals(step), 8);
+          if (decimals <= 0) {
+            return String(Math.round(value));
+          }
+          return Number(value).toFixed(decimals).replace(/\.?0+$/, '');
         }
 
         function getInputPortOffsetY(node, portName) {
@@ -415,6 +472,52 @@ const RENDERER_HTML = String.raw`<!doctype html>
             ctx.fillStyle = '#475569';
             ctx.font = '400 ' + subtitleFont + 'px Arial';
             ctx.fillText(String(node.type).replace(/_/g, ' '), titleX, mappedTopLeft.y + (28 * scaleY));
+
+            if (node.type === 'numeric_input') {
+              const numericConfig = normalizeNumericInputConfig(node.config && node.config.config);
+              const trackX = mappedTopLeft.x + (NUMERIC_SLIDER_LEFT_PADDING * scaleX);
+              const trackWidth = Math.max(
+                30 * scaleX,
+                width - ((NUMERIC_SLIDER_LEFT_PADDING + NUMERIC_SLIDER_RIGHT_PADDING) * scaleX)
+              );
+              const trackY = mappedTopLeft.y + height - (NUMERIC_SLIDER_Y_OFFSET * scaleY);
+              const ratio = numericConfig.max > numericConfig.min
+                ? clamp((numericConfig.value - numericConfig.min) / (numericConfig.max - numericConfig.min), 0, 1)
+                : 0;
+              const knobX = trackX + (trackWidth * ratio);
+
+              ctx.strokeStyle = '#cbd5e1';
+              ctx.lineWidth = Math.max(1.5, 4 * scaleRef);
+              ctx.lineCap = 'round';
+              ctx.beginPath();
+              ctx.moveTo(trackX, trackY);
+              ctx.lineTo(trackX + trackWidth, trackY);
+              ctx.stroke();
+
+              ctx.strokeStyle = '#2563eb';
+              ctx.beginPath();
+              ctx.moveTo(trackX, trackY);
+              ctx.lineTo(knobX, trackY);
+              ctx.stroke();
+
+              ctx.beginPath();
+              ctx.arc(knobX, trackY, Math.max(2.5, 7 * scaleRef), 0, Math.PI * 2);
+              ctx.fillStyle = '#ffffff';
+              ctx.fill();
+              ctx.strokeStyle = '#1d4ed8';
+              ctx.lineWidth = Math.max(1, 1.2 * scaleRef);
+              ctx.stroke();
+
+              ctx.fillStyle = '#1e3a8a';
+              ctx.font = '700 ' + Math.max(7, Math.round(11 * scaleRef)) + 'px Arial';
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(
+                formatNumericInputValue(numericConfig.value, numericConfig.step),
+                trackX + trackWidth + (8 * scaleX),
+                trackY
+              );
+            }
 
             const bodyHeight = nodeHeight - HEADER_HEIGHT - NODE_BODY_PADDING;
             const inputSlots = Math.max(node.metadata.inputs.length, 1);

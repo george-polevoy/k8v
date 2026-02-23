@@ -14,7 +14,7 @@ import {
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
 import type { NodeExecutionState, PencilColor } from '../store/graphStore';
-import { DrawingPath, GraphDrawing, GraphNode, Position } from '../types';
+import { DrawingPath, GraphDrawing, GraphNode, NodeType, Position } from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -37,6 +37,12 @@ const NODE_DRAG_START_THRESHOLD = 2;
 const LIGHTNING_DURATION_MS = 900;
 const NODE_SHOCK_DURATION_MS = 1200;
 const DRAW_SMOOTHING_STEP = 1;
+const NUMERIC_INPUT_NODE_MIN_HEIGHT = 136;
+const NUMERIC_SLIDER_LEFT_PADDING = 14;
+const NUMERIC_SLIDER_RIGHT_PADDING = 58;
+const NUMERIC_SLIDER_Y_OFFSET = 22;
+const NUMERIC_SLIDER_TRACK_WIDTH = 4;
+const NUMERIC_SLIDER_KNOB_RADIUS = 7;
 const SMOKE_EMIT_INTERVAL_MS = 140;
 const SMOKE_MIN_DURATION_MS = 720;
 const SMOKE_MAX_DURATION_MS = 1320;
@@ -165,12 +171,128 @@ interface SmokePuff {
   wobblePhase: number;
 }
 
+interface NumericInputConfig {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+interface NumericSliderVisual {
+  nodeId: string;
+  nodeContainer: Container;
+  track: Graphics;
+  knob: Graphics;
+  valueLabel: Text;
+  trackX: number;
+  trackY: number;
+  trackWidth: number;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+}
+
+interface NumericSliderDragState {
+  nodeId: string;
+  initialValue: number;
+  currentValue: number;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
 function snapToPixel(value: number): number {
   return Math.round(value);
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function countStepDecimals(step: number): number {
+  const text = step.toString().toLowerCase();
+  if (text.includes('e-')) {
+    const exponent = Number.parseInt(text.split('e-')[1] ?? '0', 10);
+    return Number.isFinite(exponent) ? exponent : 0;
+  }
+
+  const decimalIndex = text.indexOf('.');
+  if (decimalIndex === -1) {
+    return 0;
+  }
+
+  return text.length - decimalIndex - 1;
+}
+
+function snapNumericInputValue(value: number, min: number, max: number, step: number): number {
+  if (max <= min) {
+    return min;
+  }
+
+  const clamped = clamp(value, min, max);
+  const steps = Math.round((clamped - min) / step);
+  const snapped = min + (steps * step);
+  const decimals = countStepDecimals(step);
+  const rounded = Number(snapped.toFixed(decimals));
+  return clamp(rounded, min, max);
+}
+
+function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericInputConfig {
+  const min = toFiniteNumber(config?.min, 0);
+  const maxCandidate = toFiniteNumber(config?.max, 100);
+  const max = maxCandidate >= min ? maxCandidate : min;
+  const stepCandidate = toFiniteNumber(config?.step, 1);
+  const step = stepCandidate > 0 ? stepCandidate : 1;
+  const valueCandidate = toFiniteNumber(config?.value, min);
+  const value = snapNumericInputValue(valueCandidate, min, max, step);
+  return { value, min, max, step };
+}
+
+function formatNumericInputValue(value: number, step: number): string {
+  const decimals = Math.min(countStepDecimals(step), 8);
+  if (decimals <= 0) {
+    return String(Math.round(value));
+  }
+  const fixed = value.toFixed(decimals);
+  return fixed.replace(/\.?0+$/, '');
+}
+
+function resolveNumericSliderValue(
+  localX: number,
+  slider: NumericSliderVisual
+): number {
+  if (slider.trackWidth <= 0 || slider.max <= slider.min) {
+    return slider.min;
+  }
+
+  const ratio = clamp((localX - slider.trackX) / slider.trackWidth, 0, 1);
+  const rawValue = slider.min + (ratio * (slider.max - slider.min));
+  return snapNumericInputValue(rawValue, slider.min, slider.max, slider.step);
+}
+
+function drawNumericSliderVisual(slider: NumericSliderVisual): void {
+  const ratio = slider.max > slider.min
+    ? clamp((slider.value - slider.min) / (slider.max - slider.min), 0, 1)
+    : 0;
+  const knobX = slider.trackX + (ratio * slider.trackWidth);
+
+  slider.track.clear();
+  slider.track.lineStyle(NUMERIC_SLIDER_TRACK_WIDTH, 0xcbd5e1, 1, 0.5, false);
+  slider.track.moveTo(slider.trackX, slider.trackY);
+  slider.track.lineTo(slider.trackX + slider.trackWidth, slider.trackY);
+  slider.track.lineStyle(NUMERIC_SLIDER_TRACK_WIDTH, 0x2563eb, 1, 0.5, false);
+  slider.track.moveTo(slider.trackX, slider.trackY);
+  slider.track.lineTo(knobX, slider.trackY);
+
+  slider.knob.clear();
+  slider.knob.lineStyle(1, 0x1d4ed8, 1);
+  slider.knob.beginFill(0xffffff, 1);
+  slider.knob.drawCircle(knobX, slider.trackY, NUMERIC_SLIDER_KNOB_RADIUS);
+  slider.knob.endFill();
+
+  slider.valueLabel.text = formatNumericInputValue(slider.value, slider.step);
 }
 
 function makePortKey(nodeId: string, portName: string): string {
@@ -235,7 +357,11 @@ function isRenderablePythonGraphicsOutput(
 
 function getNodeHeight(node: GraphNode): number {
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
-  return Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+  const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+  if (node.type === NodeType.NUMERIC_INPUT) {
+    return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
+  }
+  return baseHeight;
 }
 
 function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
@@ -463,6 +589,7 @@ function Canvas() {
   const nodeExecutionStates = useGraphStore((state) => state.nodeExecutionStates);
   const nodeGraphicsOutputs = useGraphStore((state) => state.nodeGraphicsOutputs);
   const selectNode = useGraphStore((state) => state.selectNode);
+  const updateNode = useGraphStore((state) => state.updateNode);
   const selectDrawing = useGraphStore((state) => state.selectDrawing);
   const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
   const updateDrawingPosition = useGraphStore((state) => state.updateDrawingPosition);
@@ -497,6 +624,9 @@ function Canvas() {
   const drawingVisualsRef = useRef<Map<string, DrawingVisual>>(new Map());
   const drawingPositionsRef = useRef<Map<string, Position>>(new Map());
   const drawingDragStateRef = useRef<DrawingDragState | null>(null);
+  const numericSliderVisualsRef = useRef<Map<string, NumericSliderVisual>>(new Map());
+  const numericSliderDragStateRef = useRef<NumericSliderDragState | null>(null);
+  const hoveredNumericSliderNodeIdRef = useRef<string | null>(null);
   const activeDrawingPathRef = useRef<ActiveDrawingPath | null>(null);
   const smokePuffsRef = useRef<SmokePuff[]>([]);
   const lastSmokeEmitAtRef = useRef<Map<string, number>>(new Map());
@@ -546,11 +676,34 @@ function Canvas() {
     app.start();
   }, []);
 
+  const applyCanvasCursor = useCallback(() => {
+    const app = appRef.current;
+    if (!app) {
+      return;
+    }
+
+    const canvas = app.view as HTMLCanvasElement;
+    if (drawingEnabledRef.current) {
+      canvas.style.cursor = 'crosshair';
+      return;
+    }
+    if (numericSliderDragStateRef.current || hoveredNumericSliderNodeIdRef.current) {
+      canvas.style.cursor = 'ew-resize';
+      return;
+    }
+    if (panStateRef.current) {
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+    canvas.style.cursor = 'grab';
+  }, []);
+
   const shouldKeepCanvasAnimationLoop = useCallback(() => {
     return shouldKeepCanvasAnimationLoopRunning({
       hasActiveInteraction: Boolean(
         connectionDragStateRef.current ||
         nodeDragStateRef.current ||
+        numericSliderDragStateRef.current ||
         drawingDragStateRef.current ||
         panStateRef.current ||
         activeDrawingPathRef.current
@@ -1419,6 +1572,52 @@ function Canvas() {
     drawConnections();
   }, [addConnection, drawConnections, setInputPortHighlight, setOutputPortHighlight]);
 
+  const updateNumericSliderFromPointer = useCallback((nodeId: string, pointerX: number, pointerY: number) => {
+    const slider = numericSliderVisualsRef.current.get(nodeId);
+    if (!slider) {
+      return;
+    }
+
+    const localPoint = slider.nodeContainer.toLocal(new Point(pointerX, pointerY));
+    const nextValue = resolveNumericSliderValue(localPoint.x, slider);
+    if (nextValue !== slider.value) {
+      slider.value = nextValue;
+      drawNumericSliderVisual(slider);
+    }
+
+    const dragState = numericSliderDragStateRef.current;
+    if (dragState?.nodeId === nodeId) {
+      dragState.currentValue = nextValue;
+    }
+  }, []);
+
+  const commitNumericSliderValue = useCallback((nodeId: string, nextValue: number) => {
+    const currentGraph = graphRef.current;
+    const node = currentGraph?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node || node.type !== NodeType.NUMERIC_INPUT) {
+      return;
+    }
+
+    const currentConfig = normalizeNumericInputConfig(node.config.config as Record<string, unknown> | undefined);
+    const value = snapNumericInputValue(nextValue, currentConfig.min, currentConfig.max, currentConfig.step);
+    if (value === currentConfig.value) {
+      return;
+    }
+
+    updateNode(nodeId, {
+      config: {
+        ...node.config,
+        config: {
+          ...(node.config.config ?? {}),
+          min: currentConfig.min,
+          max: currentConfig.max,
+          step: currentConfig.step,
+          value,
+        },
+      },
+    });
+  }, [updateNode]);
+
   const renderGraph = useCallback(() => {
     const nodesLayer = nodeLayerRef.current;
     const drawingHandleLayer = drawingHandleLayerRef.current;
@@ -1431,6 +1630,7 @@ function Canvas() {
     drawingHandleLayer.removeChildren();
     nodeVisualsRef.current.clear();
     drawingVisualsRef.current.clear();
+    numericSliderVisualsRef.current.clear();
     nodePositionsRef.current.clear();
     drawingPositionsRef.current.clear();
     textNodesRef.current.clear();
@@ -1442,10 +1642,20 @@ function Canvas() {
     hoveredOutputPortKeyRef.current = null;
 
     if (!currentGraph) {
+      hoveredNumericSliderNodeIdRef.current = null;
       clearAllNodeGraphicsTextures();
       drawConnections();
       drawFreehandStrokes();
       return;
+    }
+
+    if (
+      hoveredNumericSliderNodeIdRef.current &&
+      !currentGraph.nodes.some(
+        (node) => node.id === hoveredNumericSliderNodeIdRef.current && node.type === NodeType.NUMERIC_INPUT
+      )
+    ) {
+      hoveredNumericSliderNodeIdRef.current = null;
     }
 
     const activeNodeGraphicsTextureIds = new Set<string>();
@@ -1658,6 +1868,129 @@ function Canvas() {
         container.addChild(label);
       }
 
+      if (node.type === NodeType.NUMERIC_INPUT) {
+        const numericConfig = normalizeNumericInputConfig(
+          node.config.config as Record<string, unknown> | undefined
+        );
+        const trackX = NUMERIC_SLIDER_LEFT_PADDING;
+        const trackWidth = Math.max(
+          40,
+          width - NUMERIC_SLIDER_LEFT_PADDING - NUMERIC_SLIDER_RIGHT_PADDING
+        );
+        const trackY = height - NUMERIC_SLIDER_Y_OFFSET;
+
+        const track = new Graphics();
+        track.eventMode = 'none';
+        container.addChild(track);
+
+        const knob = new Graphics();
+        knob.eventMode = 'none';
+        container.addChild(knob);
+
+        const valueLabel = new Text(formatNumericInputValue(numericConfig.value, numericConfig.step), {
+          fontFamily: 'Arial',
+          fontSize: 11,
+          fontWeight: 'bold',
+          fill: 0x1e3a8a,
+        });
+        valueLabel.resolution = PIXEL_RATIO;
+        textNodesRef.current.add(valueLabel);
+        valueLabel.anchor.set(0, 0.5);
+        valueLabel.position.set(trackX + trackWidth + 8, trackY);
+        container.addChild(valueLabel);
+
+        const sliderHitArea = new Graphics();
+        sliderHitArea.beginFill(0x000000, 0.001);
+        // Cover the full slider row to avoid parent-card cursor precedence at slider edges.
+        sliderHitArea.drawRoundedRect(
+          0,
+          trackY - 14,
+          width,
+          28,
+          10
+        );
+        sliderHitArea.endFill();
+        sliderHitArea.eventMode = 'static';
+        sliderHitArea.cursor = 'ew-resize';
+        sliderHitArea.on('pointerover', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          event.stopPropagation();
+          hoveredNumericSliderNodeIdRef.current = node.id;
+          applyCanvasCursor();
+        });
+        sliderHitArea.on('pointermove', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          event.stopPropagation();
+          if (numericSliderDragStateRef.current?.nodeId === node.id) {
+            requestCanvasAnimationLoop();
+            updateNumericSliderFromPointer(node.id, event.global.x, event.global.y);
+          }
+          hoveredNumericSliderNodeIdRef.current = node.id;
+          applyCanvasCursor();
+        });
+        sliderHitArea.on('pointerout', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          event.stopPropagation();
+          if (numericSliderDragStateRef.current?.nodeId === node.id) {
+            return;
+          }
+          if (hoveredNumericSliderNodeIdRef.current === node.id) {
+            hoveredNumericSliderNodeIdRef.current = null;
+          }
+          applyCanvasCursor();
+        });
+
+        const slider: NumericSliderVisual = {
+          nodeId: node.id,
+          nodeContainer: container,
+          track,
+          knob,
+          valueLabel,
+          trackX,
+          trackY,
+          trackWidth,
+          min: numericConfig.min,
+          max: numericConfig.max,
+          step: numericConfig.step,
+          value: numericConfig.value,
+        };
+        drawNumericSliderVisual(slider);
+        numericSliderVisualsRef.current.set(node.id, slider);
+
+        sliderHitArea.on('pointerdown', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          if (event.button !== 0) {
+            return;
+          }
+          event.stopPropagation();
+          const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+          canvas?.focus({ preventScroll: true });
+
+          requestCanvasAnimationLoop();
+          selectedConnectionIdRef.current = null;
+          selectedNodeIdRef.current = node.id;
+          selectNode(node.id);
+
+          numericSliderDragStateRef.current = {
+            nodeId: node.id,
+            initialValue: slider.value,
+            currentValue: slider.value,
+          };
+          hoveredNumericSliderNodeIdRef.current = node.id;
+          applyCanvasCursor();
+          updateNumericSliderFromPointer(node.id, event.global.x, event.global.y);
+        });
+        container.addChild(sliderHitArea);
+      }
+
       let projectedGraphicsHeight = 0;
       if (shouldProjectGraphics && graphicsOutput) {
         const texture = getNodeGraphicsTextureForNode(node.id, graphicsOutput);
@@ -1834,6 +2167,7 @@ function Canvas() {
     }
     drawMinimap();
   }, [
+    applyCanvasCursor,
     clearAllNodeGraphicsTextures,
     drawConnections,
     drawFreehandStrokes,
@@ -1847,6 +2181,7 @@ function Canvas() {
     selectedDrawingId,
     selectedNodeId,
     syncNodePortPositions,
+    updateNumericSliderFromPointer,
     updateTextResolutionForScale,
   ]);
 
@@ -1923,12 +2258,11 @@ function Canvas() {
       return;
     }
 
-    const canvasElement = app.view as HTMLCanvasElement;
-    canvasElement.style.cursor = drawingEnabled ? 'crosshair' : 'grab';
-
     if (drawingEnabled) {
       panStateRef.current = null;
       nodeDragStateRef.current = null;
+      numericSliderDragStateRef.current = null;
+      hoveredNumericSliderNodeIdRef.current = null;
       drawingDragStateRef.current = null;
       if (connectionDragStateRef.current) {
         endConnectionDrag(false);
@@ -1937,7 +2271,8 @@ function Canvas() {
 
     drawFreehandStrokes();
     renderGraphRef.current();
-  }, [drawingEnabled, drawFreehandStrokes, endConnectionDrag]);
+    applyCanvasCursor();
+  }, [applyCanvasCursor, drawingEnabled, drawFreehandStrokes, endConnectionDrag]);
 
   useEffect(() => {
     const host = canvasHostRef.current;
@@ -2021,14 +2356,22 @@ function Canvas() {
     canvasElement.style.display = 'block';
     canvasElement.style.width = '100%';
     canvasElement.style.height = '100%';
-    canvasElement.style.cursor = 'grab';
     canvasElement.style.touchAction = 'none';
     canvasElement.tabIndex = 0;
     canvasElement.style.outline = 'none';
+    applyCanvasCursor();
 
     const finishInteraction = () => {
       if (connectionDragStateRef.current) {
         endConnectionDrag(true);
+      }
+
+      const numericSliderDragState = numericSliderDragStateRef.current;
+      if (numericSliderDragState) {
+        if (Math.abs(numericSliderDragState.currentValue - numericSliderDragState.initialValue) > 1e-9) {
+          commitNumericSliderValue(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
+        }
+        numericSliderDragStateRef.current = null;
       }
 
       const activeDrawingPath = activeDrawingPathRef.current;
@@ -2070,7 +2413,7 @@ function Canvas() {
       }
 
       panStateRef.current = null;
-      canvasElement.style.cursor = drawingEnabledRef.current ? 'crosshair' : 'grab';
+      applyCanvasCursor();
     };
 
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
@@ -2129,7 +2472,7 @@ function Canvas() {
         viewportX: viewport.position.x,
         viewportY: viewport.position.y,
       };
-      canvasElement.style.cursor = 'grabbing';
+      applyCanvasCursor();
       if (selectedConnectionIdRef.current) {
         selectedConnectionIdRef.current = null;
         drawConnections();
@@ -2143,6 +2486,14 @@ function Canvas() {
     };
 
     const handleStagePointerMove = (event: FederatedPointerEvent) => {
+      const numericSliderDragState = numericSliderDragStateRef.current;
+      if (numericSliderDragState) {
+        applyCanvasCursor();
+        requestCanvasAnimationLoop();
+        updateNumericSliderFromPointer(numericSliderDragState.nodeId, event.global.x, event.global.y);
+        return;
+      }
+
       const connectionDrag = connectionDragStateRef.current;
       if (connectionDrag) {
         connectionDrag.pointerX = event.global.x;
@@ -2420,7 +2771,7 @@ function Canvas() {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, clearAllNodeGraphicsTextures, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodePosition, updateTextResolutionForScale]);
+  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, requestCanvasAnimationLoop, selectDrawing, selectNode, setInputPortHighlight, syncNodePortPositions, updateDrawingPosition, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;

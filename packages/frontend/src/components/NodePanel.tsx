@@ -31,6 +31,56 @@ function getNextPythonEnvName(envs: PythonEnvironment[]): string {
   return candidate;
 }
 
+interface NumericInputConfig {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function countStepDecimals(step: number): number {
+  const text = step.toString().toLowerCase();
+  if (text.includes('e-')) {
+    const exponent = Number.parseInt(text.split('e-')[1] ?? '0', 10);
+    return Number.isFinite(exponent) ? exponent : 0;
+  }
+
+  const decimalIndex = text.indexOf('.');
+  if (decimalIndex === -1) {
+    return 0;
+  }
+
+  return text.length - decimalIndex - 1;
+}
+
+function snapNumericInputValue(value: number, min: number, max: number, step: number): number {
+  if (max <= min) {
+    return min;
+  }
+
+  const clamped = Math.min(Math.max(value, min), max);
+  const steps = Math.round((clamped - min) / step);
+  const snapped = min + (steps * step);
+  const decimals = countStepDecimals(step);
+  const rounded = Number(snapped.toFixed(decimals));
+  return Math.min(Math.max(rounded, min), max);
+}
+
+function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericInputConfig {
+  const min = toFiniteNumber(config?.min, 0);
+  const maxCandidate = toFiniteNumber(config?.max, 100);
+  const max = maxCandidate >= min ? maxCandidate : min;
+  const stepCandidate = toFiniteNumber(config?.step, 1);
+  const step = stepCandidate > 0 ? stepCandidate : 1;
+  const valueCandidate = toFiniteNumber(config?.value, min);
+  const value = snapNumericInputValue(valueCandidate, min, max, step);
+  return { value, min, max, step };
+}
+
 function NodePanel() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
@@ -56,6 +106,10 @@ function NodePanel() {
   const [graphNameValue, setGraphNameValue] = useState('');
   const [newGraphName, setNewGraphName] = useState('Untitled Graph');
   const [nodeNameValue, setNodeNameValue] = useState('');
+  const [numericValueDraft, setNumericValueDraft] = useState('0');
+  const [numericMinDraft, setNumericMinDraft] = useState('0');
+  const [numericMaxDraft, setNumericMaxDraft] = useState('100');
+  const [numericStepDraft, setNumericStepDraft] = useState('1');
   const [drawingNameValue, setDrawingNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
@@ -84,6 +138,16 @@ function NodePanel() {
       setInputDraftNames(selectedNode.metadata.inputs.map((input) => input.name));
     } else {
       setInputDraftNames([]);
+    }
+
+    if (selectedNode?.config.type === NodeType.NUMERIC_INPUT) {
+      const numericConfig = normalizeNumericInputConfig(
+        selectedNode.config.config as Record<string, unknown> | undefined
+      );
+      setNumericValueDraft(String(numericConfig.value));
+      setNumericMinDraft(String(numericConfig.min));
+      setNumericMaxDraft(String(numericConfig.max));
+      setNumericStepDraft(String(numericConfig.step));
     }
 
     setInputValidationError(null);
@@ -215,6 +279,76 @@ function NodePanel() {
       },
     });
   }, [selectedNode, updateNode]);
+
+  const commitNumericInputConfig = useCallback(() => {
+    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+      return;
+    }
+
+    const current = normalizeNumericInputConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+
+    const parsedValue = Number.parseFloat(numericValueDraft);
+    const parsedMin = Number.parseFloat(numericMinDraft);
+    const parsedMax = Number.parseFloat(numericMaxDraft);
+    const parsedStep = Number.parseFloat(numericStepDraft);
+
+    const next = normalizeNumericInputConfig({
+      value: Number.isFinite(parsedValue) ? parsedValue : current.value,
+      min: Number.isFinite(parsedMin) ? parsedMin : current.min,
+      max: Number.isFinite(parsedMax) ? parsedMax : current.max,
+      step: Number.isFinite(parsedStep) ? parsedStep : current.step,
+    });
+
+    setNumericValueDraft(String(next.value));
+    setNumericMinDraft(String(next.min));
+    setNumericMaxDraft(String(next.max));
+    setNumericStepDraft(String(next.step));
+
+    if (
+      next.value === current.value &&
+      next.min === current.min &&
+      next.max === current.max &&
+      next.step === current.step
+    ) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config || {}),
+          value: next.value,
+          min: next.min,
+          max: next.max,
+          step: next.step,
+        },
+      },
+    });
+  }, [
+    numericMaxDraft,
+    numericMinDraft,
+    numericStepDraft,
+    numericValueDraft,
+    selectedNode,
+    updateNode,
+  ]);
+
+  const resetNumericInputDrafts = useCallback(() => {
+    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+      return;
+    }
+
+    const current = normalizeNumericInputConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    setNumericValueDraft(String(current.value));
+    setNumericMinDraft(String(current.min));
+    setNumericMaxDraft(String(current.max));
+    setNumericStepDraft(String(current.step));
+  }, [selectedNode]);
 
   const addInputPort = useCallback(() => {
     if (!selectedNode) {
@@ -515,6 +649,7 @@ function NodePanel() {
   }, [graph, pythonEnvDrafts, refreshGraphSummaries, updateGraph]);
 
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
+  const isNumericInputNode = selectedNode?.config.type === NodeType.NUMERIC_INPUT;
   const graphPythonEnvs = graph?.pythonEnvs ?? [];
   const selectedPythonEnvExists = Boolean(
     selectedNode?.config.pythonEnv &&
@@ -898,12 +1033,13 @@ function NodePanel() {
               <button
                 data-testid="add-input-button"
                 onClick={addInputPort}
+                disabled={isNumericInputNode}
                 style={{
                   padding: '4px 8px',
-                  background: '#e2e8f0',
+                  background: isNumericInputNode ? '#f1f5f9' : '#e2e8f0',
                   border: '1px solid #cbd5e1',
                   borderRadius: '4px',
-                  cursor: 'pointer',
+                  cursor: isNumericInputNode ? 'not-allowed' : 'pointer',
                   fontSize: '11px',
                 }}
               >
@@ -911,7 +1047,11 @@ function NodePanel() {
               </button>
             </div>
 
-            {selectedNode.metadata.inputs.length === 0 ? (
+            {isNumericInputNode ? (
+              <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+                Numeric input nodes do not accept inbound ports.
+              </div>
+            ) : selectedNode.metadata.inputs.length === 0 ? (
               <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>No inputs defined</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1009,6 +1149,136 @@ function NodePanel() {
               </div>
             )}
           </div>
+
+          {selectedNode.config.type === NodeType.NUMERIC_INPUT && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+            }}>
+              <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
+                Numeric Input Settings
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '8px',
+                }}
+              >
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  Value
+                  <input
+                    data-testid="numeric-input-value"
+                    type="number"
+                    value={numericValueDraft}
+                    onChange={(event) => setNumericValueDraft(event.target.value)}
+                    onBlur={commitNumericInputConfig}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur();
+                      }
+                      if (event.key === 'Escape') {
+                        resetNumericInputDrafts();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  Step
+                  <input
+                    data-testid="numeric-input-step"
+                    type="number"
+                    value={numericStepDraft}
+                    onChange={(event) => setNumericStepDraft(event.target.value)}
+                    onBlur={commitNumericInputConfig}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur();
+                      }
+                      if (event.key === 'Escape') {
+                        resetNumericInputDrafts();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  Min
+                  <input
+                    data-testid="numeric-input-min"
+                    type="number"
+                    value={numericMinDraft}
+                    onChange={(event) => setNumericMinDraft(event.target.value)}
+                    onBlur={commitNumericInputConfig}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur();
+                      }
+                      if (event.key === 'Escape') {
+                        resetNumericInputDrafts();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  Max
+                  <input
+                    data-testid="numeric-input-max"
+                    type="number"
+                    value={numericMaxDraft}
+                    onChange={(event) => setNumericMaxDraft(event.target.value)}
+                    onBlur={commitNumericInputConfig}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur();
+                      }
+                      if (event.key === 'Escape') {
+                        resetNumericInputDrafts();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
 
           {selectedNode.config.type === NodeType.INLINE_CODE && (
             <div>

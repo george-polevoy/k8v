@@ -75,6 +75,32 @@ export function createExternalInputNode(options: CreateNodeOptions): GraphNode {
 }
 
 /**
+ * Factory function for creating numeric input nodes.
+ */
+export function createNumericInputNode(options: CreateNodeOptions): GraphNode {
+  return {
+    id: uuidv4(),
+    type: NodeType.NUMERIC_INPUT,
+    position: options.position,
+    metadata: {
+      name: options.name || 'Numeric Input',
+      inputs: [],
+      outputs: [{ name: 'value', schema: { type: 'number' } }],
+    },
+    config: {
+      type: NodeType.NUMERIC_INPUT,
+      config: {
+        value: 0,
+        min: 0,
+        max: 100,
+        step: 1,
+      },
+    },
+    version: Date.now().toString(),
+  };
+}
+
+/**
  * Factory function for creating external output nodes.
  */
 export function createExternalOutputNode(options: CreateNodeOptions): GraphNode {

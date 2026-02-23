@@ -32,6 +32,7 @@ export enum NodeType {
   LIBRARY = 'library',
   SUBGRAPH = 'subgraph',
   EXTERNAL_INPUT = 'external_input',
+  NUMERIC_INPUT = 'numeric_input',
   EXTERNAL_OUTPUT = 'external_output',
 }
 

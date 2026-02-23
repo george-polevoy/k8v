@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInlineCodeNode } from '../src/utils/nodeFactory.ts';
+import { createInlineCodeNode, createNumericInputNode } from '../src/utils/nodeFactory.ts';
+import { NodeType } from '../src/types.ts';
 
 test('createInlineCodeNode uses javascript_vm runtime by default', () => {
   const node = createInlineCodeNode({
@@ -28,4 +29,19 @@ test('createInlineCodeNode stores explicit python env name when provided', () =>
 
   assert.equal(node.config.runtime, 'python_process');
   assert.equal(node.config.pythonEnv, 'analytics');
+});
+
+test('createNumericInputNode uses numeric defaults and numeric_input type', () => {
+  const node = createNumericInputNode({
+    position: { x: 20, y: 30 },
+  });
+
+  assert.equal(node.type, NodeType.NUMERIC_INPUT);
+  assert.equal(node.config.type, NodeType.NUMERIC_INPUT);
+  assert.equal(node.metadata.outputs.length, 1);
+  assert.equal(node.metadata.outputs[0]?.name, 'value');
+  assert.equal(node.config.config?.value, 0);
+  assert.equal(node.config.config?.min, 0);
+  assert.equal(node.config.config?.max, 100);
+  assert.equal(node.config.config?.step, 1);
 });

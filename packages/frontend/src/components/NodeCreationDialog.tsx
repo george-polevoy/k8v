@@ -5,6 +5,7 @@ import {
   createInlineCodeNode, 
   createLibraryNode, 
   createExternalInputNode, 
+  createNumericInputNode,
   createExternalOutputNode 
 } from '../utils/nodeFactory';
 
@@ -47,6 +48,12 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
         newNode = createExternalInputNode({ 
           position, 
           name: name || undefined 
+        });
+        break;
+      case NodeType.NUMERIC_INPUT:
+        newNode = createNumericInputNode({
+          position,
+          name: name || undefined,
         });
         break;
       case NodeType.EXTERNAL_OUTPUT:
@@ -97,6 +104,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
           <option value={NodeType.INLINE_CODE}>Inline Code</option>
           <option value={NodeType.LIBRARY}>Library Node</option>
           <option value={NodeType.EXTERNAL_INPUT}>External Input</option>
+          <option value={NodeType.NUMERIC_INPUT}>Numeric Input</option>
           <option value={NodeType.EXTERNAL_OUTPUT}>External Output</option>
         </select>
       </div>

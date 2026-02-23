@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of February 21, 2026.
+This file tracks what is currently implemented in the codebase as of February 23, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -31,6 +31,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drag from output port to input port to create connection.
 - Frontend cycle-prevention during connection creation.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
+- `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool options: colors `white`/`green`/`red`.
@@ -51,6 +52,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
   - rename input
   - reorder input
   - delete input
+- Numeric input node settings:
+  - edit slider `value`
+  - edit slider `min`/`max`/`step`
 - Input rename/delete propagates to connections targeting that input.
 - Toggle auto-recompute per node.
 - Run selected node manually.
@@ -98,7 +102,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Runtime and Execution Engine
 
-- NodeExecutor supports inline code, library, subgraph, external input, external output node types.
+- NodeExecutor supports inline code, library, subgraph, external input, numeric input, external output node types.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
 - Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.
