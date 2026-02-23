@@ -170,7 +170,10 @@ function ColorSelectionDialog({
               <button
                 key={normalizedPreset}
                 type="button"
-                onClick={() => setDraftColor(normalizedPreset)}
+                onClick={() => {
+                  setDraftColor(normalizedPreset);
+                  setDraftInput(normalizedPreset);
+                }}
                 title={normalizedPreset}
                 style={{
                   width: '100%',
@@ -204,7 +207,7 @@ function ColorSelectionDialog({
           <button
             type="button"
             onClick={() => {
-              const normalized = normalizeHexColor(draftInput, draftColor);
+              const normalized = normalizeHexColor(draftColor, defaultColor);
               onConfirm(normalized);
             }}
             style={{

@@ -11,10 +11,17 @@ export interface CanvasBackgroundSettings {
   baseColor: string;
 }
 
+export interface ProjectionNodeCardSize {
+  width: number;
+  height: number;
+}
+
 export interface GraphProjection {
   id: string;
   name: string;
   nodePositions: Record<string, Position>;
+  nodeCardSizes: Record<string, ProjectionNodeCardSize>;
+  canvasBackground?: CanvasBackgroundSettings;
 }
 
 export interface PortDefinition {

@@ -38,6 +38,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 #### MCP Server (`packages/mcp-server/src/index.ts`)
 - Exposes graph-editing operations for agent clients over MCP stdio transport
 - Delegates graph mutations to existing backend REST API (`/api/graphs/*`)
+- Supports ordered `bulk_edit` graph mutations applied sequentially and persisted in a single graph update
 - Provides internal Playwright-based screenshot rendering for agents
 - Uses an internal standalone render page (no app chrome/panels) for deterministic captures
 - Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions

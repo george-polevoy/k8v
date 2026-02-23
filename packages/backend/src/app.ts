@@ -30,7 +30,7 @@ const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
-  canvasBackground: CanvasBackground.optional().default(DEFAULT_CANVAS_BACKGROUND),
+  canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).optional().default([]),
@@ -88,12 +88,74 @@ function buildProjectionNodePositionMap(nodes: GraphNode[]): Record<string, { x:
   return map;
 }
 
+const NODE_WIDTH = 220;
+const NODE_MIN_WIDTH = 180;
+const NODE_MAX_WIDTH = 640;
+const NODE_MAX_HEIGHT = 640;
+const MIN_NODE_HEIGHT = 68;
+const HEADER_HEIGHT = 36;
+const NODE_BODY_PADDING = 6;
+const PORT_SPACING = 18;
+const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeCanvasBackgroundValue(background: CanvasBackground | undefined): CanvasBackground {
+  const mode = background?.mode === 'solid' || background?.mode === 'gradient'
+    ? background.mode
+    : DEFAULT_CANVAS_BACKGROUND.mode;
+  const baseColor = background?.baseColor && HEX_COLOR_PATTERN.test(background.baseColor)
+    ? background.baseColor.toLowerCase()
+    : DEFAULT_CANVAS_BACKGROUND.baseColor;
+  return {
+    mode,
+    baseColor,
+  };
+}
+
+function getNodeMinHeight(node: GraphNode): number {
+  const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
+  const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+  if (node.type === 'numeric_input') {
+    return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
+  }
+  return baseHeight;
+}
+
+function buildProjectionNodeCardSizeMap(
+  nodes: GraphNode[]
+): Record<string, { width: number; height: number }> {
+  const map: Record<string, { width: number; height: number }> = {};
+  for (const node of nodes) {
+    const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
+    const minHeight = getNodeMinHeight(node);
+    const rawWidth = typeof nodeConfig.cardWidth === 'number' && Number.isFinite(nodeConfig.cardWidth)
+      ? nodeConfig.cardWidth
+      : NODE_WIDTH;
+    const rawHeight = typeof nodeConfig.cardHeight === 'number' && Number.isFinite(nodeConfig.cardHeight)
+      ? nodeConfig.cardHeight
+      : minHeight;
+    map[node.id] = {
+      width: clamp(Math.round(rawWidth), NODE_MIN_WIDTH, NODE_MAX_WIDTH),
+      height: clamp(Math.round(rawHeight), minHeight, NODE_MAX_HEIGHT),
+    };
+  }
+  return map;
+}
+
 function normalizeGraphProjections(
   nodes: GraphNode[],
   projections: GraphProjection[] | undefined,
-  activeProjectionId: string | undefined
-): { projections: GraphProjection[]; activeProjectionId: string; nodes: GraphNode[] } {
+  activeProjectionId: string | undefined,
+  fallbackCanvasBackground: CanvasBackground | undefined,
+  activeCanvasBackgroundOverride?: CanvasBackground | undefined
+): { projections: GraphProjection[]; activeProjectionId: string; nodes: GraphNode[]; canvasBackground: CanvasBackground } {
   const fallbackNodePositions = buildProjectionNodePositionMap(nodes);
+  const fallbackNodeCardSizes = buildProjectionNodeCardSizeMap(nodes);
+  const normalizedFallbackCanvasBackground = normalizeCanvasBackgroundValue(fallbackCanvasBackground);
   const deduped: GraphProjection[] = [];
   const seenProjectionIds = new Set<string>();
 
@@ -105,6 +167,7 @@ function normalizeGraphProjections(
     seenProjectionIds.add(projectionId);
 
     const normalizedNodePositions: Record<string, { x: number; y: number }> = {};
+    const normalizedNodeCardSizes: Record<string, { width: number; height: number }> = {};
     for (const [nodeId, fallbackPosition] of Object.entries(fallbackNodePositions)) {
       const candidate = projection.nodePositions?.[nodeId];
       if (
@@ -122,6 +185,26 @@ function normalizeGraphProjections(
           y: fallbackPosition.y,
         };
       }
+
+      const fallbackNodeCardSize = fallbackNodeCardSizes[nodeId];
+      const sizeCandidate = projection.nodeCardSizes?.[nodeId];
+      if (
+        sizeCandidate &&
+        Number.isFinite(sizeCandidate.width) &&
+        sizeCandidate.width > 0 &&
+        Number.isFinite(sizeCandidate.height) &&
+        sizeCandidate.height > 0
+      ) {
+        normalizedNodeCardSizes[nodeId] = {
+          width: Math.max(1, Math.round(sizeCandidate.width)),
+          height: Math.max(1, Math.round(sizeCandidate.height)),
+        };
+      } else {
+        normalizedNodeCardSizes[nodeId] = {
+          width: fallbackNodeCardSize.width,
+          height: fallbackNodeCardSize.height,
+        };
+      }
     }
 
     deduped.push({
@@ -129,6 +212,10 @@ function normalizeGraphProjections(
       id: projectionId,
       name: projection.name.trim() || projectionId,
       nodePositions: normalizedNodePositions,
+      nodeCardSizes: normalizedNodeCardSizes,
+      canvasBackground: normalizeCanvasBackgroundValue(
+        projection.canvasBackground ?? normalizedFallbackCanvasBackground
+      ),
     });
   }
 
@@ -137,6 +224,8 @@ function normalizeGraphProjections(
       id: DEFAULT_GRAPH_PROJECTION_ID,
       name: DEFAULT_GRAPH_PROJECTION_NAME,
       nodePositions: fallbackNodePositions,
+      nodeCardSizes: fallbackNodeCardSizes,
+      canvasBackground: normalizedFallbackCanvasBackground,
     });
   }
 
@@ -150,17 +239,46 @@ function normalizeGraphProjections(
     ? selectedActiveProjectionId
     : DEFAULT_GRAPH_PROJECTION_ID;
 
-  const activeProjection =
-    deduped.find((projection) => projection.id === normalizedActiveProjectionId) ?? deduped[0];
-  const projectedNodes = nodes.map((node) => ({
-    ...node,
-    position: activeProjection?.nodePositions[node.id] ?? node.position,
-  }));
+  const activeProjectionIndex = deduped.findIndex(
+    (projection) => projection.id === normalizedActiveProjectionId
+  );
+  if (activeProjectionIndex >= 0 && activeCanvasBackgroundOverride) {
+    deduped[activeProjectionIndex] = {
+      ...deduped[activeProjectionIndex],
+      canvasBackground: normalizeCanvasBackgroundValue(activeCanvasBackgroundOverride),
+    };
+  }
+
+  const activeProjection = deduped[activeProjectionIndex >= 0 ? activeProjectionIndex : 0];
+  const activeCanvasBackground = normalizeCanvasBackgroundValue(
+    activeProjection?.canvasBackground ?? normalizedFallbackCanvasBackground
+  );
+  const projectedNodes = nodes.map((node) => {
+    const projectionPosition = activeProjection?.nodePositions[node.id];
+    const projectionNodeCardSize = activeProjection?.nodeCardSizes[node.id];
+    const configWithCardSize = {
+      ...(node.config.config ?? {}),
+      cardWidth: projectionNodeCardSize?.width ?? fallbackNodeCardSizes[node.id].width,
+      cardHeight: projectionNodeCardSize?.height ?? fallbackNodeCardSizes[node.id].height,
+    };
+
+    return {
+      ...node,
+      position: projectionPosition
+        ? { x: projectionPosition.x, y: projectionPosition.y }
+        : node.position,
+      config: {
+        ...node.config,
+        config: configWithCardSize,
+      },
+    };
+  });
 
   return {
     projections: deduped,
     activeProjectionId: normalizedActiveProjectionId,
     nodes: projectedNodes,
+    canvasBackground: activeCanvasBackground,
   };
 }
 
@@ -215,6 +333,19 @@ function validateGraphStructure(graph: Graph): string | null {
     for (const nodeId of Object.keys(projection.nodePositions ?? {})) {
       if (!nodeIds.has(nodeId)) {
         return `Projection ${projection.id} references missing node ${nodeId}`;
+      }
+    }
+    for (const [nodeId, size] of Object.entries(projection.nodeCardSizes ?? {})) {
+      if (!nodeIds.has(nodeId)) {
+        return `Projection ${projection.id} card size references missing node ${nodeId}`;
+      }
+      if (
+        !Number.isFinite(size.width) ||
+        size.width <= 0 ||
+        !Number.isFinite(size.height) ||
+        size.height <= 0
+      ) {
+        return `Projection ${projection.id} has invalid card size for node ${nodeId}`;
       }
     }
   }
@@ -331,14 +462,16 @@ export function createApp(deps?: AppDependencies) {
       const projectionState = normalizeGraphProjections(
         req.body.nodes,
         req.body.projections,
-        req.body.activeProjectionId
+        req.body.activeProjectionId,
+        req.body.canvasBackground,
+        req.body.canvasBackground
       );
       const graph: Graph = {
         id: uuidv4(),
         name: req.body.name,
         nodes: projectionState.nodes,
         connections: req.body.connections,
-        canvasBackground: req.body.canvasBackground,
+        canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
         pythonEnvs: req.body.pythonEnvs,
@@ -367,17 +500,20 @@ export function createApp(deps?: AppDependencies) {
       }
 
       const mergedNodes = req.body.nodes ?? existing.nodes;
+      const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
       const projectionState = normalizeGraphProjections(
         mergedNodes,
         req.body.projections ?? existing.projections,
-        req.body.activeProjectionId ?? existing.activeProjectionId
+        req.body.activeProjectionId ?? existing.activeProjectionId,
+        mergedCanvasBackground,
+        req.body.canvasBackground
       );
       const graph: Graph = {
         ...existing,
         ...req.body,
         id: req.params.id,
         nodes: projectionState.nodes,
-        canvasBackground: req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND,
+        canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
         pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],

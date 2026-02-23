@@ -16,6 +16,7 @@ import {
   applyProjectionToNodes,
   DEFAULT_GRAPH_PROJECTION_ID,
   normalizeGraphProjectionState,
+  withNodeCardSizeInProjection,
   withNodePositionInProjection,
 } from '../utils/projections';
 
@@ -124,7 +125,8 @@ function normalizeGraph(graph: Graph): Graph {
   const projectionState = normalizeGraphProjectionState(
     graph.nodes,
     graph.projections,
-    graph.activeProjectionId
+    graph.activeProjectionId,
+    graph.canvasBackground
   );
   const activeProjection = projectionState.projections.find(
     (projection) => projection.id === projectionState.activeProjectionId
@@ -134,7 +136,9 @@ function normalizeGraph(graph: Graph): Graph {
   return {
     ...graph,
     nodes: projectedNodes,
-    canvasBackground: normalizeCanvasBackground(graph.canvasBackground),
+    canvasBackground: normalizeCanvasBackground(
+      activeProjection?.canvasBackground ?? graph.canvasBackground
+    ),
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
@@ -996,10 +1000,17 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           },
         };
       });
+      const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+      const updatedProjections = (graph.projections ?? []).map((projection) =>
+        projection.id === activeProjectionId
+          ? withNodeCardSizeInProjection(projection, nodeId, { width, height })
+          : projection
+      );
 
       const updatedGraph = {
         ...graph,
         nodes: updatedNodes,
+        projections: updatedProjections,
         updatedAt: Date.now(),
       };
       get().updateGraph(updatedGraph);

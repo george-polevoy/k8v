@@ -28,6 +28,10 @@ interface GraphNodePayload {
 
 interface GraphResponse {
   id: string;
+  canvasBackground?: {
+    mode?: unknown;
+    baseColor?: unknown;
+  };
   nodes: Array<{
     id: string;
     metadata?: {
@@ -238,5 +242,52 @@ export async function waitForGraphNodeByName(
 
   throw new Error(
     `Timed out waiting for node "${nodeName}" in graph ${graphId}`
+  );
+}
+
+export async function getGraphCanvasBackground(
+  graphId: string
+): Promise<{ mode: string; baseColor: string }> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+
+  const mode = graph.canvasBackground?.mode;
+  const baseColor = graph.canvasBackground?.baseColor;
+  if (typeof mode !== 'string') {
+    throw new Error(`Graph ${graphId} canvas background mode should be a string`);
+  }
+  if (typeof baseColor !== 'string') {
+    throw new Error(`Graph ${graphId} canvas background color should be a string`);
+  }
+  return {
+    mode,
+    baseColor: baseColor.toLowerCase(),
+  };
+}
+
+export async function waitForGraphCanvasBackground(
+  graphId: string,
+  predicate: (background: { mode: string; baseColor: string }) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<{ mode: string; baseColor: string }> {
+  const startedAt = Date.now();
+  let lastBackground: { mode: string; baseColor: string } = { mode: '', baseColor: '' };
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastBackground = await getGraphCanvasBackground(graphId);
+    if (predicate(lastBackground)) {
+      return lastBackground;
+    }
+
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for canvas background in graph ${graphId}. Last value: ${JSON.stringify(lastBackground)}`
   );
 }

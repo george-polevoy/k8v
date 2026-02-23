@@ -317,6 +317,12 @@ test('POST /api/graphs initializes default projection metadata when omitted', as
     assert.equal(graph.projections[0].name, 'Default');
     assert.equal(graph.projections[0].nodePositions['node-1'].x, 0);
     assert.equal(graph.projections[0].nodePositions['node-1'].y, 0);
+    assert.ok(graph.projections[0].nodeCardSizes['node-1'].width > 0);
+    assert.ok(graph.projections[0].nodeCardSizes['node-1'].height > 0);
+    assert.deepEqual(graph.projections[0].canvasBackground, {
+      mode: 'gradient',
+      baseColor: '#1d437e',
+    });
   } finally {
     await ctx.close();
   }
@@ -344,12 +350,26 @@ test('PUT /api/graphs switches active projection and applies projected node coor
             nodePositions: {
               'node-1': { x: 0, y: 0 },
             },
+            nodeCardSizes: {
+              'node-1': { width: 220, height: 80 },
+            },
+            canvasBackground: {
+              mode: 'gradient',
+              baseColor: '#1d437e',
+            },
           },
           {
             id: altProjectionId,
             name: 'Projection 2',
             nodePositions: {
               'node-1': { x: 320, y: 180 },
+            },
+            nodeCardSizes: {
+              'node-1': { width: 360, height: 200 },
+            },
+            canvasBackground: {
+              mode: 'solid',
+              baseColor: '#204060',
             },
           },
         ],
@@ -362,6 +382,12 @@ test('PUT /api/graphs switches active projection and applies projected node coor
     assert.equal(updatedGraph.activeProjectionId, altProjectionId);
     assert.equal(updatedGraph.nodes[0].position.x, 320);
     assert.equal(updatedGraph.nodes[0].position.y, 180);
+    assert.equal(updatedGraph.nodes[0].config.config.cardWidth, 360);
+    assert.equal(updatedGraph.nodes[0].config.config.cardHeight, 200);
+    assert.deepEqual(updatedGraph.canvasBackground, {
+      mode: 'solid',
+      baseColor: '#204060',
+    });
     assert.equal(
       updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodePositions['node-1'].x,
       320
@@ -370,6 +396,78 @@ test('PUT /api/graphs switches active projection and applies projected node coor
       updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodePositions['node-1'].y,
       180
     );
+    assert.equal(
+      updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodeCardSizes['node-1'].width,
+      360
+    );
+    assert.equal(
+      updatedGraph.projections.find((projection: any) => projection.id === altProjectionId)?.nodeCardSizes['node-1'].height,
+      200
+    );
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs switches graph canvas background to selected projection background', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+      projections: [
+        {
+          id: 'default',
+          name: 'Default',
+          nodePositions: {
+            'node-1': { x: 0, y: 0 },
+          },
+          nodeCardSizes: {
+            'node-1': { width: 220, height: 80 },
+          },
+          canvasBackground: {
+            mode: 'gradient',
+            baseColor: '#1d437e',
+          },
+        },
+        {
+          id: 'alt',
+          name: 'Alt',
+          nodePositions: {
+            'node-1': { x: 40, y: 60 },
+          },
+          nodeCardSizes: {
+            'node-1': { width: 300, height: 180 },
+          },
+          canvasBackground: {
+            mode: 'solid',
+            baseColor: '#305070',
+          },
+        },
+      ],
+      activeProjectionId: 'default',
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.deepEqual(createdGraph.canvasBackground, {
+      mode: 'gradient',
+      baseColor: '#1d437e',
+    });
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        activeProjectionId: 'alt',
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.activeProjectionId, 'alt');
+    assert.deepEqual(updatedGraph.canvasBackground, {
+      mode: 'solid',
+      baseColor: '#305070',
+    });
   } finally {
     await ctx.close();
   }

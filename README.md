@@ -82,6 +82,7 @@ npm run dev:mcp
 
 The MCP server exposes:
 - graph CRUD-style editing operations (nodes/connections, graph Python env add/edit/delete, drawing objects, compute)
+- bulk graph editing via `bulk_edit` (ordered operation arrays applied sequentially)
 - internal screenshot tool `graph_screenshot_region`:
   - renders only graph content on an internal page
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)

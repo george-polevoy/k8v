@@ -12,6 +12,19 @@ const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const DEFAULT_GRAPH_PROJECTION_ID = 'default';
 const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
+const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
+  mode: 'gradient',
+  baseColor: '#1d437e',
+};
+const NODE_WIDTH = 220;
+const NODE_MIN_WIDTH = 180;
+const NODE_MAX_WIDTH = 640;
+const NODE_MAX_HEIGHT = 640;
+const MIN_NODE_HEIGHT = 68;
+const HEADER_HEIGHT = 36;
+const NODE_BODY_PADDING = 6;
+const PORT_SPACING = 18;
+const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 
 function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
   const fallbackColor = HEX_COLOR_PATTERN.test(String(fallback)) ? String(fallback).toLowerCase() : '#ffffff';
@@ -121,6 +134,8 @@ interface GraphProjection {
   id: string;
   name: string;
   nodePositions: Record<string, { x: number; y: number }>;
+  nodeCardSizes: Record<string, { width: number; height: number }>;
+  canvasBackground?: CanvasBackground;
 }
 
 interface Graph {
@@ -721,10 +736,61 @@ function clonePosition(position: { x: number; y: number }): { x: number; y: numb
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeCanvasBackground(background: CanvasBackground | undefined): CanvasBackground {
+  const mode = background?.mode === 'solid' || background?.mode === 'gradient'
+    ? background.mode
+    : DEFAULT_CANVAS_BACKGROUND.mode;
+  const baseColor = typeof background?.baseColor === 'string' && HEX_COLOR_PATTERN.test(background.baseColor)
+    ? background.baseColor.toLowerCase()
+    : DEFAULT_CANVAS_BACKGROUND.baseColor;
+  return {
+    mode,
+    baseColor,
+  };
+}
+
+function getNodeMinHeight(node: GraphNode): number {
+  const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
+  const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
+  if (node.type === 'numeric_input') {
+    return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
+  }
+  return baseHeight;
+}
+
+function resolveNodeCardSizeForNode(node: GraphNode): { width: number; height: number } {
+  const minHeight = getNodeMinHeight(node);
+  const config = node.config.config as Record<string, unknown> | undefined;
+  const rawWidth = typeof config?.cardWidth === 'number' && Number.isFinite(config.cardWidth)
+    ? config.cardWidth
+    : NODE_WIDTH;
+  const rawHeight = typeof config?.cardHeight === 'number' && Number.isFinite(config.cardHeight)
+    ? config.cardHeight
+    : minHeight;
+  return {
+    width: clamp(Math.round(rawWidth), NODE_MIN_WIDTH, NODE_MAX_WIDTH),
+    height: clamp(Math.round(rawHeight), minHeight, NODE_MAX_HEIGHT),
+  };
+}
+
 function buildNodePositionMap(nodes: GraphNode[]): Record<string, { x: number; y: number }> {
   const map: Record<string, { x: number; y: number }> = {};
   for (const node of nodes) {
     map[node.id] = clonePosition(node.position);
+  }
+  return map;
+}
+
+function buildNodeCardSizeMap(
+  nodes: GraphNode[]
+): Record<string, { width: number; height: number }> {
+  const map: Record<string, { width: number; height: number }> = {};
+  for (const node of nodes) {
+    map[node.id] = resolveNodeCardSizeForNode(node);
   }
   return map;
 }
@@ -752,12 +818,46 @@ function cloneProjectionNodePositions(
   return cloned;
 }
 
+function cloneProjectionNodeCardSizes(
+  nodes: GraphNode[],
+  sourceProjection?: GraphProjection
+): Record<string, { width: number; height: number }> {
+  const fallbackNodeCardSizes = buildNodeCardSizeMap(nodes);
+  const cloned: Record<string, { width: number; height: number }> = {};
+
+  for (const [nodeId, fallbackNodeCardSize] of Object.entries(fallbackNodeCardSizes)) {
+    const candidate = sourceProjection?.nodeCardSizes?.[nodeId];
+    if (
+      candidate &&
+      Number.isFinite(candidate.width) &&
+      candidate.width > 0 &&
+      Number.isFinite(candidate.height) &&
+      candidate.height > 0
+    ) {
+      cloned[nodeId] = {
+        width: Math.max(1, Math.round(candidate.width)),
+        height: Math.max(1, Math.round(candidate.height)),
+      };
+      continue;
+    }
+    cloned[nodeId] = {
+      width: fallbackNodeCardSize.width,
+      height: fallbackNodeCardSize.height,
+    };
+  }
+
+  return cloned;
+}
+
 function normalizeGraphProjectionState(
   nodes: GraphNode[],
   projections: GraphProjection[] | undefined,
-  activeProjectionId: string | undefined
+  activeProjectionId: string | undefined,
+  fallbackCanvasBackground: CanvasBackground | undefined
 ): { projections: GraphProjection[]; activeProjectionId: string } {
   const fallbackNodePositions = buildNodePositionMap(nodes);
+  const fallbackNodeCardSizes = buildNodeCardSizeMap(nodes);
+  const fallbackBackground = normalizeCanvasBackground(fallbackCanvasBackground);
   const deduped: GraphProjection[] = [];
   const seen = new Set<string>();
 
@@ -769,6 +869,7 @@ function normalizeGraphProjectionState(
     seen.add(projectionId);
 
     const nodePositions: Record<string, { x: number; y: number }> = {};
+    const nodeCardSizes: Record<string, { width: number; height: number }> = {};
     for (const [nodeId, fallbackPosition] of Object.entries(fallbackNodePositions)) {
       const candidate = projection.nodePositions?.[nodeId];
       if (
@@ -780,12 +881,34 @@ function normalizeGraphProjectionState(
       } else {
         nodePositions[nodeId] = clonePosition(fallbackPosition);
       }
+
+      const fallbackNodeCardSize = fallbackNodeCardSizes[nodeId];
+      const sizeCandidate = projection.nodeCardSizes?.[nodeId];
+      if (
+        sizeCandidate &&
+        Number.isFinite(sizeCandidate.width) &&
+        sizeCandidate.width > 0 &&
+        Number.isFinite(sizeCandidate.height) &&
+        sizeCandidate.height > 0
+      ) {
+        nodeCardSizes[nodeId] = {
+          width: Math.max(1, Math.round(sizeCandidate.width)),
+          height: Math.max(1, Math.round(sizeCandidate.height)),
+        };
+      } else {
+        nodeCardSizes[nodeId] = {
+          width: fallbackNodeCardSize.width,
+          height: fallbackNodeCardSize.height,
+        };
+      }
     }
 
     deduped.push({
       id: projectionId,
       name: projection.name.trim() || projectionId,
       nodePositions,
+      nodeCardSizes,
+      canvasBackground: normalizeCanvasBackground(projection.canvasBackground ?? fallbackBackground),
     });
   }
 
@@ -794,6 +917,8 @@ function normalizeGraphProjectionState(
       id: DEFAULT_GRAPH_PROJECTION_ID,
       name: DEFAULT_GRAPH_PROJECTION_NAME,
       nodePositions: fallbackNodePositions,
+      nodeCardSizes: fallbackNodeCardSizes,
+      canvasBackground: fallbackBackground,
     });
   }
 
@@ -816,37 +941,40 @@ function normalizeGraphProjectionState(
 function applyProjectionToNodes(nodes: GraphNode[], projection: GraphProjection): GraphNode[] {
   return nodes.map((node) => {
     const projected = projection.nodePositions[node.id];
-    if (!projected) {
-      return node;
-    }
-    if (node.position.x === projected.x && node.position.y === projected.y) {
+    const projectedNodeCardSize = projection.nodeCardSizes[node.id] ?? resolveNodeCardSizeForNode(node);
+    const nextConfig = {
+      ...(node.config.config ?? {}),
+      cardWidth: projectedNodeCardSize.width,
+      cardHeight: projectedNodeCardSize.height,
+    };
+    const position = projected ?? node.position;
+    if (
+      node.position.x === position.x &&
+      node.position.y === position.y &&
+      node.config.config?.cardWidth === nextConfig.cardWidth &&
+      node.config.config?.cardHeight === nextConfig.cardHeight
+    ) {
       return node;
     }
     return {
       ...node,
-      position: clonePosition(projected),
+      position: clonePosition(position),
+      config: {
+        ...node.config,
+        config: nextConfig,
+      },
     };
   });
 }
 
 function normalizeGraph(graph: Graph): Graph {
-  const canvasBackground =
-    graph.canvasBackground &&
-    (graph.canvasBackground.mode === 'solid' || graph.canvasBackground.mode === 'gradient') &&
-    /^#[0-9a-f]{6}$/i.test(graph.canvasBackground.baseColor)
-      ? {
-          mode: graph.canvasBackground.mode,
-          baseColor: graph.canvasBackground.baseColor.toLowerCase(),
-        }
-      : {
-          mode: 'gradient' as const,
-          baseColor: '#1d437e',
-        };
+  const canvasBackground = normalizeCanvasBackground(graph.canvasBackground);
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   const projectionState = normalizeGraphProjectionState(
     graph.nodes,
     graph.projections,
-    graph.activeProjectionId
+    graph.activeProjectionId,
+    canvasBackground
   );
   const activeProjection = projectionState.projections.find(
     (projection) => projection.id === projectionState.activeProjectionId
@@ -854,11 +982,14 @@ function normalizeGraph(graph: Graph): Graph {
   const projectedNodes = activeProjection
     ? applyProjectionToNodes(graph.nodes, activeProjection)
     : graph.nodes;
+  const activeProjectionBackground = normalizeCanvasBackground(
+    activeProjection?.canvasBackground ?? canvasBackground
+  );
 
   return {
     ...graph,
     nodes: projectedNodes,
-    canvasBackground,
+    canvasBackground: activeProjectionBackground,
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     drawings: drawings.map((drawing) => ({
@@ -1013,6 +1144,791 @@ function getNextProjectionName(existingProjections: GraphProjection[]): string {
     candidate = `Projection ${index}`;
   }
   return candidate;
+}
+
+const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('graph_set_name'),
+    name: z.string(),
+  }),
+  z.object({
+    op: z.literal('graph_projection_add'),
+    projectionId: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1).optional(),
+    sourceProjectionId: z.string().trim().min(1).optional(),
+    activate: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal('graph_projection_select'),
+    projectionId: z.string().trim().min(1),
+  }),
+  z.object({
+    op: z.literal('graph_python_env_add'),
+    name: z.string().trim().min(1),
+    pythonPath: z.string().trim().min(1),
+    cwd: z.string().trim().min(1),
+  }),
+  z.object({
+    op: z.literal('graph_python_env_edit'),
+    envName: z.string().trim().min(1),
+    name: z.string().trim().min(1).optional(),
+    pythonPath: z.string().trim().min(1).optional(),
+    cwd: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    op: z.literal('graph_python_env_delete'),
+    envName: z.string().trim().min(1),
+  }),
+  z.object({
+    op: z.literal('drawing_create'),
+    drawingId: z.string().trim().min(1).optional(),
+    name: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+  }),
+  z.object({
+    op: z.literal('drawing_add_path'),
+    drawingId: z.string(),
+    points: z.array(z.object({ x: z.number(), y: z.number() })).min(1),
+    color: z.union([z.string().regex(/^#[0-9a-fA-F]{6}$/), z.enum(['white', 'green', 'red'])]).optional(),
+    thickness: z.number().positive().optional(),
+    pathId: z.string().optional(),
+    coordinateSpace: z.enum(['world', 'local']).optional(),
+  }),
+  z.object({
+    op: z.literal('drawing_move'),
+    drawingId: z.string(),
+    x: z.number(),
+    y: z.number(),
+  }),
+  z.object({
+    op: z.literal('drawing_set_name'),
+    drawingId: z.string(),
+    name: z.string(),
+  }),
+  z.object({
+    op: z.literal('drawing_delete'),
+    drawingId: z.string(),
+  }),
+  z.object({
+    op: z.literal('node_add_inline'),
+    nodeId: z.string().trim().min(1).optional(),
+    name: z.string().optional(),
+    x: z.number(),
+    y: z.number(),
+    inputNames: z.array(z.string()).optional(),
+    outputNames: z.array(z.string()).optional(),
+    code: z.string().optional(),
+    runtime: z.string().optional(),
+    pythonEnv: z.string().optional(),
+    autoRecompute: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal('node_move'),
+    nodeId: z.string(),
+    x: z.number(),
+    y: z.number(),
+  }),
+  z.object({
+    op: z.literal('node_set_name'),
+    nodeId: z.string(),
+    name: z.string(),
+  }),
+  z.object({
+    op: z.literal('node_set_code'),
+    nodeId: z.string(),
+    code: z.string(),
+    runtime: z.string().optional(),
+    pythonEnv: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal('node_set_auto_recompute'),
+    nodeId: z.string(),
+    enabled: z.boolean(),
+  }),
+  z.object({
+    op: z.literal('node_add_input'),
+    nodeId: z.string(),
+    inputName: z.string(),
+  }),
+  z.object({
+    op: z.literal('node_delete_input'),
+    nodeId: z.string(),
+    inputName: z.string(),
+  }),
+  z.object({
+    op: z.literal('node_move_input'),
+    nodeId: z.string(),
+    inputName: z.string(),
+    direction: z.enum(['up', 'down']),
+  }),
+  z.object({
+    op: z.literal('node_rename_input'),
+    nodeId: z.string(),
+    oldName: z.string(),
+    newName: z.string(),
+  }),
+  z.object({
+    op: z.literal('node_delete'),
+    nodeId: z.string(),
+  }),
+  z.object({
+    op: z.literal('connection_add'),
+    sourceNodeId: z.string(),
+    sourcePort: z.string(),
+    targetNodeId: z.string(),
+    targetPort: z.string(),
+    connectionId: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal('connection_delete'),
+    connectionId: z.string(),
+  }),
+]);
+
+type BulkEditOperation = z.infer<typeof BULK_EDIT_OPERATION_SCHEMA>;
+
+type BulkEditOperationResult = {
+  graph: Graph;
+  details?: Record<string, unknown>;
+};
+
+function applyBulkEditOperation(current: Graph, operation: BulkEditOperation): BulkEditOperationResult {
+  switch (operation.op) {
+    case 'graph_set_name':
+      return {
+        graph: {
+          ...current,
+          name: operation.name,
+        },
+      };
+    case 'graph_projection_add': {
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId,
+        current.canvasBackground
+      );
+
+      const sourceId = operation.sourceProjectionId?.trim() || projectionState.activeProjectionId;
+      const sourceProjection = projectionState.projections.find((projection) => projection.id === sourceId);
+      if (!sourceProjection) {
+        throw new Error(`Projection "${sourceId}" was not found in graph ${current.id}`);
+      }
+
+      const nextProjectionId = operation.projectionId?.trim() || randomUUID();
+      if (projectionState.projections.some((projection) => projection.id === nextProjectionId)) {
+        throw new Error(`Projection "${nextProjectionId}" already exists in graph ${current.id}`);
+      }
+
+      const newProjection: GraphProjection = {
+        id: nextProjectionId,
+        name: operation.name?.trim() || getNextProjectionName(projectionState.projections),
+        nodePositions: cloneProjectionNodePositions(current.nodes, sourceProjection),
+        nodeCardSizes: cloneProjectionNodeCardSizes(current.nodes, sourceProjection),
+        canvasBackground: normalizeCanvasBackground(
+          sourceProjection.canvasBackground ?? current.canvasBackground
+        ),
+      };
+
+      const nextActiveProjectionId = operation.activate === false
+        ? projectionState.activeProjectionId
+        : newProjection.id;
+      const activeProjection = nextActiveProjectionId === newProjection.id
+        ? newProjection
+        : projectionState.projections.find(
+            (projection) => projection.id === nextActiveProjectionId
+          ) ?? newProjection;
+
+      return {
+        graph: {
+          ...current,
+          projections: [...projectionState.projections, newProjection],
+          activeProjectionId: nextActiveProjectionId,
+          nodes: applyProjectionToNodes(current.nodes, activeProjection),
+          canvasBackground: normalizeCanvasBackground(
+            activeProjection.canvasBackground ?? current.canvasBackground
+          ),
+        },
+        details: {
+          projectionId: newProjection.id,
+          activeProjectionId: nextActiveProjectionId,
+        },
+      };
+    }
+    case 'graph_projection_select': {
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId,
+        current.canvasBackground
+      );
+      const selectedProjection = projectionState.projections.find(
+        (projection) => projection.id === operation.projectionId
+      );
+      if (!selectedProjection) {
+        throw new Error(`Projection "${operation.projectionId}" was not found in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          projections: projectionState.projections,
+          activeProjectionId: selectedProjection.id,
+          nodes: applyProjectionToNodes(current.nodes, selectedProjection),
+          canvasBackground: normalizeCanvasBackground(
+            selectedProjection.canvasBackground ?? current.canvasBackground
+          ),
+        },
+      };
+    }
+    case 'graph_python_env_add': {
+      const existingEnvs = current.pythonEnvs ?? [];
+      if (existingEnvs.some((env) => env.name === operation.name)) {
+        throw new Error(`Python environment "${operation.name}" already exists in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          pythonEnvs: [
+            ...existingEnvs,
+            {
+              name: operation.name,
+              pythonPath: operation.pythonPath,
+              cwd: operation.cwd,
+            },
+          ],
+        },
+      };
+    }
+    case 'graph_python_env_edit': {
+      const existingEnvs = current.pythonEnvs ?? [];
+      const envIndex = existingEnvs.findIndex((env) => env.name === operation.envName);
+      if (envIndex === -1) {
+        throw new Error(`Python environment "${operation.envName}" was not found in graph ${current.id}`);
+      }
+
+      const existingEnv = existingEnvs[envIndex];
+      const nextEnvName = operation.name ?? existingEnv.name;
+      const nextEnv: PythonEnvironment = {
+        name: nextEnvName,
+        pythonPath: operation.pythonPath ?? existingEnv.pythonPath,
+        cwd: operation.cwd ?? existingEnv.cwd,
+      };
+
+      const duplicateName = existingEnvs.some(
+        (env, index) => index !== envIndex && env.name === nextEnv.name
+      );
+      if (duplicateName) {
+        throw new Error(`Python environment "${nextEnv.name}" already exists in graph ${current.id}`);
+      }
+
+      const nextNodes =
+        nextEnvName === operation.envName
+          ? current.nodes
+          : current.nodes.map((node) =>
+              node.config.pythonEnv === operation.envName
+                ? {
+                    ...node,
+                    config: {
+                      ...node.config,
+                      pythonEnv: nextEnvName,
+                    },
+                    version: ensureNodeVersion(node),
+                  }
+                : node
+            );
+
+      return {
+        graph: {
+          ...current,
+          pythonEnvs: existingEnvs.map((env, index) => (index === envIndex ? nextEnv : env)),
+          nodes: nextNodes,
+        },
+      };
+    }
+    case 'graph_python_env_delete': {
+      const existingEnvs = current.pythonEnvs ?? [];
+      const hasEnv = existingEnvs.some((env) => env.name === operation.envName);
+      if (!hasEnv) {
+        throw new Error(`Python environment "${operation.envName}" was not found in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          pythonEnvs: existingEnvs.filter((env) => env.name !== operation.envName),
+          nodes: current.nodes.map((node) =>
+            node.config.pythonEnv === operation.envName
+              ? {
+                  ...node,
+                  config: {
+                    ...node.config,
+                    pythonEnv: undefined,
+                  },
+                  version: ensureNodeVersion(node),
+                }
+              : node
+          ),
+        },
+      };
+    }
+    case 'drawing_create': {
+      const drawingId = operation.drawingId?.trim() || randomUUID();
+      if ((current.drawings ?? []).some((drawing) => drawing.id === drawingId)) {
+        throw new Error(`Drawing ${drawingId} already exists in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          drawings: [
+            ...(current.drawings ?? []),
+            {
+              id: drawingId,
+              name: operation.name ?? `Drawing ${((current.drawings ?? []).length + 1)}`,
+              position: {
+                x: operation.x ?? 0,
+                y: operation.y ?? 0,
+              },
+              paths: [],
+            },
+          ],
+        },
+        details: { drawingId },
+      };
+    }
+    case 'drawing_add_path': {
+      const drawing = (current.drawings ?? []).find((candidate) => candidate.id === operation.drawingId);
+      if (!drawing) {
+        throw new Error(`Drawing ${operation.drawingId} not found in graph ${current.id}`);
+      }
+
+      const localPoints = (operation.coordinateSpace ?? 'world') === 'local'
+        ? operation.points
+        : operation.points.map((point) => ({
+            x: point.x - drawing.position.x,
+            y: point.y - drawing.position.y,
+          }));
+      const nextPathId = operation.pathId ?? randomUUID();
+
+      return {
+        graph: {
+          ...current,
+          drawings: (current.drawings ?? []).map((candidate) =>
+            candidate.id === operation.drawingId
+              ? {
+                  ...candidate,
+                  paths: [
+                    ...candidate.paths,
+                    {
+                      id: nextPathId,
+                      color: normalizeDrawingColor(operation.color, '#ffffff'),
+                      thickness: operation.thickness ?? 3,
+                      points: localPoints,
+                    },
+                  ],
+                }
+              : candidate
+          ),
+        },
+        details: {
+          drawingId: operation.drawingId,
+          pathId: nextPathId,
+        },
+      };
+    }
+    case 'drawing_move':
+      return {
+        graph: {
+          ...current,
+          drawings: (current.drawings ?? []).map((drawing) =>
+            drawing.id === operation.drawingId
+              ? {
+                  ...drawing,
+                  position: { x: operation.x, y: operation.y },
+                }
+              : drawing
+          ),
+        },
+      };
+    case 'drawing_set_name':
+      return {
+        graph: {
+          ...current,
+          drawings: (current.drawings ?? []).map((drawing) =>
+            drawing.id === operation.drawingId
+              ? {
+                  ...drawing,
+                  name: operation.name,
+                }
+              : drawing
+          ),
+        },
+      };
+    case 'drawing_delete':
+      return {
+        graph: {
+          ...current,
+          drawings: (current.drawings ?? []).filter((drawing) => drawing.id !== operation.drawingId),
+        },
+      };
+    case 'node_add_inline': {
+      const nodeId = operation.nodeId?.trim() || randomUUID();
+      if (current.nodes.some((node) => node.id === nodeId)) {
+        throw new Error(`Node ${nodeId} already exists in graph ${current.id}`);
+      }
+
+      const nowVersion = `${Date.now()}-${nodeId}`;
+      const inlineCode = operation.code ?? 'outputs.output = inputs.input;';
+      const inferredInputNames = inferInputPortNamesFromCode(inlineCode);
+      const inferredOutputNames = inferOutputPortNamesFromCode(inlineCode);
+      const resolvedInputNames = operation.inputNames && operation.inputNames.length > 0
+        ? operation.inputNames
+        : (inferredInputNames.length > 0 ? inferredInputNames : ['input']);
+      const resolvedOutputNames = operation.outputNames && operation.outputNames.length > 0
+        ? operation.outputNames
+        : (inferredOutputNames.length > 0 ? inferredOutputNames : ['output']);
+
+      const inputs = resolvedInputNames.map(
+        (portName) => {
+          assertValidPortName(portName, 'input');
+          return {
+            name: portName,
+            schema: { type: 'object' as const },
+          };
+        }
+      );
+
+      const outputs = resolvedOutputNames.map(
+        (portName) => {
+          assertValidPortName(portName, 'output');
+          return {
+            name: portName,
+            schema: { type: 'object' as const },
+          };
+        }
+      );
+
+      const node: GraphNode = {
+        id: nodeId,
+        type: 'inline_code',
+        position: { x: operation.x, y: operation.y },
+        metadata: {
+          name: operation.name ?? 'Inline Code',
+          inputs,
+          outputs,
+        },
+        config: {
+          type: 'inline_code',
+          runtime: operation.runtime ?? 'javascript_vm',
+          ...(operation.pythonEnv ? { pythonEnv: operation.pythonEnv } : {}),
+          code: inlineCode,
+          config: {
+            autoRecompute: operation.autoRecompute ?? false,
+          },
+        },
+        version: nowVersion,
+      };
+
+      return {
+        graph: {
+          ...current,
+          nodes: [...current.nodes, node],
+        },
+        details: { nodeId },
+      };
+    }
+    case 'node_move': {
+      getNode(current, operation.nodeId);
+      const projectionState = normalizeGraphProjectionState(
+        current.nodes,
+        current.projections,
+        current.activeProjectionId,
+        current.canvasBackground
+      );
+      const updatedNodes = current.nodes.map((node) =>
+        node.id === operation.nodeId
+          ? {
+              ...node,
+              position: { x: operation.x, y: operation.y },
+            }
+          : node
+      );
+      const updatedProjections = projectionState.projections.map((projection) =>
+        projection.id === projectionState.activeProjectionId
+          ? {
+              ...projection,
+              nodePositions: {
+                ...projection.nodePositions,
+                [operation.nodeId]: { x: operation.x, y: operation.y },
+              },
+            }
+          : projection
+      );
+
+      return {
+        graph: {
+          ...current,
+          nodes: updatedNodes,
+          projections: updatedProjections,
+          activeProjectionId: projectionState.activeProjectionId,
+        },
+      };
+    }
+    case 'node_set_name':
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((node) =>
+            node.id === operation.nodeId
+              ? {
+                  ...node,
+                  metadata: {
+                    ...node.metadata,
+                    name: operation.name,
+                  },
+                  version: ensureNodeVersion(node),
+                }
+              : node
+          ),
+        },
+      };
+    case 'node_set_code':
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((node) =>
+            node.id === operation.nodeId
+              ? {
+                  ...node,
+                  config: {
+                    ...node.config,
+                    code: operation.code,
+                    ...(operation.runtime ? { runtime: operation.runtime } : {}),
+                    ...(operation.pythonEnv ? { pythonEnv: operation.pythonEnv } : {}),
+                  },
+                  version: ensureNodeVersion(node),
+                }
+              : node
+          ),
+        },
+      };
+    case 'node_set_auto_recompute':
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((node) =>
+            node.id === operation.nodeId
+              ? {
+                  ...node,
+                  config: {
+                    ...node.config,
+                    config: {
+                      ...(node.config.config ?? {}),
+                      autoRecompute: operation.enabled,
+                    },
+                  },
+                  version: ensureNodeVersion(node),
+                }
+              : node
+          ),
+        },
+      };
+    case 'node_add_input': {
+      assertValidPortName(operation.inputName, 'input');
+      const node = getNode(current, operation.nodeId);
+      if (node.metadata.inputs.some((input) => input.name === operation.inputName)) {
+        throw new Error(`Input port ${operation.inputName} already exists on node ${operation.nodeId}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((candidate) =>
+            candidate.id === operation.nodeId
+              ? {
+                  ...candidate,
+                  metadata: {
+                    ...candidate.metadata,
+                    inputs: [
+                      ...candidate.metadata.inputs,
+                      {
+                        name: operation.inputName,
+                        schema: { type: 'object' },
+                      },
+                    ],
+                  },
+                  version: ensureNodeVersion(candidate),
+                }
+              : candidate
+          ),
+        },
+      };
+    }
+    case 'node_delete_input': {
+      const node = getNode(current, operation.nodeId);
+      if (!node.metadata.inputs.some((input) => input.name === operation.inputName)) {
+        throw new Error(`Input port ${operation.inputName} was not found on node ${operation.nodeId}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((candidate) =>
+            candidate.id === operation.nodeId
+              ? {
+                  ...candidate,
+                  metadata: {
+                    ...candidate.metadata,
+                    inputs: candidate.metadata.inputs.filter((input) => input.name !== operation.inputName),
+                  },
+                  version: ensureNodeVersion(candidate),
+                }
+              : candidate
+          ),
+          connections: current.connections.filter(
+            (connection) =>
+              !(connection.targetNodeId === operation.nodeId && connection.targetPort === operation.inputName)
+          ),
+        },
+      };
+    }
+    case 'node_move_input': {
+      const node = getNode(current, operation.nodeId);
+      const inputs = [...node.metadata.inputs];
+      const index = inputs.findIndex((input) => input.name === operation.inputName);
+      if (index === -1) {
+        throw new Error(`Input port ${operation.inputName} was not found on node ${operation.nodeId}`);
+      }
+
+      const targetIndex = operation.direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= inputs.length) {
+        return { graph: current };
+      }
+
+      [inputs[index], inputs[targetIndex]] = [inputs[targetIndex], inputs[index]];
+
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((candidate) =>
+            candidate.id === operation.nodeId
+              ? {
+                  ...candidate,
+                  metadata: {
+                    ...candidate.metadata,
+                    inputs,
+                  },
+                  version: ensureNodeVersion(candidate),
+                }
+              : candidate
+          ),
+        },
+      };
+    }
+    case 'node_rename_input': {
+      assertValidPortName(operation.newName, 'input');
+      const node = getNode(current, operation.nodeId);
+      if (!node.metadata.inputs.some((input) => input.name === operation.oldName)) {
+        throw new Error(`Input port ${operation.oldName} was not found on node ${operation.nodeId}`);
+      }
+      if (node.metadata.inputs.some((input) => input.name === operation.newName)) {
+        throw new Error(`Input port ${operation.newName} already exists on node ${operation.nodeId}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((candidate) =>
+            candidate.id === operation.nodeId
+              ? {
+                  ...candidate,
+                  metadata: {
+                    ...candidate.metadata,
+                    inputs: candidate.metadata.inputs.map((input) =>
+                      input.name === operation.oldName
+                        ? {
+                            ...input,
+                            name: operation.newName,
+                          }
+                        : input
+                    ),
+                  },
+                  version: ensureNodeVersion(candidate),
+                }
+              : candidate
+          ),
+          connections: current.connections.map((connection) =>
+            connection.targetNodeId === operation.nodeId && connection.targetPort === operation.oldName
+              ? {
+                  ...connection,
+                  targetPort: operation.newName,
+                }
+              : connection
+          ),
+        },
+      };
+    }
+    case 'node_delete':
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.filter((node) => node.id !== operation.nodeId),
+          connections: current.connections.filter(
+            (connection) =>
+              connection.sourceNodeId !== operation.nodeId && connection.targetNodeId !== operation.nodeId
+          ),
+        },
+      };
+    case 'connection_add': {
+      const sourceNode = getNode(current, operation.sourceNodeId);
+      const targetNode = getNode(current, operation.targetNodeId);
+      if (!sourceNode.metadata.outputs.some((output) => output.name === operation.sourcePort)) {
+        throw new Error(`Source port ${operation.sourcePort} not found on node ${operation.sourceNodeId}`);
+      }
+      if (!targetNode.metadata.inputs.some((input) => input.name === operation.targetPort)) {
+        throw new Error(`Target port ${operation.targetPort} not found on node ${operation.targetNodeId}`);
+      }
+
+      const duplicate = current.connections.some(
+        (connection) =>
+          connection.sourceNodeId === operation.sourceNodeId &&
+          connection.sourcePort === operation.sourcePort &&
+          connection.targetNodeId === operation.targetNodeId &&
+          connection.targetPort === operation.targetPort
+      );
+      if (duplicate) {
+        return { graph: current };
+      }
+
+      return {
+        graph: {
+          ...current,
+          connections: [
+            ...current.connections,
+            {
+              id: operation.connectionId ?? randomUUID(),
+              sourceNodeId: operation.sourceNodeId,
+              sourcePort: operation.sourcePort,
+              targetNodeId: operation.targetNodeId,
+              targetPort: operation.targetPort,
+            },
+          ],
+        },
+      };
+    }
+    case 'connection_delete':
+      return {
+        graph: {
+          ...current,
+          connections: current.connections.filter(
+            (connection) => connection.id !== operation.connectionId
+          ),
+        },
+      };
+  }
 }
 
 function resolveOutputPath(explicitPath?: string): string {
@@ -1181,10 +2097,58 @@ server.registerTool(
 );
 
 server.registerTool(
+  'bulk_edit',
+  {
+    description:
+      'Apply multiple graph-edit operations sequentially in a single persisted graph update.',
+    inputSchema: {
+      graphId: z.string(),
+      operations: z.array(BULK_EDIT_OPERATION_SCHEMA).min(1),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, operations, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const operationResults: Array<{
+      index: number;
+      op: BulkEditOperation['op'];
+      details?: Record<string, unknown>;
+    }> = [];
+
+    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
+      let nextGraph = current;
+      for (let index = 0; index < operations.length; index += 1) {
+        const operation = operations[index];
+        try {
+          const result = applyBulkEditOperation(nextGraph, operation);
+          nextGraph = normalizeGraph(result.graph);
+          operationResults.push({
+            index,
+            op: operation.op,
+            ...(result.details ? { details: result.details } : {}),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`bulk_edit operation ${index + 1} (${operation.op}) failed: ${message}`);
+        }
+      }
+      return nextGraph;
+    });
+
+    return textResult({
+      graphId,
+      operationsApplied: operationResults.length,
+      operationResults,
+      graph,
+    });
+  }
+);
+
+server.registerTool(
   'graph_projection_add',
   {
     description:
-      'Add a new graph projection. Node coordinates are cloned from the currently selected projection unless sourceProjectionId is provided.',
+      'Add a new graph projection. Node coordinates, node card sizes, and projection background are cloned from the currently selected projection unless sourceProjectionId is provided.',
     inputSchema: {
       graphId: z.string(),
       projectionId: z.string().trim().min(1).optional(),
@@ -1200,7 +2164,8 @@ server.registerTool(
       const projectionState = normalizeGraphProjectionState(
         current.nodes,
         current.projections,
-        current.activeProjectionId
+        current.activeProjectionId,
+        current.canvasBackground
       );
 
       const sourceId = sourceProjectionId?.trim() || projectionState.activeProjectionId;
@@ -1218,6 +2183,10 @@ server.registerTool(
         id: nextProjectionId,
         name: name?.trim() || getNextProjectionName(projectionState.projections),
         nodePositions: cloneProjectionNodePositions(current.nodes, sourceProjection),
+        nodeCardSizes: cloneProjectionNodeCardSizes(current.nodes, sourceProjection),
+        canvasBackground: normalizeCanvasBackground(
+          sourceProjection.canvasBackground ?? current.canvasBackground
+        ),
       };
 
       const nextActiveProjectionId = activate === false
@@ -1234,6 +2203,9 @@ server.registerTool(
         projections: [...projectionState.projections, newProjection],
         activeProjectionId: nextActiveProjectionId,
         nodes: applyProjectionToNodes(current.nodes, activeProjection),
+        canvasBackground: normalizeCanvasBackground(
+          activeProjection.canvasBackground ?? current.canvasBackground
+        ),
       };
     });
 
@@ -1244,7 +2216,7 @@ server.registerTool(
 server.registerTool(
   'graph_projection_select',
   {
-    description: 'Set the active graph projection and apply its stored node coordinates to the canvas nodes.',
+    description: 'Set the active graph projection and apply its stored node coordinates, card sizes, and background to the graph.',
     inputSchema: {
       graphId: z.string(),
       projectionId: z.string().trim().min(1),
@@ -1257,7 +2229,8 @@ server.registerTool(
       const projectionState = normalizeGraphProjectionState(
         current.nodes,
         current.projections,
-        current.activeProjectionId
+        current.activeProjectionId,
+        current.canvasBackground
       );
       const selectedProjection = projectionState.projections.find(
         (projection) => projection.id === projectionId
@@ -1271,6 +2244,9 @@ server.registerTool(
         projections: projectionState.projections,
         activeProjectionId: selectedProjection.id,
         nodes: applyProjectionToNodes(current.nodes, selectedProjection),
+        canvasBackground: normalizeCanvasBackground(
+          selectedProjection.canvasBackground ?? current.canvasBackground
+        ),
       };
     });
 
@@ -1718,7 +2694,8 @@ server.registerTool(
       const projectionState = normalizeGraphProjectionState(
         current.nodes,
         current.projections,
-        current.activeProjectionId
+        current.activeProjectionId,
+        current.canvasBackground
       );
       const updatedNodes = current.nodes.map((node) =>
         node.id === nodeId

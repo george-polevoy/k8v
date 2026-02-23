@@ -127,6 +127,13 @@ export const GraphProjection = z.object({
       y: z.number(),
     })
   ).default({}),
+  nodeCardSizes: z.record(
+    z.object({
+      width: z.number().positive(),
+      height: z.number().positive(),
+    })
+  ).default({}),
+  canvasBackground: CanvasBackground.optional(),
 });
 
 export type GraphProjection = z.infer<typeof GraphProjection>;

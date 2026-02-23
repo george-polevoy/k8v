@@ -4,9 +4,11 @@ import { CanvasBackgroundSettings, PythonEnvironment } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import {
   applyProjectionToNodes,
+  cloneProjectionNodeCardSizes,
   cloneProjectionNodePositions,
   DEFAULT_GRAPH_PROJECTION_ID,
   normalizeGraphProjectionState,
+  withCanvasBackgroundInProjection,
 } from '../utils/projections';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import { v4 as uuidv4 } from 'uuid';
@@ -74,8 +76,19 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
 
   useEffect(() => {
     if (graph) {
+      const projectionState = normalizeGraphProjectionState(
+        graph.nodes,
+        graph.projections,
+        graph.activeProjectionId,
+        graph.canvasBackground
+      );
+      const activeProjection = projectionState.projections.find(
+        (projection) => projection.id === projectionState.activeProjectionId
+      ) ?? projectionState.projections[0];
       setGraphNameValue(graph.name);
-      setCanvasBackgroundDraft(normalizeCanvasBackground(graph.canvasBackground));
+      setCanvasBackgroundDraft(
+        normalizeCanvasBackground(activeProjection?.canvasBackground ?? graph.canvasBackground)
+      );
       setPythonEnvDrafts(graph.pythonEnvs ?? []);
     } else {
       setGraphNameValue('');
@@ -158,18 +171,40 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       return;
     }
 
+    const projectionState = normalizeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId,
+      graph.canvasBackground
+    );
+    const activeProjection = projectionState.projections.find(
+      (projection) => projection.id === projectionState.activeProjectionId
+    ) ?? projectionState.projections[0];
+    if (!activeProjection) {
+      return;
+    }
+
     const normalized = normalizeCanvasBackground(canvasBackgroundDraft);
-    const currentNormalized = normalizeCanvasBackground(graph.canvasBackground);
+    const currentNormalized = normalizeCanvasBackground(
+      activeProjection.canvasBackground ?? graph.canvasBackground
+    );
     if (
       normalized.mode === currentNormalized.mode &&
       normalized.baseColor === currentNormalized.baseColor
     ) {
       return;
     }
+    const updatedProjections = projectionState.projections.map((projection) =>
+      projection.id === projectionState.activeProjectionId
+        ? withCanvasBackgroundInProjection(projection, normalized)
+        : projection
+    );
 
     setIsGraphActionInFlight(true);
     try {
       await updateGraph({
+        projections: updatedProjections,
+        activeProjectionId: projectionState.activeProjectionId,
         canvasBackground: normalized,
         updatedAt: Date.now(),
       });
@@ -277,7 +312,8 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     const projectionState = normalizeGraphProjectionState(
       graph.nodes,
       graph.projections,
-      graph.activeProjectionId
+      graph.activeProjectionId,
+      graph.canvasBackground
     );
     if (projectionState.activeProjectionId === projectionId) {
       return;
@@ -292,10 +328,14 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
 
     setIsGraphActionInFlight(true);
     try {
+      const nextBackground = normalizeCanvasBackground(
+        selectedProjection.canvasBackground ?? graph.canvasBackground
+      );
       await updateGraph({
         projections: projectionState.projections,
         activeProjectionId: selectedProjection.id,
         nodes: applyProjectionToNodes(graph.nodes, selectedProjection),
+        canvasBackground: nextBackground,
         updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
@@ -312,7 +352,8 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     const projectionState = normalizeGraphProjectionState(
       graph.nodes,
       graph.projections,
-      graph.activeProjectionId
+      graph.activeProjectionId,
+      graph.canvasBackground
     );
     const sourceProjection = projectionState.projections.find(
       (projection) => projection.id === projectionState.activeProjectionId
@@ -325,6 +366,10 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       id: projectionId,
       name: projectionName,
       nodePositions: cloneProjectionNodePositions(graph.nodes, sourceProjection),
+      nodeCardSizes: cloneProjectionNodeCardSizes(graph.nodes, sourceProjection),
+      canvasBackground: normalizeCanvasBackground(
+        sourceProjection?.canvasBackground ?? graph.canvasBackground
+      ),
     };
 
     setIsGraphActionInFlight(true);
@@ -333,6 +378,7 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         projections: [...projectionState.projections, newProjection],
         activeProjectionId: newProjection.id,
         nodes: applyProjectionToNodes(graph.nodes, newProjection),
+        canvasBackground: normalizeCanvasBackground(newProjection.canvasBackground),
         updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
@@ -342,7 +388,12 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   }, [graph, refreshGraphSummaries, updateGraph]);
 
   const projectionState = graph
-    ? normalizeGraphProjectionState(graph.nodes, graph.projections, graph.activeProjectionId)
+    ? normalizeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId,
+      graph.canvasBackground
+    )
     : null;
   const projectionOptions = projectionState?.projections ?? [];
   const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
@@ -618,7 +669,7 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           }}
         >
           <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
-            Canvas Background
+            Projection Background
           </div>
           <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
             Mode

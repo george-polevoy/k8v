@@ -283,12 +283,26 @@ test('updateNodePosition persists position to active projection nodePositions', 
         nodePositions: {
           n1: { x: 10, y: 20 },
         },
+        nodeCardSizes: {
+          n1: { width: 220, height: 80 },
+        },
+        canvasBackground: {
+          mode: 'gradient',
+          baseColor: '#1d437e',
+        },
       },
       {
         id: 'alt',
         name: 'Alt',
         nodePositions: {
           n1: { x: 40, y: 50 },
+        },
+        nodeCardSizes: {
+          n1: { width: 240, height: 140 },
+        },
+        canvasBackground: {
+          mode: 'solid',
+          baseColor: '#204060',
         },
       },
     ],
@@ -387,6 +401,87 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
     assert.equal(capturedPayload.nodes[0].config.config.cardHeight, 200);
     assert.equal(capturedPayload.nodes[0].version, 'node-size-version-1');
     assert.equal(state.graph?.nodes[0].version, 'node-size-version-1');
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
+test('updateNodeCardSize persists dimensions to active projection nodeCardSizes', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const initialGraph: Graph = {
+    id: 'g-size-proj',
+    name: 'Graph size projections',
+    nodes: [
+      {
+        id: 'n-size',
+        type: 'inline_code' as any,
+        position: { x: 10, y: 20 },
+        metadata: {
+          name: 'Node size',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+          config: {
+            cardWidth: 220,
+            cardHeight: 80,
+          },
+        },
+        version: 'node-size-version-1',
+      },
+    ],
+    connections: [],
+    projections: [
+      {
+        id: 'default',
+        name: 'Default',
+        nodePositions: { 'n-size': { x: 10, y: 20 } },
+        nodeCardSizes: { 'n-size': { width: 220, height: 80 } },
+        canvasBackground: { mode: 'gradient', baseColor: '#1d437e' },
+      },
+      {
+        id: 'alt',
+        name: 'Alt',
+        nodePositions: { 'n-size': { x: 10, y: 20 } },
+        nodeCardSizes: { 'n-size': { width: 320, height: 160 } },
+        canvasBackground: { mode: 'solid', baseColor: '#204060' },
+      },
+    ],
+    activeProjectionId: 'alt',
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    useGraphStore.getState().updateNodeCardSize('n-size', 360, 200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.ok(capturedPayload, 'expected updateGraph payload');
+    const defaultProjection = capturedPayload.projections.find((projection: any) => projection.id === 'default');
+    const altProjection = capturedPayload.projections.find((projection: any) => projection.id === 'alt');
+    assert.ok(defaultProjection);
+    assert.ok(altProjection);
+    assert.equal(defaultProjection.nodeCardSizes['n-size'].width, 220);
+    assert.equal(defaultProjection.nodeCardSizes['n-size'].height, 80);
+    assert.equal(altProjection.nodeCardSizes['n-size'].width, 360);
+    assert.equal(altProjection.nodeCardSizes['n-size'].height, 200);
   } finally {
     (axios as any).put = originalPut;
   }

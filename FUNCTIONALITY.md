@@ -13,23 +13,26 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel projection management: select active 2D projection and add new projections.
-- New projections clone node coordinates from the currently selected projection.
-- Graph stores per-projection node coordinates and active projection id; default projection is always present.
+- New projections clone node coordinates, node card dimensions, and projection background from the currently selected projection.
+- Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
-- Graph panel canvas background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog.
+- Graph panel projection background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog for the active projection.
 - Current graph ID is shown in graph panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
 
 - Pixi.js canvas renderer for nodes and connectors.
-- Canvas background supports per-graph `solid` color fill or base-color-driven `gradient` rendering.
+- Canvas background supports per-projection `solid` color fill or base-color-driven `gradient` rendering.
 - Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
 - Mouse wheel zoom.
 - Shift/Alt wheel directional scroll.
 - Drag-to-pan on empty canvas.
 - Drag-to-move nodes with persisted positions.
 - Node position persistence is projection-aware: moving a node updates coordinates only for the active projection.
-- Switching active projection repositions all nodes to that projection's stored coordinates.
+- Node card resize persistence is projection-aware: resizing updates dimensions only for the active projection.
+- Switching active projection animates node position, card dimensions, and background transition instead of hard switching.
+- Graphics mip/offscreen reload decisions are deferred until projection transition animation completes to avoid reload churn.
+- Switching active projection applies that projection's stored node coordinates and card dimensions.
 - Edge rendering with Bezier curves.
 - Edge hit-testing and selection.
 - Delete selected edge with `Delete`/`Backspace`.
@@ -133,9 +136,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - MCP server package at `packages/mcp-server`.
 - MCP graph-edit tools for node creation, moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
-- MCP graph-edit tools for projections: add a projection (cloned from current active by default) and select active projection.
+- MCP graph-edit tools for projections: add a projection (cloned from current active coordinates/card sizes/background by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
+- MCP `bulk_edit` tool accepts an ordered array of graph-edit operations and applies them sequentially in one persisted graph update.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
 - Screenshot render overlays stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.
