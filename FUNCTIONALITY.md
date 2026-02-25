@@ -28,7 +28,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Canvas background supports per-projection `solid` color fill or base-color-driven `gradient` rendering.
 - Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
 - Mouse wheel zoom.
-- Shift/Alt wheel directional scroll.
+- Pinch zoom (trackpad gesture) keeps pointer-focused zoom.
+- Two-finger trackpad scroll pans viewport.
+- Shift + wheel scrolls horizontally; Alt + wheel scrolls vertically.
 - Drag-to-pan on empty canvas.
 - Drag-to-move nodes with persisted positions.
 - Node position persistence is projection-aware: moving a node updates coordinates only for the active projection.

@@ -48,7 +48,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 
 #### Canvas (`packages/frontend/src/components/Canvas.tsx`)
 - Infinite canvas rendered with Pixi.js
-- Viewport navigation supports wheel zoom, wheel scroll (modifier), and drag-to-pan
+- Viewport navigation supports mouse-wheel zoom, pinch zoom, two-finger trackpad pan, wheel scroll (modifier), and drag-to-pan
 - Visual node and edge rendering from graph store state
 - Persistent drawing-object layer (named handles + stored freehand paths) rendered in Pixi viewport
 - Drag-and-drop node positioning with persisted coordinates

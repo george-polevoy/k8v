@@ -33,6 +33,7 @@ import {
   resolveStableGraphicsRequestMaxPixels,
 } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
+import { resolveModifierWheelScrollDelta, shouldWheelPanCanvas } from '../utils/wheelNavigation';
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
@@ -3285,10 +3286,21 @@ function Canvas() {
 
       event.preventDefault();
 
-      // Shift/Alt wheel performs directional scrolling while default wheel zooms.
-      if (event.shiftKey || event.altKey) {
+      // Modifier wheel scroll is explicit panning; default wheel keeps zoom semantics.
+      const modifierScrollDelta = resolveModifierWheelScrollDelta(event);
+      if (modifierScrollDelta) {
         currentViewport.position.set(
-          snapToPixel(currentViewport.position.x - event.deltaX - event.deltaY),
+          snapToPixel(currentViewport.position.x + modifierScrollDelta.x),
+          snapToPixel(currentViewport.position.y + modifierScrollDelta.y)
+        );
+        drawMinimap();
+        requestViewportDrivenGraphRefresh();
+        return;
+      }
+
+      if (shouldWheelPanCanvas(event)) {
+        currentViewport.position.set(
+          snapToPixel(currentViewport.position.x - event.deltaX),
           snapToPixel(currentViewport.position.y - event.deltaY)
         );
         drawMinimap();

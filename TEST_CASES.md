@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: February 23, 2026.
+Last reviewed: February 25, 2026.
 
 ## Coverage Legend
 
@@ -20,6 +20,7 @@ Last reviewed: February 23, 2026.
 - `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
 - `A-E2E-09` `packages/frontend/tests/e2e/graphicsMipSelection.test.ts`: output graphics requests use sharper mip selection (`maxPixels` reflects 2x budget bias).
+- `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor while applying modifier pan mapping (`Shift` horizontal, `Alt` vertical) and trackpad-style small-delta pan.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -45,6 +46,7 @@ Last reviewed: February 23, 2026.
 - `A-FE-23` `packages/frontend/tests/graphStore.test.ts`: `updateNodeCardSize` writes node card dimensions to the active projection map.
 - `A-FE-24` `packages/frontend/tests/graphStore.test.ts`: on `409` graph-update conflict, frontend reloads latest graph state and surfaces a conflict message.
 - `A-FE-25` `packages/frontend/tests/projections.test.ts`: projection normalization clamps oversized fallback node card width to `1920`.
+- `A-FE-26` `packages/frontend/tests/wheelNavigation.test.ts`: wheel navigation helpers keep pinch/mouse-wheel zoom behavior, pan for trackpad two-finger scroll, and map modifier scrolling (`Shift` horizontal, `Alt` vertical).
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -107,7 +109,7 @@ Last reviewed: February 23, 2026.
 - `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates/card sizes/background and switch active projection.
 - `M-GRAPH-11`: Graph panel projection controls can remove the active non-default projection, while always keeping at least one projection.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
-- `M-CANVAS-02`: Shift/Alt + wheel performs directional scroll without zoom.
+- `M-CANVAS-02`: Shift + wheel scrolls horizontally and Alt + wheel scrolls vertically without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
 - `M-CANVAS-04`: Dragging a node updates and persists node position (no snap-back after click).
 - `M-CANVAS-05`: Hovering input/output connectors shows visual highlight.
@@ -130,6 +132,7 @@ Last reviewed: February 23, 2026.
 - `M-CANVAS-22`: Selected node card resize handle can resize the card on canvas and the new size persists.
 - `M-CANVAS-23`: Switching active projection animates node positions/card dimensions/background and does not hard-switch instantly.
 - `M-CANVAS-24`: While projection-switch animation is running, projected graphics textures are not reloaded; mip/offscreen reload/disposal resumes after animation completes.
+- `M-CANVAS-25`: Two-finger trackpad scroll pans the viewport while pinch zoom and mouse-wheel zoom still zoom in/out.
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
@@ -191,8 +194,10 @@ Last reviewed: February 23, 2026.
 | Canvas per-projection background rendering (solid or base-color-driven gradient) | `A-FE-19`, `A-BE-42`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
-| Mouse wheel zoom | `M-CANVAS-01` | Manual |
-| Shift/Alt wheel directional scroll | `M-CANVAS-02` | Manual |
+| Mouse wheel zoom | `A-E2E-10`, `M-CANVAS-01` | Automated + Manual |
+| Pinch zoom | `M-CANVAS-25` | Manual |
+| Two-finger trackpad scroll pans viewport | `A-E2E-10`, `A-FE-26`, `M-CANVAS-25` | Automated + Manual |
+| Modifier wheel directional scroll (`Shift` horizontal, `Alt` vertical) | `A-E2E-10`, `A-FE-26`, `M-CANVAS-02` | Automated + Manual |
 | Drag-to-pan on empty canvas | `M-CANVAS-03` | Manual |
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
