@@ -176,14 +176,63 @@ test(
       }, { x: cursorX, y: cursorY });
       const initialRect = await waitForViewportRect(page, () => true);
 
+      await page.evaluate(({ x, y }) => {
+        const mainCanvas = document.querySelector('canvas');
+        if (!(mainCanvas instanceof HTMLCanvasElement)) {
+          throw new Error('Main canvas not found');
+        }
+        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+          deltaX: 0,
+          deltaY: -20,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+        }));
+      }, { x: cursorX, y: cursorY });
+      const afterSmallWheelRect = await waitForViewportRect(
+        page,
+        (rect) => rect.width < (initialRect.width - 0.02)
+      );
+      const smallWheelZoomStep = initialRect.width - afterSmallWheelRect.width;
+      assert.ok(
+        smallWheelZoomStep > 0,
+        `Expected regular small wheel delta to zoom in (${initialRect.width} -> ${afterSmallWheelRect.width})`
+      );
+
+      await page.evaluate(({ x, y }) => {
+        const mainCanvas = document.querySelector('canvas');
+        if (!(mainCanvas instanceof HTMLCanvasElement)) {
+          throw new Error('Main canvas not found');
+        }
+        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+          deltaX: 0,
+          deltaY: -20,
+          ctrlKey: true,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+        }));
+      }, { x: cursorX, y: cursorY });
+      const afterPinchRect = await waitForViewportRect(
+        page,
+        (rect) => rect.width < (afterSmallWheelRect.width - 0.02)
+      );
+      const pinchZoomStep = afterSmallWheelRect.width - afterPinchRect.width;
+      assert.ok(
+        pinchZoomStep > (smallWheelZoomStep * 3),
+        `Expected pinch zoom step to be significantly stronger than regular wheel step (${smallWheelZoomStep} vs ${pinchZoomStep})`
+      );
+
       await page.mouse.wheel(0, -120);
       const afterZoomRect = await waitForViewportRect(
         page,
-        (rect) => rect.width < initialRect.width || rect.height < initialRect.height
+        (rect) => rect.width < afterPinchRect.width || rect.height < afterPinchRect.height
       );
       assert.ok(
-        afterZoomRect.width < initialRect.width,
-        `Mouse-wheel zoom should shrink minimap viewport width (${initialRect.width} -> ${afterZoomRect.width})`
+        afterZoomRect.width < afterPinchRect.width,
+        `Mouse-wheel zoom should shrink minimap viewport width (${afterPinchRect.width} -> ${afterZoomRect.width})`
       );
 
       await page.keyboard.down('Shift');
@@ -237,6 +286,32 @@ test(
       assert.ok(
         approxEqual(afterTrackpadPanRect.width, afterAltRect.width, 0.08),
         `Trackpad-style pan should not change zoom width (${afterAltRect.width} vs ${afterTrackpadPanRect.width})`
+      );
+
+      for (let step = 0; step < 18; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 0,
+            deltaY: 180,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: cursorX, y: cursorY });
+      }
+
+      const afterDeepZoomOutRect = await waitForViewportRect(
+        page,
+        (rect) => rect.width > (initialRect.width * 6)
+      );
+      assert.ok(
+        afterDeepZoomOutRect.width > (initialRect.width * 6),
+        `Expected deep zoom-out range well beyond previous minimum (${initialRect.width} -> ${afterDeepZoomOutRect.width})`
       );
 
       await context.close();

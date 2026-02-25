@@ -20,7 +20,7 @@ Last reviewed: February 25, 2026.
 - `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
 - `A-E2E-09` `packages/frontend/tests/e2e/graphicsMipSelection.test.ts`: output graphics requests use sharper mip selection (`maxPixels` reflects 2x budget bias).
-- `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor while applying modifier pan mapping (`Shift` horizontal, `Alt` vertical) and trackpad-style small-delta pan.
+- `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor, applies stronger pinch zoom response, supports deep zoom-out range, maps modifier pan (`Shift` horizontal, `Alt` vertical), and keeps trackpad-style small-delta pan.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -45,7 +45,7 @@ Last reviewed: February 25, 2026.
 - `A-FE-22` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` writes node coordinates to the active projection map.
 - `A-FE-23` `packages/frontend/tests/graphStore.test.ts`: `updateNodeCardSize` writes node card dimensions to the active projection map.
 - `A-FE-24` `packages/frontend/tests/graphStore.test.ts`: on `409` graph-update conflict, frontend reloads latest graph state and surfaces a conflict message.
-- `A-FE-25` `packages/frontend/tests/projections.test.ts`: projection normalization clamps oversized fallback node card width to `1920`.
+- `A-FE-25` `packages/frontend/tests/projections.test.ts`: projection normalization clamps oversized fallback node card dimensions to `3840x2160`.
 - `A-FE-26` `packages/frontend/tests/wheelNavigation.test.ts`: wheel navigation helpers keep pinch/mouse-wheel zoom behavior, pan for trackpad two-finger scroll, and map modifier scrolling (`Shift` horizontal, `Alt` vertical).
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
@@ -91,9 +91,9 @@ Last reviewed: February 25, 2026.
 - `A-BE-42` `packages/backend/tests/app.test.ts`: switching `activeProjectionId` updates graph canvas background to the selected projection background.
 - `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
 - `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
-- `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` clamps oversized fallback node card width to `1920`.
+- `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` clamps oversized fallback node card dimensions to `3840x2160`.
 - `A-BE-46` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
-- `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) clamps oversized fallback node card widths to `1920`.
+- `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) clamps oversized fallback node card dimensions to `3840x2160`.
 
 ## Manual Regression Test Cases
 
@@ -195,14 +195,14 @@ Last reviewed: February 25, 2026.
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
 | Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `A-E2E-10`, `M-CANVAS-01` | Automated + Manual |
-| Pinch zoom | `M-CANVAS-25` | Manual |
+| Pinch zoom | `A-E2E-10`, `M-CANVAS-25` | Automated + Manual |
 | Two-finger trackpad scroll pans viewport | `A-E2E-10`, `A-FE-26`, `M-CANVAS-25` | Automated + Manual |
 | Modifier wheel directional scroll (`Shift` horizontal, `Alt` vertical) | `A-E2E-10`, `A-FE-26`, `M-CANVAS-02` | Automated + Manual |
 | Drag-to-pan on empty canvas | `M-CANVAS-03` | Manual |
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card dimensions are stored per active projection | `A-FE-23`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
-| Node card width normalization clamps oversized values to a max of `1920` | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
+| Node card size normalization clamps oversized values to a max of `3840x2160` | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
 | Edge rendering with Bezier curves | `M-CANVAS-07` | Manual |
 | Edge hit-testing and selection | `M-CANVAS-07` | Manual |
 | Delete selected edge with `Delete`/`Backspace` | `M-CANVAS-07` | Manual |

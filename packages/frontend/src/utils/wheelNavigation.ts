@@ -5,6 +5,10 @@ interface WheelNavigationLikeEvent {
   deltaY: number;
 }
 
+interface ZoomIntentLikeEvent {
+  ctrlKey: boolean;
+}
+
 interface ModifierWheelLikeEvent {
   shiftKey: boolean;
   altKey: boolean;
@@ -20,6 +24,7 @@ interface WheelScrollDelta {
 const DELTA_MODE_PIXEL = 0;
 const TRACKPAD_FINE_DELTA_THRESHOLD = 4;
 const TRACKPAD_INTEGER_DELTA_THRESHOLD = 1;
+const PINCH_ZOOM_MULTIPLIER = 4;
 
 export function resolveModifierWheelScrollDelta(event: ModifierWheelLikeEvent): WheelScrollDelta | null {
   if (event.shiftKey) {
@@ -66,4 +71,8 @@ export function shouldWheelPanCanvas(event: WheelNavigationLikeEvent): boolean {
   }
 
   return absDeltaY > 0 && absDeltaY <= TRACKPAD_INTEGER_DELTA_THRESHOLD;
+}
+
+export function resolveWheelZoomSensitivityMultiplier(event: ZoomIntentLikeEvent): number {
+  return event.ctrlKey ? PINCH_ZOOM_MULTIPLIER : 1;
 }

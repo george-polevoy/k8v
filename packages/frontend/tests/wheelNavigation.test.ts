@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveModifierWheelScrollDelta, shouldWheelPanCanvas } from '../src/utils/wheelNavigation.ts';
+import {
+  resolveModifierWheelScrollDelta,
+  resolveWheelZoomSensitivityMultiplier,
+  shouldWheelPanCanvas
+} from '../src/utils/wheelNavigation.ts';
 
 test('resolveModifierWheelScrollDelta maps shift+wheel to horizontal scroll', () => {
   assert.deepEqual(
@@ -41,6 +45,24 @@ test('resolveModifierWheelScrollDelta returns null without wheel modifiers', () 
       deltaY: 15,
     }),
     null
+  );
+});
+
+test('resolveWheelZoomSensitivityMultiplier returns 4 for pinch-like ctrl wheel input', () => {
+  assert.equal(
+    resolveWheelZoomSensitivityMultiplier({
+      ctrlKey: true,
+    }),
+    4
+  );
+});
+
+test('resolveWheelZoomSensitivityMultiplier returns 1 for regular wheel zoom input', () => {
+  assert.equal(
+    resolveWheelZoomSensitivityMultiplier({
+      ctrlKey: false,
+    }),
+    1
   );
 });
 

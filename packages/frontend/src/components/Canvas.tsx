@@ -33,20 +33,24 @@ import {
   resolveStableGraphicsRequestMaxPixels,
 } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
-import { resolveModifierWheelScrollDelta, shouldWheelPanCanvas } from '../utils/wheelNavigation';
+import {
+  resolveModifierWheelScrollDelta,
+  resolveWheelZoomSensitivityMultiplier,
+  shouldWheelPanCanvas,
+} from '../utils/wheelNavigation';
 import { v4 as uuidv4 } from 'uuid';
 
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 1920;
-const NODE_MAX_HEIGHT = 640;
+const NODE_MAX_WIDTH = 3840;
+const NODE_MAX_HEIGHT = 2160;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
 const PORT_RADIUS = 4;
 const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
-const MIN_ZOOM = 0.25;
+const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 2.5;
 const ZOOM_SENSITIVITY = 0.0014;
 const VIEWPORT_MARGIN = 100;
@@ -3311,7 +3315,8 @@ function Canvas() {
       const rect = canvasElement.getBoundingClientRect();
       const pointer = new Point(event.clientX - rect.left, event.clientY - rect.top);
       const worldPointBefore = currentViewport.toLocal(pointer);
-      const scaleFactor = Math.exp(-event.deltaY * ZOOM_SENSITIVITY);
+      const zoomSensitivity = ZOOM_SENSITIVITY * resolveWheelZoomSensitivityMultiplier(event);
+      const scaleFactor = Math.exp(-event.deltaY * zoomSensitivity);
       const nextScale = clamp(currentViewport.scale.x * scaleFactor, MIN_ZOOM, MAX_ZOOM);
 
       currentViewport.scale.set(nextScale);

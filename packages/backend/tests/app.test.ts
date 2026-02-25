@@ -328,14 +328,14 @@ test('POST /api/graphs initializes default projection metadata when omitted', as
   }
 });
 
-test('POST /api/graphs clamps oversized fallback node card width to max', async () => {
+test('POST /api/graphs clamps oversized fallback node card dimensions to max', async () => {
   const ctx = await setupTestServer();
 
   try {
     const node = createValidInlineNode();
     node.config.config = {
       cardWidth: 20_000,
-      cardHeight: 100,
+      cardHeight: 20_000,
     };
 
     const response = await createGraph(ctx.baseUrl, {
@@ -344,8 +344,10 @@ test('POST /api/graphs clamps oversized fallback node card width to max', async 
     assert.equal(response.status, 200);
     const graph = await response.json();
 
-    assert.equal(graph.projections[0].nodeCardSizes['node-1'].width, 1920);
-    assert.equal(graph.nodes[0].config.config.cardWidth, 1920);
+    assert.equal(graph.projections[0].nodeCardSizes['node-1'].width, 3840);
+    assert.equal(graph.projections[0].nodeCardSizes['node-1'].height, 2160);
+    assert.equal(graph.nodes[0].config.config.cardWidth, 3840);
+    assert.equal(graph.nodes[0].config.config.cardHeight, 2160);
   } finally {
     await ctx.close();
   }

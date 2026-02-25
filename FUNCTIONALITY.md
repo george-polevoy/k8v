@@ -28,7 +28,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Canvas background supports per-projection `solid` color fill or base-color-driven `gradient` rendering.
 - Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
 - Mouse wheel zoom.
-- Pinch zoom (trackpad gesture) keeps pointer-focused zoom.
+- Pinch zoom (trackpad gesture) keeps pointer-focused zoom with higher sensitivity than mouse wheel.
 - Two-finger trackpad scroll pans viewport.
 - Shift + wheel scrolls horizontally; Alt + wheel scrolls vertically.
 - Drag-to-pan on empty canvas.
@@ -48,7 +48,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
-- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node, with width capped at `1920`.
+- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node, with width capped at `3840` and height capped at `2160`.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
