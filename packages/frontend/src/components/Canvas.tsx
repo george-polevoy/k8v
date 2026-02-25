@@ -85,6 +85,7 @@ const NODE_TITLE_TEXT_STYLE = {
   fill: 0x0f172a,
 };
 const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
+  isPending: false,
   isComputing: false,
   hasError: false,
   isStale: false,
@@ -2216,7 +2217,7 @@ function Canvas() {
       const autoRecomputeEnabled = Boolean(node.config.config?.autoRecompute);
       const statusLightColor = nodeExecutionState?.hasError
         ? 0xef4444
-        : nodeExecutionState?.isComputing
+        : (nodeExecutionState?.isPending || nodeExecutionState?.isComputing)
           ? 0xf59e0b
           : nodeExecutionState?.isStale
             ? 0x8b5a2b

@@ -184,6 +184,7 @@ export const Graph = z.object({
   name: z.string(),
   nodes: z.array(GraphNode),
   connections: z.array(Connection),
+  recomputeConcurrency: z.number().int().min(1).max(32).optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),

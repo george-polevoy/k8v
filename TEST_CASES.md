@@ -21,13 +21,14 @@ Last reviewed: February 25, 2026.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
 - `A-E2E-09` `packages/frontend/tests/e2e/graphicsMipSelection.test.ts`: output graphics requests use sharper mip selection (`maxPixels` reflects 2x budget bias).
 - `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor, applies stronger pinch zoom response, supports deep zoom-out range, maps modifier pan (`Shift` horizontal, `Alt` vertical), and keeps trackpad-style small-delta pan.
+- `A-E2E-11` `packages/frontend/tests/e2e/graphRecomputeConcurrency.test.ts`: graph panel recompute worker setting persists graph-level concurrency and clamps values to the backend-supported max.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
 - `A-FE-04` `packages/frontend/tests/nodeFactory.test.ts`: inline node honors explicit runtime.
-- `A-FE-05` `packages/frontend/tests/graphStore.test.ts`: auto-recompute keeps only latest undrained pending batch while compute is in flight.
-- `A-FE-06` `packages/frontend/tests/graphStore.test.ts`: auto-recompute processes impacted nodes in upstream-to-downstream order.
-- `A-FE-07` `packages/frontend/tests/graphStore.test.ts`: upstream compute error marks downstream nodes stale and skips downstream auto-recompute until upstream recovers.
+- `A-FE-05` `packages/frontend/tests/graphStore.test.ts`: graph updates do not trigger frontend auto-recompute requests.
+- `A-FE-06` `packages/frontend/tests/graphStore.test.ts`: `computeNode` sends a backend recompute request for only the selected node.
+- `A-FE-07` `packages/frontend/tests/graphStore.test.ts`: `computeGraph` sends a single backend recompute request.
 - `A-FE-08` `packages/frontend/tests/nodeFactory.test.ts`: inline node stores explicit `pythonEnv` value.
 - `A-FE-09` `packages/frontend/tests/graphStore.test.ts`: selecting a drawing clears node selection and vice versa.
 - `A-FE-10` `packages/frontend/tests/graphStore.test.ts`: adding a drawing persists drawing payload through graph update.
@@ -93,6 +94,8 @@ Last reviewed: February 25, 2026.
 - `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
 - `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` clamps oversized fallback node card dimensions to `3840x2160`.
 - `A-BE-46` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
+- `A-BE-47` `packages/backend/tests/app.test.ts`: recompute status endpoint reports graph-level worker concurrency and reflects updates.
+- `A-BE-48` `packages/backend/tests/app.test.ts`: graph updates enqueue backend recompute for all impacted descendants and expose pending status through recompute-status polling.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) clamps oversized fallback node card dimensions to `3840x2160`.
 
 ## Manual Regression Test Cases
@@ -232,7 +235,7 @@ Last reviewed: February 25, 2026.
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
-| Per-node execution state in store | `A-FE-07`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
+| Per-node execution state in store | `A-FE-06`, `A-FE-07`, `A-BE-48`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
 | Card status light (red/amber/brown/green/gray) | `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Manual |
 | Node panel execution error text | `M-STATUS-02` | Manual |
 | Error-state smoke effect on node cards | `M-STATUS-05` | Manual |
@@ -244,11 +247,12 @@ Last reviewed: February 25, 2026.
 | Output panel shows text/graphics for selected node | `M-COMPUTE-01` | Manual |
 | Cached frontend node graphics outputs hydrate from persisted results and refresh on compute | `A-FE-12`, `A-FE-13`, `A-FE-14` | Automated |
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
-| Auto-recompute downstream nodes on graph updates | `A-FE-05`, `A-FE-06`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
-| Auto-recompute triggers after successful persistence | `A-FE-05`, `M-COMPUTE-02` | Automated + Manual |
-| Auto-recompute coalesces undrained updates to latest pending batch | `A-FE-05` | Automated |
-| Auto-recompute execution order is upstream to downstream | `A-FE-06` | Automated |
-| Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `A-FE-07`, `M-STATUS-04` | Automated + Manual |
+| Frontend graph updates do not run local auto-recompute chains | `A-FE-05` | Automated |
+| Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
+| Auto-recompute pending status includes impacted descendants | `A-BE-48`, `M-STATUS-01` | Automated + Manual |
+| Graph-level recompute worker concurrency is configurable | `A-BE-47`, `A-E2E-11` | Automated |
+| Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
+| Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `M-STATUS-04` | Manual |
 | Backend request validation via Zod | `A-BE-02`, `A-BE-03` | Automated |
 | Graph python env names are unique | `A-BE-22` | Automated |
 | MCP graph Python env management | `M-MCP-07` | Manual |
@@ -269,6 +273,6 @@ Last reviewed: February 25, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, and graphics mip-selection quality bias (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`).
-- No committed automated frontend tests yet for node panel input editing and auto-recompute UI workflows.
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, and graph recompute concurrency setting persistence (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`).
+- No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

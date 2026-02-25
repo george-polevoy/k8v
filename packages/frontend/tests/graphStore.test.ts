@@ -547,7 +547,7 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
   }
 });
 
-test('auto recompute keeps only latest pending batch while compute is in flight', async () => {
+test('graph updates do not trigger frontend auto recompute requests', async () => {
   const originalPut = axios.put;
   const originalPost = axios.post;
 
@@ -605,21 +605,8 @@ test('auto recompute keeps only latest pending batch while compute is in flight'
 
   (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
   (axios as any).post = async (_url: string, body: any) => {
-    if (body?.nodeId === 'downstream') {
-      computeCalls += 1;
-      await delay(120);
-      return {
-        data: {
-          nodeId: 'downstream',
-          outputs: { output: computeCalls },
-          schema: { output: { type: 'number' } },
-          timestamp: Date.now(),
-          version: `result-${computeCalls}`,
-        },
-      };
-    }
-
-    throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+    computeCalls += 1;
+    throw new Error(`Unexpected compute request: ${JSON.stringify(body)}`);
   };
 
   const patchUpstreamVersion = (version: string): Graph => ({
@@ -646,21 +633,15 @@ test('auto recompute keeps only latest pending batch while compute is in flight'
     await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v3'));
     await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v4'));
     await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v5'));
-
-    await delay(450);
-    assert.equal(
-      computeCalls,
-      2,
-      'expected one in-flight recompute and one latest replacement batch'
-    );
+    await delay(0);
+    assert.equal(computeCalls, 0);
   } finally {
     (axios as any).put = originalPut;
     (axios as any).post = originalPost;
   }
 });
 
-test('auto recompute runs impacted nodes in upstream-to-downstream order', async () => {
-  const originalPut = axios.put;
+test('computeNode sends a backend recompute request for only the selected node', async () => {
   const originalPost = axios.post;
 
   const computeOrder: string[] = [];
@@ -740,7 +721,6 @@ test('auto recompute runs impacted nodes in upstream-to-downstream order', async
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
   (axios as any).post = async (_url: string, body: any) => {
     if (typeof body?.nodeId === 'string') {
       computeOrder.push(body.nodeId);
@@ -767,28 +747,21 @@ test('auto recompute runs impacted nodes in upstream-to-downstream order', async
   });
 
   try {
-    await useGraphStore.getState().updateGraph({
-      ...graph,
-      nodes: graph.nodes.map((node) =>
-        node.id === 'node-a' ? { ...node, version: 'a-v2' } : node
-      ),
-      updatedAt: Date.now(),
-    });
-
-    await delay(120);
-    assert.deepEqual(computeOrder, ['node-a', 'node-b', 'node-c']);
+    await useGraphStore.getState().computeNode('node-a');
+    const state = useGraphStore.getState();
+    assert.deepEqual(computeOrder, ['node-a']);
+    assert.equal(state.nodeExecutionStates['node-a']?.hasError, false);
+    assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
+    assert.equal(state.nodeExecutionStates['node-a']?.isComputing, false);
   } finally {
-    (axios as any).put = originalPut;
     (axios as any).post = originalPost;
   }
 });
 
-test('auto recompute marks downstream nodes stale when an upstream node errors', async () => {
-  const originalPut = axios.put;
+test('computeGraph sends a single backend recompute request', async () => {
   const originalPost = axios.post;
 
-  let failUpstream = true;
-  const computeOrder: string[] = [];
+  const computeBodies: any[] = [];
 
   const graph: Graph = {
     id: 'g-stale',
@@ -866,25 +839,20 @@ test('auto recompute marks downstream nodes stale when an upstream node errors',
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
   (axios as any).post = async (_url: string, body: any) => {
-    if (typeof body?.nodeId !== 'string') {
+    computeBodies.push(body);
+    if (typeof body?.nodeId !== 'undefined') {
       throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
     }
 
-    computeOrder.push(body.nodeId);
-    if (body.nodeId === 'node-a' && failUpstream) {
-      throw new Error('Upstream failure');
-    }
-
     return {
-      data: {
-        nodeId: body.nodeId,
+      data: ['node-a', 'node-b', 'node-c'].map((nodeId) => ({
+        nodeId,
         outputs: { output: 1 },
         schema: { output: { type: 'number' } },
         timestamp: Date.now(),
-        version: `v-${body.nodeId}-${Date.now()}`,
-      },
+        version: `v-${nodeId}-${Date.now()}`,
+      })),
     };
   };
 
@@ -898,43 +866,13 @@ test('auto recompute marks downstream nodes stale when an upstream node errors',
   });
 
   try {
-    await useGraphStore.getState().updateGraph({
-      ...graph,
-      nodes: graph.nodes.map((node) =>
-        node.id === 'node-a' ? { ...node, version: 'a-v2' } : node
-      ),
-      updatedAt: Date.now(),
-    });
-
-    await delay(120);
-
-    let state = useGraphStore.getState();
-    assert.equal(state.nodeExecutionStates['node-a']?.hasError, true);
-    assert.equal(state.nodeExecutionStates['node-b']?.isStale, true);
-    assert.equal(state.nodeExecutionStates['node-c']?.isStale, true);
-    assert.deepEqual(computeOrder, ['node-a']);
-
-    failUpstream = false;
-    await useGraphStore.getState().updateGraph({
-      ...state.graph!,
-      nodes: state.graph!.nodes.map((node) =>
-        node.id === 'node-a' ? { ...node, version: 'a-v3' } : node
-      ),
-      updatedAt: Date.now(),
-    });
-
-    await delay(120);
-
-    state = useGraphStore.getState();
-    assert.equal(state.nodeExecutionStates['node-a']?.hasError, false);
-    assert.equal(state.nodeExecutionStates['node-a']?.isStale, false);
-    assert.equal(state.nodeExecutionStates['node-b']?.hasError, false);
-    assert.equal(state.nodeExecutionStates['node-b']?.isStale, false);
-    assert.equal(state.nodeExecutionStates['node-c']?.hasError, false);
-    assert.equal(state.nodeExecutionStates['node-c']?.isStale, false);
-    assert.deepEqual(computeOrder, ['node-a', 'node-a', 'node-b', 'node-c']);
+    await useGraphStore.getState().computeGraph();
+    const state = useGraphStore.getState();
+    assert.deepEqual(computeBodies, [{}]);
+    assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
+    assert.equal(state.nodeExecutionStates['node-b']?.isPending, false);
+    assert.equal(state.nodeExecutionStates['node-c']?.isPending, false);
   } finally {
-    (axios as any).put = originalPut;
     (axios as any).post = originalPost;
   }
 });

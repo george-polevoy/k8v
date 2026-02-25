@@ -13,6 +13,9 @@ import {
 import ColorSelectionDialog from './ColorSelectionDialog';
 import { v4 as uuidv4 } from 'uuid';
 
+const MIN_RECOMPUTE_CONCURRENCY = 1;
+const MAX_RECOMPUTE_CONCURRENCY = 32;
+
 function formatGraphOptionLabel(name: string, id: string): string {
   return `${name} (${id.slice(0, 8)})`;
 }
@@ -46,6 +49,27 @@ function getNextProjectionName(existingNames: string[]): string {
   return candidate;
 }
 
+function normalizeRecomputeConcurrency(
+  value: unknown,
+  fallback = MIN_RECOMPUTE_CONCURRENCY
+): number {
+  const parsedValue = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== ''
+      ? Number.parseInt(value, 10)
+      : Number.NaN;
+
+  if (!Number.isFinite(parsedValue)) {
+    return fallback;
+  }
+
+  const rounded = Math.trunc(parsedValue);
+  return Math.min(
+    MAX_RECOMPUTE_CONCURRENCY,
+    Math.max(MIN_RECOMPUTE_CONCURRENCY, rounded)
+  );
+}
+
 interface GraphPanelProps {
   embedded?: boolean;
 }
@@ -67,6 +91,9 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const [showCanvasBackgroundColorDialog, setShowCanvasBackgroundColorDialog] = useState(false);
   const [pythonEnvDrafts, setPythonEnvDrafts] = useState<PythonEnvironment[]>([]);
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
+  const [recomputeConcurrencyValue, setRecomputeConcurrencyValue] = useState(
+    String(MIN_RECOMPUTE_CONCURRENCY)
+  );
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
   const [isDeleteGraphConfirming, setIsDeleteGraphConfirming] = useState(false);
 
@@ -90,10 +117,19 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         normalizeCanvasBackground(activeProjection?.canvasBackground ?? graph.canvasBackground)
       );
       setPythonEnvDrafts(graph.pythonEnvs ?? []);
+      setRecomputeConcurrencyValue(
+        String(
+          normalizeRecomputeConcurrency(
+            graph.recomputeConcurrency,
+            MIN_RECOMPUTE_CONCURRENCY
+          )
+        )
+      );
     } else {
       setGraphNameValue('');
       setCanvasBackgroundDraft(normalizeCanvasBackground(undefined));
       setPythonEnvDrafts([]);
+      setRecomputeConcurrencyValue(String(MIN_RECOMPUTE_CONCURRENCY));
     }
     setPythonEnvValidationError(null);
   }, [graph]);
@@ -165,6 +201,30 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       setIsGraphActionInFlight(false);
     }
   }, [deleteGraph, graph, refreshGraphSummaries]);
+
+  const commitRecomputeConcurrency = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const current = normalizeRecomputeConcurrency(
+      graph.recomputeConcurrency,
+      MIN_RECOMPUTE_CONCURRENCY
+    );
+    const next = normalizeRecomputeConcurrency(recomputeConcurrencyValue, current);
+    setRecomputeConcurrencyValue(String(next));
+    if (next === current) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({ recomputeConcurrency: next });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [graph, recomputeConcurrencyValue, refreshGraphSummaries, updateGraph]);
 
   const commitCanvasBackground = useCallback(async () => {
     if (!graph) {
@@ -536,6 +596,50 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
             boxSizing: 'border-box',
           }}
         />
+
+        <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+          Recompute workers
+        </label>
+        <input
+          data-testid="graph-recompute-concurrency-input"
+          type="number"
+          min={MIN_RECOMPUTE_CONCURRENCY}
+          max={MAX_RECOMPUTE_CONCURRENCY}
+          step={1}
+          value={recomputeConcurrencyValue}
+          disabled={!graph || isGraphActionInFlight}
+          onChange={(event) => setRecomputeConcurrencyValue(event.target.value)}
+          onBlur={() => {
+            void commitRecomputeConcurrency();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') {
+              setRecomputeConcurrencyValue(
+                String(
+                  normalizeRecomputeConcurrency(
+                    graph?.recomputeConcurrency,
+                    MIN_RECOMPUTE_CONCURRENCY
+                  )
+                )
+              );
+              event.currentTarget.blur();
+            }
+          }}
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginBottom: '4px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
+          Graph-level backend recompute worker concurrency (1-32).
+        </div>
 
         {!isDeleteGraphConfirming ? (
           <button

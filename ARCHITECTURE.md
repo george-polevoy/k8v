@@ -14,6 +14,12 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Tracks dependencies and only recomputes when inputs or nodes change
 - Handles circular dependency detection
 
+#### RecomputeManager (`packages/backend/src/core/RecomputeManager.ts`)
+- Owns backend-driven recomputation scheduling for graph updates and manual recompute requests
+- Computes impacted downstream chains and marks all queued descendants as pending before execution
+- Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
+- Exposes `/api/graphs/:id/recompute-status` state for frontend polling
+
 #### DataStore (`packages/backend/src/core/DataStore.ts`)
 - Persists computation results in structured format (JSON)
 - Stores graph metadata in SQLite
@@ -62,9 +68,8 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Node and connection management
 - Persistent drawing object management (create/select/rename/move/delete/path append)
 - Optimistic persistence for graph edits
-- Node execution state tracking (computing/error/stale/last-run)
-- Auto-recompute propagation for opted-in downstream nodes
-- Downstream stale propagation from upstream error states
+- Node execution state tracking (pending/computing/error/stale/last-run)
+- Backend recompute-status polling for execution updates
 
 ## Data Flow
 
@@ -72,15 +77,16 @@ k8v is a flow-based modeling software that enables visual programming through an
 2. **Connection**: User connects node outputs to other node inputs
 3. **Computation**: GraphEngine computes nodes in topological order
 4. **Persistence**: Results are serialized and stored
-5. **Recomputation**: Only recomputes when inputs or node code changes
+5. **Recomputation**: Backend recompute manager detects impacted chains, schedules queued work, and publishes node execution state updates
 
 ## Directed Graph Semantics
 
 - Graph edges are directed from `sourceNodeId/sourcePort` (producer) to `targetNodeId/targetPort` (consumer).
 - Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
 - Runtime computation uses topological ordering so dependencies are computed before dependents.
-- Auto-recompute processing also follows upstream-to-downstream topological order.
-- When an upstream node is errored, auto-recompute skips affected downstream nodes and marks them stale.
+- Backend recompute queue processing follows upstream-to-downstream topological order.
+- Graph updates can enqueue all impacted auto-recompute descendants as pending before execution starts.
+- When an upstream node is errored, backend recompute skips affected downstream nodes and marks them stale.
 - Circular dependencies are rejected for new graphs and all graph updates.
 
 ## Node Types

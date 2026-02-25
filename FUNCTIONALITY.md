@@ -14,6 +14,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
+- Graph panel backend recompute worker setting: edit per-graph `recomputeConcurrency` (`1-32`).
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.
 - New projections clone node coordinates, node card dimensions, and projection background from the currently selected projection.
 - Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
@@ -84,10 +85,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Node Status and Indicators
 
-- Per-node execution state tracked in frontend store.
+- Per-node execution state tracked in frontend store from backend result hydration + backend recompute-status polling.
 - Card status light:
   - red: last compute errored
-  - amber: computing now
+  - amber: pending recompute or computing now
   - brown: stale because an upstream dependency is currently errored
   - green: auto-recompute enabled and no current error
   - gray: default/idle
@@ -107,12 +108,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Auto-Recompute Behavior
 
-- On graph updates, frontend computes impacted downstream nodes.
+- On graph updates, backend detects impacted downstream chains.
 - Nodes with auto-recompute enabled are automatically recomputed when upstream nodes change.
-- Recompute triggers run after successful graph persistence.
-- Auto-recompute uses a single pending batch slot; while recompute is in flight, new graph updates replace the undrained pending batch with the latest impacted nodes.
-- Auto-recompute processes impacted nodes in upstream-to-downstream order.
-- Auto-recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
+- Backend marks all impacted recompute nodes as pending before execution begins.
+- Backend recompute queue processes nodes in upstream-to-downstream order.
+- Backend recompute queue uses graph-level configurable worker concurrency (`recomputeConcurrency`).
+- Backend recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
+- Frontend does not run recompute chains locally; it sends explicit recompute requests from buttons and polls `/api/graphs/:id/recompute-status` for updates.
 
 ## Validation and Safety
 

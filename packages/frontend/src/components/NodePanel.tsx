@@ -693,7 +693,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   );
   const statusLightColor = nodeExecutionState?.hasError
     ? '#ef4444'
-    : nodeExecutionState?.isComputing
+    : (nodeExecutionState?.isPending || nodeExecutionState?.isComputing)
       ? '#f59e0b'
       : nodeExecutionState?.isStale
         ? '#8b5a2b'

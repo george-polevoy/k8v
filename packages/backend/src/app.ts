@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
+import { RecomputeManager } from './core/RecomputeManager.js';
 import {
   CanvasBackground,
   Connection,
@@ -30,6 +31,7 @@ const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
+  recomputeConcurrency: z.number().int().min(1).max(32).optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
@@ -41,6 +43,7 @@ const UpdateGraphSchema = z.object({
   name: z.string().optional(),
   nodes: z.array(GraphNode).optional(),
   connections: z.array(Connection).optional(),
+  recomputeConcurrency: z.number().int().min(1).max(32).optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
@@ -501,6 +504,7 @@ export function createApp(deps?: AppDependencies) {
   const dataStore = deps?.dataStore ?? new DataStore('./k8v.db', './data');
   const graphEngine =
     deps?.graphEngine ?? new GraphEngine(dataStore, new NodeExecutor(dataStore));
+  const recomputeManager = new RecomputeManager(dataStore, graphEngine);
 
   app.get('/api/graphs', async (_req, res) => {
     try {
@@ -549,6 +553,7 @@ export function createApp(deps?: AppDependencies) {
         name: req.body.name,
         nodes: projectionState.nodes,
         connections: req.body.connections,
+        recomputeConcurrency: req.body.recomputeConcurrency ?? 1,
         canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
@@ -610,6 +615,7 @@ export function createApp(deps?: AppDependencies) {
         ...graphUpdates,
         id: req.params.id,
         nodes: nextNodes,
+        recomputeConcurrency: req.body.recomputeConcurrency ?? existing.recomputeConcurrency ?? 1,
         canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
@@ -624,6 +630,7 @@ export function createApp(deps?: AppDependencies) {
       }
 
       await dataStore.storeGraph(graph);
+      recomputeManager.queueGraphUpdateRecompute(existing, graph);
       res.json(graph);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -636,6 +643,7 @@ export function createApp(deps?: AppDependencies) {
       if (!deleted) {
         return res.status(404).json({ error: 'Graph not found' });
       }
+      recomputeManager.dropGraphState(req.params.id);
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -651,12 +659,26 @@ export function createApp(deps?: AppDependencies) {
 
       const nodeId = req.body.nodeId;
       if (nodeId) {
-        const result = await graphEngine.computeNode(graph, nodeId);
+        const result = await recomputeManager.requestNodeRecompute(graph.id, nodeId);
         res.json(result);
       } else {
-        const results = await graphEngine.computeGraph(graph);
+        const results = await recomputeManager.requestGraphRecompute(graph.id);
         res.json(Array.from(results.values()));
       }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/graphs/:id/recompute-status', async (req, res) => {
+    try {
+      const graph = await dataStore.getGraph(req.params.id);
+      if (!graph) {
+        return res.status(404).json({ error: 'Graph not found' });
+      }
+
+      const status = await recomputeManager.getGraphStatus(graph.id);
+      res.json(status);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

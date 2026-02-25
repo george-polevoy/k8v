@@ -26,6 +26,7 @@ export type PencilColor = string;
 export type PencilThickness = 1 | 3 | 9;
 
 export interface NodeExecutionState {
+  isPending: boolean;
   isComputing: boolean;
   hasError: boolean;
   isStale: boolean;
@@ -88,12 +89,28 @@ interface GraphStore {
 }
 
 const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
+  isPending: false,
   isComputing: false,
   hasError: false,
   isStale: false,
   errorMessage: null,
   lastRunAt: null,
 };
+
+interface BackendNodeExecutionState {
+  isPending?: boolean;
+  isComputing?: boolean;
+  hasError?: boolean;
+  isStale?: boolean;
+  errorMessage?: string | null;
+  lastRunAt?: number | null;
+}
+
+interface BackendRecomputeStatus {
+  graphId?: string;
+  statusVersion?: number;
+  nodeStates?: Record<string, BackendNodeExecutionState>;
+}
 
 function isErrorTextOutput(textOutput: unknown): boolean {
   return typeof textOutput === 'string' && /^\s*error:/i.test(textOutput.trim());
@@ -112,6 +129,7 @@ function resolveErrorMessage(error: any, fallback: string): string {
 function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
   const hasError = isErrorTextOutput(result?.textOutput);
   return {
+    isPending: false,
     isComputing: false,
     hasError,
     isStale: false,
@@ -229,252 +247,28 @@ function buildNodeGraphicsOutputMapForGraph(
   return nextGraphicsOutputs;
 }
 
-function buildOutgoingAdjacency(graph: Graph): Map<string, string[]> {
-  const outgoing = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    outgoing.set(node.id, []);
-  }
-  for (const connection of graph.connections) {
-    outgoing.get(connection.sourceNodeId)?.push(connection.targetNodeId);
-  }
-  return outgoing;
-}
-
-function buildIncomingAdjacency(graph: Graph): Map<string, string[]> {
-  const incoming = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    incoming.set(node.id, []);
-  }
-  for (const connection of graph.connections) {
-    incoming.get(connection.targetNodeId)?.push(connection.sourceNodeId);
-  }
-  return incoming;
-}
-
-function deriveStaleNodeExecutionStates(
-  graph: Graph,
-  states: Record<string, NodeExecutionState>
-): Record<string, NodeExecutionState> {
-  const nextStates = buildNodeStateMapForGraph(graph, states);
-  for (const nodeId of Object.keys(nextStates)) {
-    nextStates[nodeId] = {
-      ...nextStates[nodeId],
-      isStale: false,
-    };
+function normalizeBackendNodeExecutionState(
+  value: BackendNodeExecutionState | undefined,
+  fallback: NodeExecutionState
+): NodeExecutionState {
+  if (!value || typeof value !== 'object') {
+    return fallback;
   }
 
-  const outgoing = buildOutgoingAdjacency(graph);
-  const queue: string[] = [];
-  const visited = new Set<string>();
-
-  for (const [nodeId, state] of Object.entries(nextStates)) {
-    if (state.hasError) {
-      queue.push(nodeId);
-      visited.add(nodeId);
-    }
-  }
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
-
-    for (const downstreamId of outgoing.get(current) || []) {
-      if (!nextStates[downstreamId]) {
-        continue;
-      }
-      if (!nextStates[downstreamId].hasError) {
-        nextStates[downstreamId] = {
-          ...nextStates[downstreamId],
-          isStale: true,
-        };
-      }
-      if (!visited.has(downstreamId)) {
-        visited.add(downstreamId);
-        queue.push(downstreamId);
-      }
-    }
-  }
-
-  return nextStates;
-}
-
-function hasErroredAncestor(
-  nodeId: string,
-  incoming: Map<string, string[]>,
-  states: Record<string, NodeExecutionState>
-): boolean {
-  const queue = [...(incoming.get(nodeId) || [])];
-  const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || visited.has(current)) {
-      continue;
-    }
-    visited.add(current);
-    if (states[current]?.hasError) {
-      return true;
-    }
-    for (const parentId of incoming.get(current) || []) {
-      if (!visited.has(parentId)) {
-        queue.push(parentId);
-      }
-    }
-  }
-
-  return false;
-}
-
-function connectionSignature(connection: Connection): string {
-  return [
-    connection.id,
-    connection.sourceNodeId,
-    connection.sourcePort,
-    connection.targetNodeId,
-    connection.targetPort,
-  ].join('|');
-}
-
-function getAutoRecomputeEnabled(node: GraphNode): boolean {
-  return Boolean(node.config.config?.autoRecompute);
-}
-
-function collectAutoRecomputeTargets(previousGraph: Graph, nextGraph: Graph): string[] {
-  const previousNodeMap = new Map(previousGraph.nodes.map((node) => [node.id, node]));
-  const nextNodeMap = new Map(nextGraph.nodes.map((node) => [node.id, node]));
-  const roots = new Set<string>();
-
-  for (const node of nextGraph.nodes) {
-    const previousNode = previousNodeMap.get(node.id);
-    if (!previousNode || previousNode.version !== node.version) {
-      roots.add(node.id);
-    }
-  }
-
-  const previousSignatures = new Set(previousGraph.connections.map(connectionSignature));
-  const nextSignatures = new Set(nextGraph.connections.map(connectionSignature));
-  const connectionsChanged =
-    previousSignatures.size !== nextSignatures.size ||
-    [...previousSignatures].some((signature) => !nextSignatures.has(signature));
-
-  if (connectionsChanged) {
-    for (const connection of nextGraph.connections) {
-      const signature = connectionSignature(connection);
-      if (!previousSignatures.has(signature)) {
-        roots.add(connection.sourceNodeId);
-        roots.add(connection.targetNodeId);
-      }
-    }
-
-    for (const connection of previousGraph.connections) {
-      const signature = connectionSignature(connection);
-      if (!nextSignatures.has(signature)) {
-        if (nextNodeMap.has(connection.sourceNodeId)) {
-          roots.add(connection.sourceNodeId);
-        }
-        if (nextNodeMap.has(connection.targetNodeId)) {
-          roots.add(connection.targetNodeId);
-        }
-      }
-    }
-  }
-
-  if (roots.size === 0) {
-    return [];
-  }
-
-  const outgoing = new Map<string, string[]>();
-  for (const node of nextGraph.nodes) {
-    outgoing.set(node.id, []);
-  }
-  for (const connection of nextGraph.connections) {
-    const neighbors = outgoing.get(connection.sourceNodeId);
-    if (neighbors) {
-      neighbors.push(connection.targetNodeId);
-    }
-  }
-
-  const impacted = new Set<string>();
-  const queue = [...roots];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || impacted.has(current)) {
-      continue;
-    }
-    impacted.add(current);
-
-    const neighbors = outgoing.get(current) || [];
-    for (const neighbor of neighbors) {
-      if (!impacted.has(neighbor)) {
-        queue.push(neighbor);
-      }
-    }
-  }
-
-  const targets = nextGraph.nodes
-    .filter((node) => getAutoRecomputeEnabled(node) && impacted.has(node.id))
-    .map((node) => node.id);
-
-  if (targets.length <= 1) {
-    return targets;
-  }
-
-  const targetSet = new Set(targets);
-  const nodeOrder = new Map(nextGraph.nodes.map((node, index) => [node.id, index]));
-  const inDegree = new Map<string, number>(targets.map((nodeId) => [nodeId, 0]));
-  const outgoingTargets = new Map<string, string[]>(targets.map((nodeId) => [nodeId, []]));
-
-  for (const connection of nextGraph.connections) {
-    if (!targetSet.has(connection.sourceNodeId) || !targetSet.has(connection.targetNodeId)) {
-      continue;
-    }
-    outgoingTargets.get(connection.sourceNodeId)?.push(connection.targetNodeId);
-    inDegree.set(connection.targetNodeId, (inDegree.get(connection.targetNodeId) || 0) + 1);
-  }
-
-  const topoQueue = targets.filter((nodeId) => (inDegree.get(nodeId) || 0) === 0);
-  topoQueue.sort((left, right) => (nodeOrder.get(left) || 0) - (nodeOrder.get(right) || 0));
-
-  const ordered: string[] = [];
-  while (topoQueue.length > 0) {
-    const nodeId = topoQueue.shift()!;
-    ordered.push(nodeId);
-
-    for (const targetNodeId of outgoingTargets.get(nodeId) || []) {
-      const nextDegree = (inDegree.get(targetNodeId) || 0) - 1;
-      inDegree.set(targetNodeId, nextDegree);
-      if (nextDegree === 0) {
-        topoQueue.push(targetNodeId);
-      }
-    }
-    topoQueue.sort((left, right) => (nodeOrder.get(left) || 0) - (nodeOrder.get(right) || 0));
-  }
-
-  // Fallback for defensive handling of malformed/cyclic target subsets.
-  if (ordered.length !== targets.length) {
-    return targets;
-  }
-
-  return ordered;
+  return {
+    isPending: Boolean(value.isPending),
+    isComputing: Boolean(value.isComputing),
+    hasError: Boolean(value.hasError),
+    isStale: Boolean(value.isStale),
+    errorMessage: typeof value.errorMessage === 'string' ? value.errorMessage : null,
+    lastRunAt: typeof value.lastRunAt === 'number' ? value.lastRunAt : fallback.lastRunAt,
+  };
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
   let latestUpdateRequestId = 0;
-  let autoRecomputeDrainRunning = false;
-  let pendingAutoRecomputeBatch: string[] | null = null;
-
-  const withDerivedExecutionState = (
-    graph: Graph | null,
-    states: Record<string, NodeExecutionState>
-  ): Record<string, NodeExecutionState> => {
-    if (!graph) {
-      return states;
-    }
-    return deriveStaleNodeExecutionStates(graph, states);
-  };
+  let recomputePollGeneration = 0;
+  let recomputePollTimer: ReturnType<typeof setTimeout> | null = null;
 
   const hydrateNodeExecutionStates = async (graph: Graph) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
@@ -514,70 +308,148 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
 
     set({
-      nodeExecutionStates: withDerivedExecutionState(graph, hydratedStates),
+      nodeExecutionStates: buildNodeStateMapForGraph(graph, hydratedStates),
       nodeGraphicsOutputs: hydratedGraphicsOutputs,
     });
   };
 
-  const mergeNodeExecutionState = (nodeId: string, patch: Partial<NodeExecutionState>) => {
-    set((state) => ({
-      nodeExecutionStates: withDerivedExecutionState(state.graph, {
-        ...state.nodeExecutionStates,
-        [nodeId]: {
-          ...(state.nodeExecutionStates[nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
-          ...patch,
-        },
-      }),
+  const refreshNodeResultSnapshots = async (graphId: string, nodeIds: string[]) => {
+    const uniqueNodeIds = [...new Set(nodeIds)];
+    if (uniqueNodeIds.length === 0) {
+      return;
+    }
+
+    const snapshots = await Promise.all(uniqueNodeIds.map(async (nodeId) => {
+      try {
+        const response = await axios.get(`/api/nodes/${nodeId}/result`);
+        return {
+          nodeId,
+          executionState: getNodeExecutionStateFromResult(response.data),
+          graphicsOutput: normalizeGraphicsOutput(response.data?.graphics),
+        };
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          return {
+            nodeId,
+            executionState: null,
+            graphicsOutput: null,
+          };
+        }
+
+        return {
+          nodeId,
+          executionState: null,
+          graphicsOutput: null,
+        };
+      }
     }));
+
+    set((state) => {
+      if (!state.graph || state.graph.id !== graphId) {
+        return {};
+      }
+
+      const nextNodeStates = { ...state.nodeExecutionStates };
+      const nextGraphicsOutputs = { ...state.nodeGraphicsOutputs };
+
+      for (const snapshot of snapshots) {
+        if (snapshot.executionState) {
+          const currentState = nextNodeStates[snapshot.nodeId] ?? { ...DEFAULT_NODE_EXECUTION_STATE };
+          nextNodeStates[snapshot.nodeId] = {
+            ...currentState,
+            hasError: snapshot.executionState.hasError,
+            errorMessage: snapshot.executionState.errorMessage,
+            lastRunAt: snapshot.executionState.lastRunAt,
+          };
+        }
+        nextGraphicsOutputs[snapshot.nodeId] = snapshot.graphicsOutput;
+      }
+
+      return {
+        nodeExecutionStates: nextNodeStates,
+        nodeGraphicsOutputs: nextGraphicsOutputs,
+      };
+    });
   };
 
-  const runAutoRecomputeDrain = async () => {
-    if (autoRecomputeDrainRunning) {
-      return;
-    }
+  const applyBackendRecomputeStatus = (graph: Graph, status: BackendRecomputeStatus) => {
+    const backendStates = status?.nodeStates ?? {};
+    const completedNodeIds: string[] = [];
 
-    autoRecomputeDrainRunning = true;
+    set((state) => {
+      if (!state.graph || state.graph.id !== graph.id) {
+        return {};
+      }
+
+      const nextNodeStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
+      for (const node of graph.nodes) {
+        const previousState = nextNodeStates[node.id];
+        const backendState = normalizeBackendNodeExecutionState(backendStates[node.id], previousState);
+        nextNodeStates[node.id] = backendState;
+
+        const wasRunning = previousState.isPending || previousState.isComputing;
+        const isRunning = backendState.isPending || backendState.isComputing;
+        if (wasRunning && !isRunning) {
+          completedNodeIds.push(node.id);
+        }
+      }
+
+      return {
+        nodeExecutionStates: nextNodeStates,
+        resultRefreshKey: completedNodeIds.length > 0 ? Date.now() : state.resultRefreshKey,
+      };
+    });
+
+    if (completedNodeIds.length > 0) {
+      void refreshNodeResultSnapshots(graph.id, completedNodeIds);
+    }
+  };
+
+  const pollRecomputeStatus = async (graphId: string, generation: number) => {
     try {
-      while (pendingAutoRecomputeBatch && pendingAutoRecomputeBatch.length > 0) {
-        const batch = pendingAutoRecomputeBatch;
-        pendingAutoRecomputeBatch = null;
-
-        const currentGraph = get().graph;
-        if (!currentGraph) {
-          continue;
-        }
-
-        const nodeMap = new Map(currentGraph.nodes.map((node) => [node.id, node]));
-        const incoming = buildIncomingAdjacency(currentGraph);
-        const validNodeIds = batch.filter((nodeId) => {
-          const node = nodeMap.get(nodeId);
-          return Boolean(node && getAutoRecomputeEnabled(node));
-        });
-
-        for (const nodeId of validNodeIds) {
-          const currentNodeStates = get().nodeExecutionStates;
-          if (hasErroredAncestor(nodeId, incoming, currentNodeStates)) {
-            continue;
-          }
-          await get().computeNode(nodeId);
-        }
+      const response = await axios.get(`/api/graphs/${graphId}/recompute-status`);
+      if (generation !== recomputePollGeneration) {
+        return;
       }
+
+      const currentGraph = get().graph;
+      if (!currentGraph || currentGraph.id !== graphId) {
+        return;
+      }
+
+      applyBackendRecomputeStatus(currentGraph, response.data as BackendRecomputeStatus);
+    } catch {
+      // Ignore polling errors; the next poll tick will retry.
     } finally {
-      autoRecomputeDrainRunning = false;
-      if (pendingAutoRecomputeBatch && pendingAutoRecomputeBatch.length > 0) {
-        void runAutoRecomputeDrain();
+      const shouldScheduleNextPoll =
+        generation === recomputePollGeneration &&
+        get().graph?.id === graphId;
+      if (shouldScheduleNextPoll) {
+        recomputePollTimer = setTimeout(() => {
+          void pollRecomputeStatus(graphId, generation);
+        }, 400);
       }
     }
   };
 
-  const triggerAutoRecompute = (nodeIds: string[]) => {
-    if (nodeIds.length === 0) {
+  const stopRecomputeStatusPolling = () => {
+    if (typeof window === 'undefined') {
       return;
     }
+    recomputePollGeneration += 1;
+    if (recomputePollTimer) {
+      clearTimeout(recomputePollTimer);
+      recomputePollTimer = null;
+    }
+  };
 
-    // Single-slot queue: keep only the latest undrained impacted batch.
-    pendingAutoRecomputeBatch = [...new Set(nodeIds)];
-    void runAutoRecomputeDrain();
+  const startRecomputeStatusPolling = (graphId: string) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    stopRecomputeStatusPolling();
+    const generation = recomputePollGeneration;
+    void pollRecomputeStatus(graphId, generation);
   };
 
   const upsertGraphSummary = (summary: GraphSummary) => {
@@ -620,10 +492,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedNodeId: null,
           selectedDrawingId: null,
           isLoading: false,
-          nodeExecutionStates: withDerivedExecutionState(
-            graph,
-            buildNodeStateMapForGraph(graph, get().nodeExecutionStates)
-          ),
+          nodeExecutionStates: buildNodeStateMapForGraph(graph, get().nodeExecutionStates),
           nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
         });
         upsertGraphSummary({
@@ -632,6 +501,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           updatedAt: graph.updatedAt,
         });
         await hydrateNodeExecutionStates(graph);
+        startRecomputeStatusPolling(graph.id);
         try {
           localStorage.setItem('k8v-current-graph-id', id);
         } catch (storageError) {
@@ -660,10 +530,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedDrawingId: null,
           isLoading: false,
           error: null,
-          nodeExecutionStates: withDerivedExecutionState(
-            newGraph,
-            buildNodeStateMapForGraph(newGraph, {})
-          ),
+          nodeExecutionStates: buildNodeStateMapForGraph(newGraph, {}),
           nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(newGraph, {}),
         });
         upsertGraphSummary({
@@ -671,6 +538,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           name: newGraph.name,
           updatedAt: newGraph.updatedAt,
         });
+        startRecomputeStatusPolling(newGraph.id);
         try {
           localStorage.setItem('k8v-current-graph-id', newGraph.id);
         } catch (storageError) {
@@ -724,10 +592,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedNodeId: null,
           selectedDrawingId: null,
           isLoading: false,
-          nodeExecutionStates: withDerivedExecutionState(
-            graph,
-            buildNodeStateMapForGraph(graph, get().nodeExecutionStates)
-          ),
+          nodeExecutionStates: buildNodeStateMapForGraph(graph, get().nodeExecutionStates),
           nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
         });
         upsertGraphSummary({
@@ -736,6 +601,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           updatedAt: graph.updatedAt,
         });
         await hydrateNodeExecutionStates(graph);
+        startRecomputeStatusPolling(graph.id);
         try {
           localStorage.setItem('k8v-current-graph-id', graph.id);
         } catch (storageError) {
@@ -860,10 +726,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         graph: updatedGraph,
         isLoading: false,
         error: null,
-        nodeExecutionStates: withDerivedExecutionState(
-          updatedGraph,
-          buildNodeStateMapForGraph(updatedGraph, nodeExecutionStates)
-        ),
+        nodeExecutionStates: buildNodeStateMapForGraph(updatedGraph, nodeExecutionStates),
         nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(updatedGraph, nodeGraphicsOutputs),
       });
 
@@ -877,7 +740,6 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         }
 
         const persistedGraph = normalizeGraph(response.data as Graph);
-        const autoRecomputeTargets = collectAutoRecomputeTargets(graph, persistedGraph);
 
         set((state) => ({
           graph: persistedGraph,
@@ -892,9 +754,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               : null,
           isLoading: false,
           error: null,
-          nodeExecutionStates: withDerivedExecutionState(
+          nodeExecutionStates: buildNodeStateMapForGraph(
             persistedGraph,
-            buildNodeStateMapForGraph(persistedGraph, state.nodeExecutionStates)
+            state.nodeExecutionStates
           ),
           nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
             persistedGraph,
@@ -912,8 +774,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         } catch (storageError) {
           console.warn('Could not save to localStorage:', storageError);
         }
-
-        triggerAutoRecompute(autoRecomputeTargets);
+        startRecomputeStatusPolling(persistedGraph.id);
       } catch (error: any) {
         if (requestId !== latestUpdateRequestId) {
           return;
@@ -940,9 +801,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
                   : null,
               error: 'Graph changed remotely. Reloaded latest graph state.',
               isLoading: false,
-              nodeExecutionStates: withDerivedExecutionState(
+              nodeExecutionStates: buildNodeStateMapForGraph(
                 latestGraph,
-                buildNodeStateMapForGraph(latestGraph, state.nodeExecutionStates)
+                state.nodeExecutionStates
               ),
               nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
                 latestGraph,
@@ -961,6 +822,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             } catch (storageError) {
               console.warn('Could not save to localStorage:', storageError);
             }
+            startRecomputeStatusPolling(latestGraph.id);
             return;
           } catch (reloadError: any) {
             if (requestId !== latestUpdateRequestId) {
@@ -974,10 +836,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               graph,
               error: reloadMessage,
               isLoading: false,
-              nodeExecutionStates: withDerivedExecutionState(
-                graph,
-                buildNodeStateMapForGraph(graph, nodeExecutionStates)
-              ),
+              nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
               nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
             });
             return;
@@ -989,10 +848,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           graph,
           error: serverMessage,
           isLoading: false,
-          nodeExecutionStates: withDerivedExecutionState(
-            graph,
-            buildNodeStateMapForGraph(graph, nodeExecutionStates)
-          ),
+          nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
           nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
         });
       }
@@ -1273,34 +1129,69 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const { graph } = get();
       if (!graph) return;
 
-      mergeNodeExecutionState(nodeId, {
-        isComputing: true,
-        hasError: false,
-        errorMessage: null,
-      });
+      set((state) => ({
+        nodeExecutionStates: {
+          ...state.nodeExecutionStates,
+          [nodeId]: {
+            ...(state.nodeExecutionStates[nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
+            isPending: true,
+            isComputing: false,
+            hasError: false,
+            isStale: false,
+            errorMessage: null,
+          },
+        },
+        error: null,
+      }));
 
       try {
         const response = await axios.post(`/api/graphs/${graph.id}/compute`, { nodeId });
         const result = response.data as ComputationResult;
-        const nextState = getNodeExecutionStateFromResult(result);
+        const activeGraph = get().graph;
+        if (!activeGraph || activeGraph.id !== graph.id) {
+          return;
+        }
 
-        mergeNodeExecutionState(nodeId, nextState);
-        set((state) => ({
-          nodeGraphicsOutputs: {
-            ...state.nodeGraphicsOutputs,
-            [nodeId]: normalizeGraphicsOutput(result?.graphics),
-          },
-        }));
-        set({ resultRefreshKey: Date.now() });
+        set((state) => {
+          const nextNodeStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
+          if (result?.nodeId) {
+            const currentState = nextNodeStates[result.nodeId] ?? { ...DEFAULT_NODE_EXECUTION_STATE };
+            nextNodeStates[result.nodeId] = {
+              ...currentState,
+              ...getNodeExecutionStateFromResult(result),
+              isPending: false,
+              isComputing: false,
+            };
+          }
+
+          return {
+            nodeExecutionStates: nextNodeStates,
+            nodeGraphicsOutputs: {
+              ...state.nodeGraphicsOutputs,
+              [nodeId]: normalizeGraphicsOutput(result?.graphics),
+            },
+            resultRefreshKey: Date.now(),
+          };
+        });
+
+        startRecomputeStatusPolling(graph.id);
       } catch (error: any) {
         const message = resolveErrorMessage(error, 'Failed to compute node');
-        mergeNodeExecutionState(nodeId, {
-          isComputing: false,
-          hasError: true,
-          errorMessage: message,
-          lastRunAt: Date.now(),
-        });
-        set({ error: message });
+        set((state) => ({
+          nodeExecutionStates: {
+            ...state.nodeExecutionStates,
+            [nodeId]: {
+              ...(state.nodeExecutionStates[nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
+              isPending: false,
+              isComputing: false,
+              hasError: true,
+              isStale: false,
+              errorMessage: message,
+              lastRunAt: Date.now(),
+            },
+          },
+          error: message,
+        }));
       }
     },
 
@@ -1309,65 +1200,87 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       if (!graph) return;
 
       set((state) => {
-        const nextStates = { ...state.nodeExecutionStates };
+        const nextStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
         for (const node of graph.nodes) {
           nextStates[node.id] = {
             ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
-            isComputing: true,
+            isPending: true,
+            isComputing: false,
             hasError: false,
+            isStale: false,
             errorMessage: null,
           };
         }
         return {
           isLoading: true,
           error: null,
-          nodeExecutionStates: withDerivedExecutionState(graph, nextStates),
+          nodeExecutionStates: nextStates,
         };
       });
 
       try {
         const response = await axios.post(`/api/graphs/${graph.id}/compute`, {});
         const results = Array.isArray(response.data) ? response.data : [];
+        const activeGraph = get().graph;
+        if (!activeGraph || activeGraph.id !== graph.id) {
+          return;
+        }
 
         set((state) => {
-          const nextStates = { ...state.nodeExecutionStates };
+          const nextStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
           const nextGraphicsOutputs = buildNodeGraphicsOutputMapForGraph(
-            graph,
+            activeGraph,
             state.nodeGraphicsOutputs
           );
-          for (const node of graph.nodes) {
+          for (const node of activeGraph.nodes) {
             nextStates[node.id] = {
               ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
+              isPending: false,
               isComputing: false,
             };
           }
           for (const result of results) {
             if (result?.nodeId) {
-              nextStates[result.nodeId] = getNodeExecutionStateFromResult(result);
+              nextStates[result.nodeId] = {
+                ...(nextStates[result.nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
+                ...getNodeExecutionStateFromResult(result),
+                isPending: false,
+                isComputing: false,
+              };
               nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphics);
             }
           }
 
           return {
-            nodeExecutionStates: withDerivedExecutionState(graph, nextStates),
+            nodeExecutionStates: nextStates,
             nodeGraphicsOutputs: nextGraphicsOutputs,
             isLoading: false,
             error: null,
             resultRefreshKey: Date.now(),
           };
         });
+        startRecomputeStatusPolling(graph.id);
       } catch (error: any) {
         const message = resolveErrorMessage(error, 'Failed to compute graph');
         set((state) => {
-          const nextStates = { ...state.nodeExecutionStates };
-          for (const node of graph.nodes) {
+          const activeGraph = state.graph;
+          if (!activeGraph || activeGraph.id !== graph.id) {
+            return {
+              error: message,
+              isLoading: false,
+            };
+          }
+
+          const nextStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
+          for (const node of activeGraph.nodes) {
             nextStates[node.id] = {
               ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
+              isPending: false,
               isComputing: false,
             };
           }
           return {
-            nodeExecutionStates: withDerivedExecutionState(graph, nextStates),
+            nodeExecutionStates: nextStates,
             error: message,
             isLoading: false,
           };

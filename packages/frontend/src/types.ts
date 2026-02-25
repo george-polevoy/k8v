@@ -111,6 +111,7 @@ export interface Graph {
   name: string;
   nodes: GraphNode[];
   connections: Connection[];
+  recomputeConcurrency?: number;
   canvasBackground?: CanvasBackgroundSettings;
   projections?: GraphProjection[];
   activeProjectionId?: string;

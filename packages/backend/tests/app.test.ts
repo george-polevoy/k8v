@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { AddressInfo } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../src/app.ts';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
@@ -429,6 +430,193 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
     const afterConnection = await computeTargetAfterConnectionResponse.json();
     assert.equal(afterConnection.outputs.output, 6);
     assert.ok(!String(afterConnection.textOutput ?? '').includes('Error: A'));
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('graph recompute status reports graph-level worker concurrency', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+      recomputeConcurrency: 3,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.equal(createdGraph.recomputeConcurrency, 3);
+
+    const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    assert.equal(statusResponse.status, 200);
+    const status = await statusResponse.json();
+    assert.equal(status.workerConcurrency, 3);
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        recomputeConcurrency: 2,
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.recomputeConcurrency, 2);
+
+    const updatedStatusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    assert.equal(updatedStatusResponse.status, 200);
+    const updatedStatus = await updatedStatusResponse.json();
+    assert.equal(updatedStatus.workerConcurrency, 2);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs enqueues backend recompute for all impacted descendants', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const rootNode = {
+      id: 'node-a',
+      type: 'inline_code',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'A',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'python_process',
+        code: 'import time\\ntime.sleep(0.25)\\noutputs.output = 2',
+        config: { autoRecompute: true },
+      },
+      version: 'a-v1',
+    };
+    const middleNode = {
+      id: 'node-b',
+      type: 'inline_code',
+      position: { x: 200, y: 0 },
+      metadata: {
+        name: 'B',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: { autoRecompute: true },
+      },
+      version: 'b-v1',
+    };
+    const leafNode = {
+      id: 'node-c',
+      type: 'inline_code',
+      position: { x: 400, y: 0 },
+      metadata: {
+        name: 'C',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: { autoRecompute: true },
+      },
+      version: 'c-v1',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [rootNode, middleNode, leafNode],
+      connections: [
+        {
+          id: 'ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'bc',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-c',
+          targetPort: 'input',
+        },
+      ],
+      recomputeConcurrency: 1,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodes: createdGraph.nodes.map((node: any) =>
+          node.id === 'node-a'
+            ? {
+                ...node,
+                version: 'a-v2',
+                config: {
+                  ...node.config,
+                  code: 'import time\\ntime.sleep(0.25)\\noutputs.output = 7',
+                },
+              }
+            : node
+        ),
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+
+    let sawRootActive = false;
+    let sawMiddlePending = false;
+    let sawLeafPending = false;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+      const nodeStates = status.nodeStates ?? {};
+
+      const rootState = nodeStates['node-a'];
+      const middleState = nodeStates['node-b'];
+      const leafState = nodeStates['node-c'];
+
+      if (rootState?.isPending || rootState?.isComputing) {
+        sawRootActive = true;
+      }
+      if (middleState?.isPending) {
+        sawMiddlePending = true;
+      }
+      if (leafState?.isPending) {
+        sawLeafPending = true;
+      }
+
+      const queueDrained = status.queueLength === 0;
+      const noNodeActive = !Object.values(nodeStates).some((state: any) => state?.isPending || state?.isComputing);
+      if (queueDrained && noNodeActive) {
+        break;
+      }
+
+      await delay(30);
+    }
+
+    assert.equal(sawRootActive, true);
+    assert.equal(sawMiddlePending, true);
+    assert.equal(sawLeafPending, true);
+
+    const settledStatusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    assert.equal(settledStatusResponse.status, 200);
+    const settledStatus = await settledStatusResponse.json();
+    const settledNodeStates = settledStatus.nodeStates ?? {};
+    assert.equal(Boolean(settledNodeStates['node-b']?.isPending), false);
+    assert.equal(Boolean(settledNodeStates['node-b']?.isComputing), false);
+    assert.equal(Boolean(settledNodeStates['node-c']?.isPending), false);
+    assert.equal(Boolean(settledNodeStates['node-c']?.isComputing), false);
   } finally {
     await ctx.close();
   }
