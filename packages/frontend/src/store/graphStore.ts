@@ -21,6 +21,7 @@ import {
 } from '../utils/projections';
 
 const DEFAULT_DRAWING_COLOR = '#ffffff';
+const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 
 export type PencilColor = string;
 export type PencilThickness = 1 | 3 | 9;
@@ -163,6 +164,12 @@ function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
   };
 }
 
+function normalizeGraphExecutionTimeoutMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
+}
+
 function normalizeGraph(graph: Graph): Graph {
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   const projectionState = normalizeGraphProjectionState(
@@ -184,6 +191,7 @@ function normalizeGraph(graph: Graph): Graph {
     ),
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
+    executionTimeoutMs: normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
     drawings: drawings.map((drawing) => ({
       ...drawing,
@@ -418,10 +426,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           completedNodeIds.push(node.id);
         }
       }
+      const shouldRefreshSelectedNode = Boolean(
+        state.selectedNodeId && completedNodeIds.includes(state.selectedNodeId)
+      );
 
       return {
         nodeExecutionStates: nextNodeStates,
-        resultRefreshKey: completedNodeIds.length > 0 ? Date.now() : state.resultRefreshKey,
+        resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
       };
     });
 
@@ -1200,7 +1211,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               ...state.nodeGraphicsOutputs,
               [nodeId]: normalizeGraphicsOutput(result?.graphics),
             },
-            resultRefreshKey: Date.now(),
+            resultRefreshKey: state.selectedNodeId === nodeId ? Date.now() : state.resultRefreshKey,
           };
         });
 
@@ -1280,13 +1291,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphics);
             }
           }
+          const shouldRefreshSelectedNode = Boolean(
+            state.selectedNodeId && results.some((result) => result?.nodeId === state.selectedNodeId)
+          );
 
           return {
             nodeExecutionStates: nextStates,
             nodeGraphicsOutputs: nextGraphicsOutputs,
             isLoading: false,
             error: null,
-            resultRefreshKey: Date.now(),
+            resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
           };
         });
         startRecomputeStatusPolling(graph.id);

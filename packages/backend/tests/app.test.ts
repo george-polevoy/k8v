@@ -244,6 +244,88 @@ test('POST /api/graphs accepts numeric_input nodes and compute returns numeric v
   }
 });
 
+test('POST /api/graphs/:id/compute performs manual recompute even when node version is unchanged', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const firstComputeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1' }),
+    });
+    assert.equal(firstComputeResponse.status, 200);
+    const firstResult = await firstComputeResponse.json();
+    assert.equal(firstResult.outputs.output, 1);
+
+    await delay(5);
+
+    const secondComputeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1' }),
+    });
+    assert.equal(secondComputeResponse.status, 200);
+    const secondResult = await secondComputeResponse.json();
+    assert.equal(secondResult.outputs.output, 1);
+
+    assert.equal(typeof firstResult.timestamp, 'number');
+    assert.equal(typeof secondResult.timestamp, 'number');
+    assert.ok(
+      secondResult.timestamp > firstResult.timestamp,
+      `expected second manual recompute timestamp (${secondResult.timestamp}) to be newer than first (${firstResult.timestamp})`
+    );
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs applies default graph execution timeout', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.equal(graph.executionTimeoutMs, 30_000);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs persists graph execution timeout and allows large values', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.equal(createdGraph.executionTimeoutMs, 30_000);
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        executionTimeoutMs: 100_000_000,
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.executionTimeoutMs, 100_000_000);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs applies default canvas background settings', async () => {
   const ctx = await setupTestServer();
 

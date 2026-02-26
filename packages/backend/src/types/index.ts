@@ -117,6 +117,7 @@ export const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
 
 export const DEFAULT_GRAPH_PROJECTION_ID = 'default';
 export const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
+export const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 
 export const GraphProjection = z.object({
   id: z.string().trim().min(1),
@@ -185,6 +186,7 @@ export const Graph = z.object({
   nodes: z.array(GraphNode),
   connections: z.array(Connection),
   recomputeConcurrency: z.number().int().min(1).max(32).optional(),
+  executionTimeoutMs: z.number().finite().positive().optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),

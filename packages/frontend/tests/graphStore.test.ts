@@ -76,6 +76,38 @@ test('initializeGraph recovers from stale saved graph id by loading latest graph
   }
 });
 
+test('loadGraph normalizes missing graph execution timeout to 30 seconds', async () => {
+  const localStorage = new MemoryLocalStorage();
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const graphWithoutTimeout = makeGraph('g-timeout-default');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-timeout-default') {
+      return { data: graphWithoutTimeout };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: null,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    await useGraphStore.getState().loadGraph('g-timeout-default');
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, 'g-timeout-default');
+    assert.equal(state.graph?.executionTimeoutMs, 30_000);
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
 test('deleteGraph replaces current graph with latest remaining graph', async () => {
   const localStorage = new MemoryLocalStorage();
   localStorage.setItem('k8v-current-graph-id', 'g-delete-current');
@@ -753,6 +785,70 @@ test('computeNode sends a backend recompute request for only the selected node',
     assert.equal(state.nodeExecutionStates['node-a']?.hasError, false);
     assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-a']?.isComputing, false);
+    assert.equal(state.resultRefreshKey, 0);
+  } finally {
+    (axios as any).post = originalPost;
+  }
+});
+
+test('computeNode refresh key updates only when the computed node is selected', async () => {
+  const originalPost = axios.post;
+  const baselineRefreshKey = 111;
+  const graph: Graph = {
+    id: 'g-selected-node-refresh',
+    name: 'Selected Node Refresh Graph',
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'a-v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).post = async (_url: string, body: any) => {
+    if (body?.nodeId !== 'node-a') {
+      throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+    }
+    return {
+      data: {
+        nodeId: 'node-a',
+        outputs: { output: 1 },
+        schema: { output: { type: 'number' } },
+        timestamp: Date.now(),
+        version: 'v-node-a',
+      },
+    };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: 'node-a',
+    isLoading: false,
+    error: null,
+    resultRefreshKey: baselineRefreshKey,
+    nodeExecutionStates: {},
+  });
+
+  try {
+    await useGraphStore.getState().computeNode('node-a');
+    const state = useGraphStore.getState();
+    assert.notEqual(state.resultRefreshKey, baselineRefreshKey);
   } finally {
     (axios as any).post = originalPost;
   }
@@ -872,6 +968,105 @@ test('computeGraph sends a single backend recompute request', async () => {
     assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-b']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-c']?.isPending, false);
+    assert.equal(state.resultRefreshKey, 0);
+  } finally {
+    (axios as any).post = originalPost;
+  }
+});
+
+test('computeGraph refresh key updates only when selected node is in returned results', async () => {
+  const originalPost = axios.post;
+  const baselineRefreshKey = 222;
+
+  const graph: Graph = {
+    id: 'g-selected-graph-refresh',
+    name: 'Selected Graph Refresh Graph',
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'a-v1',
+      },
+      {
+        id: 'node-b',
+        type: 'inline_code' as any,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'B',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'b-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'ab',
+        sourceNodeId: 'node-a',
+        sourcePort: 'output',
+        targetNodeId: 'node-b',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).post = async (_url: string, body: any) => {
+    if (Object.keys(body ?? {}).length > 0) {
+      throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
+    }
+    return {
+      data: [
+        {
+          nodeId: 'node-a',
+          outputs: { output: 1 },
+          schema: { output: { type: 'number' } },
+          timestamp: Date.now(),
+          version: 'v-node-a',
+        },
+        {
+          nodeId: 'node-b',
+          outputs: { output: 1 },
+          schema: { output: { type: 'number' } },
+          timestamp: Date.now(),
+          version: 'v-node-b',
+        },
+      ],
+    };
+  };
+
+  useGraphStore.setState({
+    graph,
+    selectedNodeId: 'node-b',
+    isLoading: false,
+    error: null,
+    resultRefreshKey: baselineRefreshKey,
+    nodeExecutionStates: {},
+  });
+
+  try {
+    await useGraphStore.getState().computeGraph();
+    const state = useGraphStore.getState();
+    assert.notEqual(state.resultRefreshKey, baselineRefreshKey);
   } finally {
     (axios as any).post = originalPost;
   }

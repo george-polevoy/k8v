@@ -131,6 +131,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - NodeExecutor supports inline code, library, subgraph, external input, numeric input, external output node types.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
+- Graph-level script execution timeout (`executionTimeoutMs`) defaults to 30 seconds and is editable in graph settings.
 - Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.
 - Python runtime supports `inputs`, `outputs`, `print`/`log`, `outputGraphics`/`outputImage`, timeout, and error capture.
 - Python runtime normalizes PNG outputs from bytes/base64 and provides `outputPng`/`outputPNG` helpers for image rendering.

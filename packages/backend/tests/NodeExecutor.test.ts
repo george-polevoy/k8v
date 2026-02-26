@@ -105,6 +105,7 @@ test('NodeExecutor uses default runtime when node runtime is not set', async () 
     assert.equal(result.outputs.output, 11);
     assert.equal(defaultRuntime.calls, 1);
     assert.equal(alternativeRuntime.calls, 0);
+    assert.equal(defaultRuntime.lastRequest?.timeoutMs, 30_000);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -126,6 +127,40 @@ test('NodeExecutor uses configured runtime from node config', async () => {
     assert.equal(result.outputs.output, 22);
     assert.equal(defaultRuntime.calls, 0);
     assert.equal(alternativeRuntime.calls, 1);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor uses graph-level execution timeout for inline code', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const runtime = new StubRuntime({ outputs: { output: 11 } });
+  const executor = new NodeExecutor(dataStore, {
+    javascript_vm: runtime,
+  });
+  const node = createInlineNode();
+  node.config.config = {
+    timeoutMs: 1,
+  };
+  const now = Date.now();
+  const graph: Graph = {
+    id: 'graph-timeout',
+    name: 'Graph timeout',
+    nodes: [node],
+    connections: [],
+    executionTimeoutMs: 45_000,
+    pythonEnvs: [],
+    drawings: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await executor.execute(node, { input: 5 }, graph);
+    assert.equal(runtime.calls, 1);
+    assert.equal(runtime.lastRequest?.timeoutMs, 45_000);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

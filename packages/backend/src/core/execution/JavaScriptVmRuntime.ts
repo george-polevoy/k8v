@@ -48,7 +48,7 @@ export class JavaScriptVmRuntime implements ExecutionRuntime {
         },
       });
       const script = new vm.Script(request.code, { filename: 'inline-node.js' });
-      script.runInContext(context, { timeout: request.timeoutMs ?? 5000 });
+      script.runInContext(context, { timeout: request.timeoutMs ?? 30_000 });
 
       return {
         outputs,

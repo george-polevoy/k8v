@@ -222,7 +222,7 @@ interface NodeConfig {
   artifactId?: string;         // Reference to pre-compiled artifact
   
   // Resource limits
-  timeout?: number;            // Default: 5000 (5 seconds)
+  timeout?: number;            // Optional per-request override (default from graph timeout: 30000 / 30 seconds)
   memoryLimit?: number;        // Default: 128 * 1024 * 1024 (128MB)
 }
 ```
@@ -241,6 +241,7 @@ Current implementation status:
 - `ExecutionRuntime` interface is wired into `NodeExecutor`
 - `JavaScriptVmRuntime` (`node:vm`) provides interim execution with timeout support
 - `PythonProcessRuntime` (`python_process`) provides interim Python execution via spawned process with timeout support
+- Runtime timeout is graph-scoped via `graph.executionTimeoutMs` (default: `30000`)
 - Runtime can be selected per node via `node.config.runtime` (defaults to `javascript_vm`)
 - Python execution can resolve per-node graph env bindings via `graph.pythonEnvs[]` + `node.config.pythonEnv` (`pythonPath` and `cwd`)
 - Backend rejects unregistered runtime identifiers during execution
@@ -275,7 +276,7 @@ Current implementation status:
 3. **Containers** - Network isolated, read-only filesystem, resource limits
 
 All runtimes must enforce:
-- Execution timeout (default: 5 seconds)
+- Execution timeout (default: 30 seconds)
 - Memory limit (default: 128MB)
 - No network access by default
 - No filesystem access by default

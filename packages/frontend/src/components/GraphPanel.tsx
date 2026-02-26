@@ -15,6 +15,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const MIN_RECOMPUTE_CONCURRENCY = 1;
 const MAX_RECOMPUTE_CONCURRENCY = 32;
+const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
+const DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS = DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS / 1000;
 
 function formatGraphOptionLabel(name: string, id: string): string {
   return `${name} (${id.slice(0, 8)})`;
@@ -70,6 +72,32 @@ function normalizeRecomputeConcurrency(
   );
 }
 
+function normalizeGraphExecutionTimeoutMs(
+  value: unknown,
+  fallback = DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS
+): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function normalizeExecutionTimeoutSeconds(
+  value: unknown,
+  fallback = DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS
+): number {
+  const parsedValue = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== ''
+      ? Number.parseFloat(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
 interface GraphPanelProps {
   embedded?: boolean;
 }
@@ -93,6 +121,9 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [recomputeConcurrencyValue, setRecomputeConcurrencyValue] = useState(
     String(MIN_RECOMPUTE_CONCURRENCY)
+  );
+  const [executionTimeoutSecondsValue, setExecutionTimeoutSecondsValue] = useState(
+    String(DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS)
   );
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
   const [isDeleteGraphConfirming, setIsDeleteGraphConfirming] = useState(false);
@@ -125,11 +156,17 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           )
         )
       );
+      setExecutionTimeoutSecondsValue(
+        String(
+          normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs) / 1000
+        )
+      );
     } else {
       setGraphNameValue('');
       setCanvasBackgroundDraft(normalizeCanvasBackground(undefined));
       setPythonEnvDrafts([]);
       setRecomputeConcurrencyValue(String(MIN_RECOMPUTE_CONCURRENCY));
+      setExecutionTimeoutSecondsValue(String(DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS));
     }
     setPythonEnvValidationError(null);
   }, [graph]);
@@ -225,6 +262,29 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       setIsGraphActionInFlight(false);
     }
   }, [graph, recomputeConcurrencyValue, refreshGraphSummaries, updateGraph]);
+
+  const commitExecutionTimeout = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const currentTimeoutMs = normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs);
+    const currentSeconds = currentTimeoutMs / 1000;
+    const nextSeconds = normalizeExecutionTimeoutSeconds(executionTimeoutSecondsValue, currentSeconds);
+    const nextTimeoutMs = Math.max(1, Math.round(nextSeconds * 1000));
+    setExecutionTimeoutSecondsValue(String(nextTimeoutMs / 1000));
+    if (nextTimeoutMs === currentTimeoutMs) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({ executionTimeoutMs: nextTimeoutMs });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [executionTimeoutSecondsValue, graph, refreshGraphSummaries, updateGraph]);
 
   const commitCanvasBackground = useCallback(async () => {
     if (!graph) {
@@ -639,6 +699,43 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         />
         <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
           Graph-level backend recompute worker concurrency (1-32).
+        </div>
+
+        <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+          Script timeout (seconds)
+        </label>
+        <input
+          data-testid="graph-execution-timeout-input"
+          type="number"
+          min={0.001}
+          step={0.1}
+          value={executionTimeoutSecondsValue}
+          disabled={!graph || isGraphActionInFlight}
+          onChange={(event) => setExecutionTimeoutSecondsValue(event.target.value)}
+          onBlur={() => {
+            void commitExecutionTimeout();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') {
+              const currentTimeoutMs = normalizeGraphExecutionTimeoutMs(graph?.executionTimeoutMs);
+              setExecutionTimeoutSecondsValue(String(currentTimeoutMs / 1000));
+              event.currentTarget.blur();
+            }
+          }}
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginBottom: '4px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
+          Graph-level inline runtime timeout. Default 30 seconds. No maximum.
         </div>
 
         {!isDeleteGraphConfirming ? (

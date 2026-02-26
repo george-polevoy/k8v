@@ -1,4 +1,11 @@
-import { GraphNode, Graph, NodeType, ComputationResult, DataSchema } from '../types/index.js';
+import {
+  GraphNode,
+  Graph,
+  NodeType,
+  ComputationResult,
+  DataSchema,
+  DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
+} from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
@@ -95,7 +102,7 @@ export class NodeExecutor {
     const runtimeResult = await runtime.execute({
       code: node.config.code,
       inputs,
-      timeoutMs: this.resolveTimeoutMs(node),
+      timeoutMs: this.resolveTimeoutMs(graph),
       ...pythonExecutionContext,
     });
 
@@ -250,12 +257,12 @@ export class NodeExecutor {
     return { type: 'null' };
   }
 
-  private resolveTimeoutMs(node: GraphNode): number {
-    const timeoutCandidate = node.config.config?.timeoutMs ?? node.config.config?.timeout;
+  private resolveTimeoutMs(graph?: Graph): number {
+    const timeoutCandidate = graph?.executionTimeoutMs;
     if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate > 0) {
       return timeoutCandidate;
     }
-    return 5000;
+    return DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
   }
 
   private resolveNumericInputConfig(node: GraphNode): { value: number; min: number; max: number; step: number } {

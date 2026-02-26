@@ -9,6 +9,7 @@ import {
   CanvasBackground,
   Connection,
   DEFAULT_CANVAS_BACKGROUND,
+  DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   DEFAULT_GRAPH_PROJECTION_ID,
   DEFAULT_GRAPH_PROJECTION_NAME,
   Graph,
@@ -32,6 +33,7 @@ const CreateGraphSchema = z.object({
   nodes: z.array(GraphNode).optional().default([]),
   connections: z.array(Connection).optional().default([]),
   recomputeConcurrency: z.number().int().min(1).max(32).optional(),
+  executionTimeoutMs: z.number().finite().positive().optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
@@ -44,6 +46,7 @@ const UpdateGraphSchema = z.object({
   nodes: z.array(GraphNode).optional(),
   connections: z.array(Connection).optional(),
   recomputeConcurrency: z.number().int().min(1).max(32).optional(),
+  executionTimeoutMs: z.number().finite().positive().optional(),
   canvasBackground: CanvasBackground.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
@@ -548,6 +551,7 @@ export function createApp(deps?: AppDependencies) {
         nodes: projectionState.nodes,
         connections: req.body.connections,
         recomputeConcurrency: req.body.recomputeConcurrency ?? 1,
+        executionTimeoutMs: req.body.executionTimeoutMs ?? DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
         canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
@@ -610,6 +614,10 @@ export function createApp(deps?: AppDependencies) {
         id: req.params.id,
         nodes: nextNodes,
         recomputeConcurrency: req.body.recomputeConcurrency ?? existing.recomputeConcurrency ?? 1,
+        executionTimeoutMs:
+          req.body.executionTimeoutMs ??
+          existing.executionTimeoutMs ??
+          DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
         canvasBackground: projectionState.canvasBackground,
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,

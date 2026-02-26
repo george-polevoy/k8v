@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { ExecutionRequest, ExecutionResult, ExecutionRuntime } from './types.js';
 
 const PYTHON_RUNNER_SCRIPT = `
 import json
-import traceback
 import base64
 import io
+import os
+import builtins
+import sys
 
 class AttrDict(dict):
     def __getattr__(self, key):
@@ -40,9 +43,32 @@ inputs = to_attr(payload.get("inputs", {}))
 outputs = AttrDict()
 text_output_lines = []
 graphics_outputs = []
+text_output_buffer = ""
 
-def log_fn(*args):
-    text_output_lines.append(" ".join(str(arg) for arg in args))
+def append_text_chunk(chunk):
+    global text_output_buffer
+    if chunk is None:
+        return
+    normalized = str(chunk).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    text_output_buffer += normalized
+    while "\\n" in text_output_buffer:
+        line, text_output_buffer = text_output_buffer.split("\\n", 1)
+        text_output_lines.append(line)
+
+def flush_text_buffer():
+    global text_output_buffer
+    if text_output_buffer:
+        text_output_lines.append(text_output_buffer)
+        text_output_buffer = ""
+
+def log_fn(*args, **kwargs):
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\\n")
+    target_file = kwargs.get("file")
+    if target_file not in (None, sys.stdout, sys.stderr):
+        original_builtin_print(*args, **kwargs)
+        return
+    append_text_chunk(sep.join(str(arg) for arg in args) + str(end))
 
 PNG_SIGNATURE = b"\\x89PNG\\r\\n\\x1a\\n"
 
@@ -111,21 +137,32 @@ execution_globals = {
     "outputPNG": output_png,
 }
 
+original_builtin_print = builtins.print
+
 try:
+    builtins.print = log_fn
     exec(payload.get("code", ""), execution_globals, execution_globals)
+    flush_text_buffer()
     result = {
         "outputs": to_plain(outputs),
         "textOutput": "\\n".join(text_output_lines) if text_output_lines else None,
         "graphicsOutput": graphics_outputs[-1] if graphics_outputs else None,
     }
 except Exception as error:
+    flush_text_buffer()
     result = {
         "outputs": {},
         "textOutput": f"Error: {str(error)}",
         "graphicsOutput": None,
     }
+finally:
+    builtins.print = original_builtin_print
 
-print(json.dumps(result))
+result_guid = os.environ.get("K8V_RESULT_GUID", "").strip()
+if not result_guid:
+    raise RuntimeError("Missing K8V_RESULT_GUID")
+result_marker = f"<{result_guid}>"
+print(result_marker + json.dumps(result) + result_marker)
 `;
 
 export class PythonProcessRuntime implements ExecutionRuntime {
@@ -136,16 +173,18 @@ export class PythonProcessRuntime implements ExecutionRuntime {
   }
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
-    const timeoutMs = request.timeoutMs ?? 5000;
+    const timeoutMs = request.timeoutMs ?? 30_000;
     const pythonBin = request.pythonBin ?? this.pythonBin;
     const cwd = request.cwd;
     const payload = JSON.stringify({
       code: request.code,
       inputs: request.inputs ?? {},
     });
+    const resultGuid = randomUUID();
+    const resultMarker = `<${resultGuid}>`;
 
     try {
-      const { stdout, stderr, timedOut } = await this.runPython(payload, timeoutMs, pythonBin, cwd);
+      const { stdout, stderr, timedOut } = await this.runPython(payload, timeoutMs, pythonBin, cwd, resultGuid);
 
       if (timedOut) {
         return {
@@ -154,11 +193,12 @@ export class PythonProcessRuntime implements ExecutionRuntime {
         };
       }
 
-      const trimmed = stdout.trim();
+      const jsonPayload = this.extractResultPayload(stdout, resultMarker);
+      const trimmed = jsonPayload?.trim() ?? '';
       if (!trimmed) {
         return {
           outputs: {},
-          textOutput: `Error: Python runtime produced no output${stderr ? `\n${stderr.trim()}` : ''}`,
+          textOutput: `Error: Python runtime produced no wrapped result payload${stderr ? `\n${stderr.trim()}` : ''}${stdout.trim() ? `\n${stdout.trim()}` : ''}`,
         };
       }
 
@@ -190,7 +230,8 @@ export class PythonProcessRuntime implements ExecutionRuntime {
     payload: string,
     timeoutMs: number,
     pythonBin: string,
-    cwd?: string
+    cwd: string | undefined,
+    resultGuid: string
   ): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
     return new Promise((resolve, reject) => {
       const child = spawn(
@@ -198,6 +239,10 @@ export class PythonProcessRuntime implements ExecutionRuntime {
         ['-c', PYTHON_RUNNER_SCRIPT],
         {
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            K8V_RESULT_GUID: resultGuid,
+          },
           ...(cwd ? { cwd } : {}),
         }
       );
@@ -266,5 +311,23 @@ export class PythonProcessRuntime implements ExecutionRuntime {
       child.stdin.write(payload);
       child.stdin.end();
     });
+  }
+
+  private extractResultPayload(
+    stdout: string,
+    resultMarker: string
+  ): string | undefined {
+    const startIndex = stdout.indexOf(resultMarker);
+    if (startIndex === -1) {
+      return undefined;
+    }
+
+    const payloadStart = startIndex + resultMarker.length;
+    const endIndex = stdout.indexOf(resultMarker, payloadStart);
+    if (endIndex === -1) {
+      return undefined;
+    }
+
+    return stdout.slice(payloadStart, endIndex);
   }
 }

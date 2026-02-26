@@ -112,6 +112,7 @@ export interface Graph {
   nodes: GraphNode[];
   connections: Connection[];
   recomputeConcurrency?: number;
+  executionTimeoutMs?: number;
   canvasBackground?: CanvasBackgroundSettings;
   projections?: GraphProjection[];
   activeProjectionId?: string;
