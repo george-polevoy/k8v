@@ -23,6 +23,7 @@ Last reviewed: February 26, 2026.
 - `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor, applies stronger pinch zoom response, supports deep zoom-in/out range, maps modifier pan (`Shift` horizontal, `Alt` vertical), and keeps trackpad-style small-delta pan.
 - `A-E2E-11` `packages/frontend/tests/e2e/graphRecomputeConcurrency.test.ts`: graph panel recompute worker setting persists graph-level concurrency and clamps values to the backend-supported max.
 - `A-E2E-12` `packages/frontend/tests/e2e/graphExecutionTimeout.test.ts`: graph panel script timeout setting persists graph-level execution timeout and accepts large values (no max clamp).
+- `A-E2E-13` `packages/frontend/tests/e2e/nodeDragReRenderStability.test.ts`: node drag remains visually stable while canvas rerenders during recompute-status polling, and dropped position persists.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -208,7 +209,7 @@ Last reviewed: February 26, 2026.
 | Two-finger trackpad scroll pans viewport | `A-E2E-10`, `A-FE-26`, `M-CANVAS-25` | Automated + Manual |
 | Modifier wheel directional scroll (`Shift` horizontal, `Alt` vertical) | `A-E2E-10`, `A-FE-26`, `M-CANVAS-02` | Automated + Manual |
 | Drag-to-pan on empty canvas | `M-CANVAS-03` | Manual |
-| Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `M-CANVAS-04` | Automated + Manual |
+| Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `A-E2E-13`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card dimensions are stored per active projection | `A-FE-23`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card size normalization preserves oversized values (no fixed max cap) | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
@@ -281,6 +282,6 @@ Last reviewed: February 26, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, and graph execution timeout persistence (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, and node-drag stability during polling rerenders (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

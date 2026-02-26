@@ -502,6 +502,20 @@ function resolveNodeCardDimensions(
   return { width, height, minWidth, minHeight };
 }
 
+function resolveNodeRenderTargetPosition(
+  node: GraphNode,
+  dragState: NodeDragState | null
+): Position {
+  if (!dragState || dragState.nodeId !== node.id) {
+    return { ...node.position };
+  }
+
+  return {
+    x: dragState.currentX,
+    y: dragState.currentY,
+  };
+}
+
 function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
   const width = texture.orig.width || texture.width || 0;
   const height = texture.orig.height || texture.height || 0;
@@ -2137,15 +2151,22 @@ function Canvas() {
     const activeNodeGraphicsTextureIds = new Set<string>();
     let selectedNodeGraphicsDebugNext: NodeGraphicsComputationDebug | null = null;
     const selectedNodeIdValue = selectedNodeIdRef.current;
+    const activeNodeDragState = nodeDragStateRef.current;
 
     for (const node of currentGraph.nodes) {
       const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
-      const targetPosition = { ...node.position };
+      const dragStateForNode =
+        activeNodeDragState && activeNodeDragState.nodeId === node.id
+          ? activeNodeDragState
+          : null;
+      const targetPosition = resolveNodeRenderTargetPosition(node, dragStateForNode);
       const targetWidth = dimensions.width;
       const targetHeight = dimensions.height;
       const fromTransitionState = activeProjectionTransition?.fromNodes.get(node.id);
       const toTransitionState = activeProjectionTransition?.toNodes.get(node.id);
-      const startTransitionState = fromTransitionState ?? toTransitionState;
+      const startTransitionState = dragStateForNode
+        ? null
+        : fromTransitionState ?? toTransitionState;
       const endTransitionState = toTransitionState ?? {
         position: targetPosition,
         width: targetWidth,
