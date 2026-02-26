@@ -34,6 +34,29 @@ export interface NodeExecutionState {
   lastRunAt: number | null;
 }
 
+export interface NodeGraphicsComputationDebug {
+  nodeId: string;
+  nodeType: string;
+  hasGraphicsOutput: boolean;
+  isRenderableGraphics: boolean;
+  graphicsId: string | null;
+  mimeType: string | null;
+  levelCount: number;
+  levelPixels: number[];
+  viewportScale: number;
+  projectionWidth: number | null;
+  projectedWidthOnScreen: number | null;
+  devicePixelRatio: number;
+  estimatedMaxPixels: number | null;
+  stableMaxPixels: number | null;
+  selectedLevel: number | null;
+  selectedLevelPixels: number | null;
+  shouldLoadProjectedGraphicsByViewport: boolean;
+  canReloadProjectedGraphics: boolean;
+  shouldLoadProjectedGraphics: boolean;
+  requestUrl: string | null;
+}
+
 export type NodeGraphicsOutputMap = Record<string, GraphicsArtifact | null>;
 
 export interface GraphSummary {
@@ -52,6 +75,7 @@ interface GraphStore {
   resultRefreshKey: number;
   nodeExecutionStates: Record<string, NodeExecutionState>;
   nodeGraphicsOutputs: NodeGraphicsOutputMap;
+  selectedNodeGraphicsDebug: NodeGraphicsComputationDebug | null;
   drawingEnabled: boolean;
   drawingColor: PencilColor;
   drawingThickness: PencilThickness;
@@ -74,6 +98,7 @@ interface GraphStore {
   deleteConnections: (connectionIds: string[]) => void;
   selectNode: (nodeId: string | null) => void;
   selectDrawing: (drawingId: string | null) => void;
+  setSelectedNodeGraphicsDebug: (debug: NodeGraphicsComputationDebug | null) => void;
   addDrawing: (drawing: GraphDrawing) => void;
   updateDrawing: (drawingId: string, updates: Partial<GraphDrawing>) => void;
   updateDrawingPosition: (drawingId: string, position: Position) => void;
@@ -477,6 +502,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     resultRefreshKey: 0,
     nodeExecutionStates: {},
     nodeGraphicsOutputs: {},
+    selectedNodeGraphicsDebug: null,
     drawingEnabled: false,
     drawingColor: DEFAULT_DRAWING_COLOR,
     drawingThickness: 3,
@@ -1013,12 +1039,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     selectNode: (nodeId: string | null) => {
       if (get().selectedNodeId === nodeId && get().selectedDrawingId === null) return;
-      set({ selectedNodeId: nodeId, selectedDrawingId: null });
+      set({ selectedNodeId: nodeId, selectedDrawingId: null, selectedNodeGraphicsDebug: null });
     },
 
     selectDrawing: (drawingId: string | null) => {
       if (get().selectedDrawingId === drawingId && get().selectedNodeId === null) return;
-      set({ selectedDrawingId: drawingId, selectedNodeId: null });
+      set({ selectedDrawingId: drawingId, selectedNodeId: null, selectedNodeGraphicsDebug: null });
+    },
+
+    setSelectedNodeGraphicsDebug: (debug: NodeGraphicsComputationDebug | null) => {
+      set({ selectedNodeGraphicsDebug: debug });
     },
 
     addDrawing: (drawing: GraphDrawing) => {

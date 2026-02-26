@@ -65,7 +65,7 @@ test('normalizeGraphProjectionState ensures default projection and valid active 
   });
 });
 
-test('normalizeGraphProjectionState clamps oversized fallback node card dimensions', () => {
+test('normalizeGraphProjectionState preserves oversized fallback node card dimensions', () => {
   const node = makeNode('node-a', 1, 2);
   node.config.config = {
     cardWidth: 20_000,
@@ -73,8 +73,8 @@ test('normalizeGraphProjectionState clamps oversized fallback node card dimensio
   };
 
   const projectionState = normalizeGraphProjectionState([node], [], 'default');
-  assert.equal(projectionState.projections[0].nodeCardSizes['node-a'].width, 3840);
-  assert.equal(projectionState.projections[0].nodeCardSizes['node-a'].height, 2160);
+  assert.equal(projectionState.projections[0].nodeCardSizes['node-a'].width, 20_000);
+  assert.equal(projectionState.projections[0].nodeCardSizes['node-a'].height, 20_000);
 });
 
 test('applyProjectionToNodes updates node positions using projection coordinates', () => {

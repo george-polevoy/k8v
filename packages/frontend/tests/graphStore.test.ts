@@ -881,17 +881,64 @@ test('selectDrawing clears selected node and tracks drawing selection', () => {
   useGraphStore.setState({
     selectedNodeId: 'node-1',
     selectedDrawingId: null,
+    selectedNodeGraphicsDebug: {
+      nodeId: 'node-1',
+      nodeType: 'python_process',
+      hasGraphicsOutput: true,
+      isRenderableGraphics: true,
+      graphicsId: 'gfx-1',
+      mimeType: 'image/png',
+      levelCount: 1,
+      levelPixels: [4096],
+      viewportScale: 1,
+      projectionWidth: 220,
+      projectedWidthOnScreen: 220,
+      devicePixelRatio: 1,
+      estimatedMaxPixels: 4096,
+      stableMaxPixels: 4096,
+      selectedLevel: 0,
+      selectedLevelPixels: 4096,
+      shouldLoadProjectedGraphicsByViewport: true,
+      canReloadProjectedGraphics: true,
+      shouldLoadProjectedGraphics: true,
+      requestUrl: '/api/graphics/gfx-1/image?maxPixels=4096',
+    },
   } as any);
 
   useGraphStore.getState().selectDrawing('drawing-1');
   let state = useGraphStore.getState();
   assert.equal(state.selectedNodeId, null);
   assert.equal(state.selectedDrawingId, 'drawing-1');
+  assert.equal(state.selectedNodeGraphicsDebug, null);
+
+  useGraphStore.getState().setSelectedNodeGraphicsDebug({
+    nodeId: 'node-2',
+    nodeType: 'python_process',
+    hasGraphicsOutput: true,
+    isRenderableGraphics: true,
+    graphicsId: 'gfx-2',
+    mimeType: 'image/png',
+    levelCount: 1,
+    levelPixels: [1024],
+    viewportScale: 1,
+    projectionWidth: 220,
+    projectedWidthOnScreen: 220,
+    devicePixelRatio: 1,
+    estimatedMaxPixels: 1024,
+    stableMaxPixels: 1024,
+    selectedLevel: 0,
+    selectedLevelPixels: 1024,
+    shouldLoadProjectedGraphicsByViewport: true,
+    canReloadProjectedGraphics: true,
+    shouldLoadProjectedGraphics: true,
+    requestUrl: '/api/graphics/gfx-2/image?maxPixels=1024',
+  });
 
   useGraphStore.getState().selectNode('node-2');
   state = useGraphStore.getState();
   assert.equal(state.selectedNodeId, 'node-2');
   assert.equal(state.selectedDrawingId, null);
+  assert.equal(state.selectedNodeGraphicsDebug, null);
 });
 
 test('addDrawing persists drawing objects in graph payload', async () => {

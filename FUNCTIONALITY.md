@@ -28,7 +28,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Pixi.js canvas renderer for nodes and connectors.
 - Canvas background supports per-projection `solid` color fill or base-color-driven `gradient` rendering.
 - Pixi canvas redraw loop is demand-driven: ticker wakes on interaction/state changes and auto-pauses when there are no active interactions or effects.
-- Mouse wheel zoom.
+- Mouse wheel zoom (up to 4x zoom-in and deep zoom-out).
 - Pinch zoom (trackpad gesture) keeps pointer-focused zoom with higher sensitivity than mouse wheel.
 - Two-finger trackpad scroll pans viewport.
 - Shift + wheel scrolls horizontally; Alt + wheel scrolls vertically.
@@ -49,7 +49,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
-- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node, with width capped at `3840` and height capped at `2160`.
+- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node with minimum-size guards and no fixed maximum cap.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
@@ -82,6 +82,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Toggle auto-recompute per node.
 - Run selected node manually.
 - Edit selected drawing name and delete selected drawing from node panel.
+- Node panel shows selected-node graphics budget debug values (`maxPixels` inputs/selection) for projected graphics troubleshooting.
 
 ## Node Status and Indicators
 

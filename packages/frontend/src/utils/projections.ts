@@ -17,15 +17,9 @@ const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
 const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 3840;
-const NODE_MAX_HEIGHT = 2160;
 
 function clonePosition(position: Position): Position {
   return { x: position.x, y: position.y };
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function getNodeMinHeight(node: GraphNode): number {
@@ -48,8 +42,8 @@ function resolveNodeCardSizeFromNode(node: GraphNode): ProjectionNodeCardSize {
     : minHeight;
 
   return {
-    width: clamp(Math.round(rawWidth), NODE_MIN_WIDTH, NODE_MAX_WIDTH),
-    height: clamp(Math.round(rawHeight), minHeight, NODE_MAX_HEIGHT),
+    width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
+    height: Math.max(minHeight, Math.round(rawHeight)),
   };
 }
 

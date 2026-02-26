@@ -94,18 +94,12 @@ function buildProjectionNodePositionMap(nodes: GraphNode[]): Record<string, { x:
 
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 3840;
-const NODE_MAX_HEIGHT = 2160;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
 const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
 
 function normalizeCanvasBackgroundValue(background: CanvasBackground | undefined): CanvasBackground {
   const mode = background?.mode === 'solid' || background?.mode === 'gradient'
@@ -143,8 +137,8 @@ function buildProjectionNodeCardSizeMap(
       ? nodeConfig.cardHeight
       : minHeight;
     map[node.id] = {
-      width: clamp(Math.round(rawWidth), NODE_MIN_WIDTH, NODE_MAX_WIDTH),
-      height: clamp(Math.round(rawHeight), minHeight, NODE_MAX_HEIGHT),
+      width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
+      height: Math.max(minHeight, Math.round(rawHeight)),
     };
   }
   return map;

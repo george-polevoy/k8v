@@ -81,6 +81,27 @@ function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericI
   return { value, min, max, step };
 }
 
+function formatDebugMetricValue(value: number | null, maxFractionDigits = 2): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-';
+  }
+
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return value.toFixed(maxFractionDigits);
+}
+
+function formatDebugPixelList(values: number[]): string {
+  if (!Array.isArray(values) || values.length === 0) {
+    return '-';
+  }
+
+  const preview = values.slice(0, 8).join(', ');
+  return values.length > 8 ? `${preview}, ...` : preview;
+}
+
 interface NodePanelProps {
   embedded?: boolean;
   showGraphSection?: boolean;
@@ -104,6 +125,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const nodeExecutionState = useGraphStore((state) =>
     selectedNodeId ? state.nodeExecutionStates[selectedNodeId] : null
   );
+  const selectedNodeGraphicsDebug = useGraphStore((state) => state.selectedNodeGraphicsDebug);
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) || null;
   const selectedDrawing = graph?.drawings?.find((drawing) => drawing.id === selectedDrawingId) || null;
@@ -123,6 +145,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
   const [isDeleteGraphConfirming, setIsDeleteGraphConfirming] = useState(false);
+  const [isGraphicsDebugExpanded, setIsGraphicsDebugExpanded] = useState(false);
 
   useEffect(() => {
     if (!showGraphSection) {
@@ -192,6 +215,10 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     }
     setIsDeleteGraphConfirming(false);
   }, [graph?.id, showGraphSection]);
+
+  useEffect(() => {
+    setIsGraphicsDebugExpanded(false);
+  }, [selectedNodeId]);
 
   const commitInlineCode = useCallback(() => {
     if (!selectedNode || selectedNode.config.type !== NodeType.INLINE_CODE) {
@@ -1135,6 +1162,73 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
             >
               Run Selected Node
             </button>
+            {selectedNodeGraphicsDebug && selectedNodeGraphicsDebug.nodeId === selectedNode.id && (
+              <div
+                data-testid="node-graphics-debug"
+                style={{
+                  marginTop: '10px',
+                  padding: '8px',
+                  borderRadius: '4px',
+                  border: '1px solid #dbe4ef',
+                  background: '#f8fafc',
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  color: '#334155',
+                  lineHeight: 1.35,
+                  wordBreak: 'break-word',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: isGraphicsDebugExpanded ? '6px' : '0',
+                  }}
+                >
+                  <span style={{ fontWeight: 700 }}>Graphics Budget Debug</span>
+                  <button
+                    data-testid="node-graphics-debug-toggle"
+                    onClick={() => {
+                      setIsGraphicsDebugExpanded((value) => !value);
+                    }}
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '4px',
+                      background: '#f8fafc',
+                      padding: '3px 8px',
+                      fontSize: '10px',
+                      color: '#334155',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isGraphicsDebugExpanded ? 'Hide details' : 'Show details'}
+                  </button>
+                </div>
+                {isGraphicsDebugExpanded && (
+                  <>
+                    <div>hasGraphicsOutput: {selectedNodeGraphicsDebug.hasGraphicsOutput ? 'true' : 'false'}</div>
+                    <div>isRenderableGraphics: {selectedNodeGraphicsDebug.isRenderableGraphics ? 'true' : 'false'}</div>
+                    <div>graphicsId: {selectedNodeGraphicsDebug.graphicsId ?? '-'}</div>
+                    <div>mimeType: {selectedNodeGraphicsDebug.mimeType ?? '-'}</div>
+                    <div>levelCount: {selectedNodeGraphicsDebug.levelCount}</div>
+                    <div>levelPixels: {formatDebugPixelList(selectedNodeGraphicsDebug.levelPixels)}</div>
+                    <div>viewportScale: {formatDebugMetricValue(selectedNodeGraphicsDebug.viewportScale, 4)}</div>
+                    <div>projectionWidth: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectionWidth)}</div>
+                    <div>projectedWidthOnScreen: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectedWidthOnScreen, 2)}</div>
+                    <div>devicePixelRatio: {formatDebugMetricValue(selectedNodeGraphicsDebug.devicePixelRatio, 2)}</div>
+                    <div>estimatedMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.estimatedMaxPixels)}</div>
+                    <div>stableMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.stableMaxPixels)}</div>
+                    <div>selectedLevel: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevel)}</div>
+                    <div>selectedLevelPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevelPixels)}</div>
+                    <div>shouldLoadByViewport: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphicsByViewport ? 'true' : 'false'}</div>
+                    <div>canReloadProjectedGraphics: {selectedNodeGraphicsDebug.canReloadProjectedGraphics ? 'true' : 'false'}</div>
+                    <div>shouldLoadProjectedGraphics: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphics ? 'true' : 'false'}</div>
+                    <div>requestUrl: {selectedNodeGraphicsDebug.requestUrl ?? '-'}</div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{

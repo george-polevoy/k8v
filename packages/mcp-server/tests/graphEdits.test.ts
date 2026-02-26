@@ -93,7 +93,7 @@ test('applyBulkEditOperation rejects duplicate numeric_input node ids', () => {
   );
 });
 
-test('applyBulkEditOperation graph_projection_add clamps oversized fallback node card dimensions', () => {
+test('applyBulkEditOperation graph_projection_add preserves oversized fallback node card dimensions', () => {
   const graph = createEmptyGraph();
   graph.nodes.push({
     id: 'node-inline',
@@ -126,10 +126,10 @@ test('applyBulkEditOperation graph_projection_add clamps oversized fallback node
   const altProjection = result.graph.projections?.find((projection: any) => projection.id === 'alt');
   assert.ok(defaultProjection);
   assert.ok(altProjection);
-  assert.equal(defaultProjection.nodeCardSizes['node-inline'].width, 3840);
-  assert.equal(defaultProjection.nodeCardSizes['node-inline'].height, 2160);
-  assert.equal(altProjection.nodeCardSizes['node-inline'].width, 3840);
-  assert.equal(altProjection.nodeCardSizes['node-inline'].height, 2160);
-  assert.equal(result.graph.nodes[0].config.config.cardWidth, 3840);
-  assert.equal(result.graph.nodes[0].config.config.cardHeight, 2160);
+  assert.equal(defaultProjection.nodeCardSizes['node-inline'].width, 20_000);
+  assert.equal(defaultProjection.nodeCardSizes['node-inline'].height, 20_000);
+  assert.equal(altProjection.nodeCardSizes['node-inline'].width, 20_000);
+  assert.equal(altProjection.nodeCardSizes['node-inline'].height, 20_000);
+  assert.equal(result.graph.nodes[0].config.config.cardWidth, 20_000);
+  assert.equal(result.graph.nodes[0].config.config.cardHeight, 20_000);
 });

@@ -19,8 +19,6 @@ const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
 };
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
-const NODE_MAX_WIDTH = 3840;
-const NODE_MAX_HEIGHT = 2160;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
@@ -773,8 +771,8 @@ function resolveNodeCardSizeForNode(node: GraphNode): { width: number; height: n
     ? config.cardHeight
     : minHeight;
   return {
-    width: clamp(Math.round(rawWidth), NODE_MIN_WIDTH, NODE_MAX_WIDTH),
-    height: clamp(Math.round(rawHeight), minHeight, NODE_MAX_HEIGHT),
+    width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
+    height: Math.max(minHeight, Math.round(rawHeight)),
   };
 }
 

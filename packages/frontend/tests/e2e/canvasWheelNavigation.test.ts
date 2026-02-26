@@ -288,6 +288,32 @@ test(
         `Trackpad-style pan should not change zoom width (${afterAltRect.width} vs ${afterTrackpadPanRect.width})`
       );
 
+      for (let step = 0; step < 16; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 0,
+            deltaY: -180,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: cursorX, y: cursorY });
+      }
+
+      const afterDeepZoomInRect = await waitForViewportRect(
+        page,
+        (rect) => rect.width < (initialRect.width * 0.32)
+      );
+      assert.ok(
+        afterDeepZoomInRect.width < (initialRect.width * 0.32),
+        `Expected deeper zoom-in range beyond previous cap (${initialRect.width} -> ${afterDeepZoomInRect.width})`
+      );
+
       for (let step = 0; step < 18; step += 1) {
         await page.evaluate(({ x, y }) => {
           const mainCanvas = document.querySelector('canvas');
