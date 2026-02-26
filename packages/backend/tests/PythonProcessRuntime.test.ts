@@ -35,6 +35,44 @@ outputGraphics("data:image/png;base64,abc123")
   assert.match(result.textOutput ?? '', /hello 21/);
 });
 
+test('PythonProcessRuntime ignores non-protocol stdout writes and still parses wrapped JSON payload', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime();
+  const result = await runtime.execute({
+    code: `
+import sys
+sys.stdout.write("Crap 2\\n")
+print("hello from wrapper print")
+outputs.answer = 42
+`,
+    inputs: {},
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.outputs.answer, 42);
+  assert.match(result.textOutput ?? '', /hello from wrapper print/);
+  assert.equal((result.textOutput ?? '').includes('Crap 2'), false);
+});
+
+test('PythonProcessRuntime captures builtins.print calls from imported scopes', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime();
+  const result = await runtime.execute({
+    code: `
+import builtins
+
+def emit():
+    builtins.print("from builtins print")
+
+emit()
+outputs.answer = 7
+`,
+    inputs: {},
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.outputs.answer, 7);
+  assert.match(result.textOutput ?? '', /from builtins print/);
+});
+
 test('PythonProcessRuntime captures execution errors as text output', { skip: skipPythonTests }, async () => {
   const runtime = new PythonProcessRuntime();
   const result = await runtime.execute({

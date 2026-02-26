@@ -8,6 +8,7 @@ import { DataStore } from '../src/core/DataStore.ts';
 import { GraphEngine } from '../src/core/GraphEngine.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { Graph, NodeType } from '../src/types/index.ts';
+import { ExecutionRuntime } from '../src/core/execution/types.ts';
 
 function createGraph(initialInput: number): Graph {
   const now = Date.now();
@@ -112,6 +113,83 @@ test('GraphEngine recomputes downstream node after upstream result changes', asy
 
     const downstreamAfterUpstreamRecompute = await graphEngine.computeNode(graph, 'downstream-node');
     assert.equal(downstreamAfterUpstreamRecompute.outputs.output, 30);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('GraphEngine recomputes once per manual recompute version', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-manual-recompute-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const dataStore = new DataStore(dbPath, dataDir);
+  let executionCount = 0;
+  const countingRuntime: ExecutionRuntime = {
+    execute: async () => {
+      executionCount += 1;
+      return {
+        outputs: {
+          count: executionCount,
+        },
+      };
+    },
+  };
+  const graphEngine = new GraphEngine(
+    dataStore,
+    new NodeExecutor(dataStore, {
+      javascript_vm: countingRuntime,
+    })
+  );
+  const now = Date.now();
+  const graph: Graph = {
+    id: 'graph-manual-recompute',
+    name: 'Manual Recompute Graph',
+    createdAt: now,
+    updatedAt: now,
+    pythonEnvs: [],
+    drawings: [],
+    nodes: [
+      {
+        id: 'counter-node',
+        type: NodeType.INLINE_CODE,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Counter',
+          inputs: [],
+          outputs: [{ name: 'count', schema: { type: 'number' } }],
+        },
+        config: {
+          type: NodeType.INLINE_CODE,
+          code: 'outputs.count = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'counter-v1',
+      },
+    ],
+    connections: [],
+  };
+
+  try {
+    const initial = await graphEngine.computeNode(graph, 'counter-node');
+    assert.equal(initial.outputs.count, 1);
+    assert.equal(executionCount, 1);
+
+    const cached = await graphEngine.computeNode(graph, 'counter-node');
+    assert.equal(cached.outputs.count, 1);
+    assert.equal(executionCount, 1);
+
+    const manualRunA = await graphEngine.computeNode(graph, 'counter-node', { recomputeVersion: 1 });
+    assert.equal(manualRunA.outputs.count, 2);
+    assert.equal(executionCount, 2);
+
+    const manualRunARepeated = await graphEngine.computeNode(graph, 'counter-node', { recomputeVersion: 1 });
+    assert.equal(manualRunARepeated.outputs.count, 2);
+    assert.equal(executionCount, 2);
+
+    const manualRunB = await graphEngine.computeNode(graph, 'counter-node', { recomputeVersion: 2 });
+    assert.equal(manualRunB.outputs.count, 3);
+    assert.equal(executionCount, 3);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

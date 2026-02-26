@@ -32,6 +32,7 @@ type RecomputeTaskType = 'graph_update' | 'manual_node' | 'manual_graph';
 interface RecomputeTask {
   type: RecomputeTaskType;
   rootNodeIds: string[];
+  recomputeVersion?: number;
   resolve: (summary: RecomputeTaskSummary) => void;
   reject: (error: Error) => void;
 }
@@ -94,6 +95,7 @@ export class RecomputeManager {
   private readonly dataStore: DataStore;
   private readonly graphEngine: GraphEngine;
   private readonly graphStates = new Map<string, GraphRuntimeState>();
+  private nextManualRecomputeVersion = Date.now();
 
   constructor(dataStore: DataStore, graphEngine: GraphEngine) {
     this.dataStore = dataStore;
@@ -203,6 +205,10 @@ export class RecomputeManager {
     return await new Promise<RecomputeTaskSummary>((resolve, reject) => {
       state.queue.push({
         ...taskInput,
+        recomputeVersion:
+          taskInput.type === 'manual_graph' || taskInput.type === 'manual_node'
+            ? this.nextManualRecomputeVersion++
+            : undefined,
         resolve,
         reject,
       });
@@ -252,7 +258,12 @@ export class RecomputeManager {
         const scheduledNodeIds = this.selectNodeIdsForTask(graph, task.type, task.rootNodeIds);
         this.markNodesPending(graph.id, state, scheduledNodeIds);
 
-        const completedNodeIds = await this.executeTaskNodes(graph, state, scheduledNodeIds);
+        const completedNodeIds = await this.executeTaskNodes(
+          graph,
+          state,
+          scheduledNodeIds,
+          task.recomputeVersion
+        );
 
         this.applyDerivedStaleStates(graph, state);
 
@@ -269,7 +280,8 @@ export class RecomputeManager {
   private async executeTaskNodes(
     graph: Graph,
     state: GraphRuntimeState,
-    orderedNodeIds: string[]
+    orderedNodeIds: string[],
+    recomputeVersion?: number
   ): Promise<string[]> {
     if (orderedNodeIds.length === 0) {
       return [];
@@ -369,7 +381,7 @@ export class RecomputeManager {
           continue;
         }
 
-        running.set(nodeId, this.runSingleNode(graph, state, nodeId));
+        running.set(nodeId, this.runSingleNode(graph, state, nodeId, recomputeVersion));
       }
     };
 
@@ -408,7 +420,8 @@ export class RecomputeManager {
   private async runSingleNode(
     graph: Graph,
     state: GraphRuntimeState,
-    nodeId: string
+    nodeId: string,
+    recomputeVersion?: number
   ): Promise<NodeRunOutcome> {
     this.patchNodeState(graph.id, state, nodeId, {
       isPending: false,
@@ -419,7 +432,7 @@ export class RecomputeManager {
     });
 
     try {
-      const result = await this.graphEngine.computeNode(graph, nodeId);
+      const result = await this.graphEngine.computeNode(graph, nodeId, { recomputeVersion });
       const hasError = isErrorTextOutput(result.textOutput);
 
       this.patchNodeState(graph.id, state, nodeId, {

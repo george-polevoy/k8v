@@ -14,14 +14,20 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
     if (!state.selectedNodeId) return null;
     return state.graph?.nodes.find((n) => n.id === state.selectedNodeId)?.metadata.name || null;
   });
+  const selectedNodeExecutionState = useGraphStore((state) => {
+    if (!state.selectedNodeId) {
+      return null;
+    }
+    return state.nodeExecutionStates[state.selectedNodeId] ?? null;
+  });
   const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
   const [textOutput, setTextOutput] = useState<string>('');
   const [graphicsOutput, setGraphicsOutput] = useState<GraphicsArtifact | null>(null);
   const [graphicsMaxPixels, setGraphicsMaxPixels] = useState(1_000_000);
   const [isLoading, setIsLoading] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [textExpanded, setTextExpanded] = useState(true);
   const [graphicsExpanded, setGraphicsExpanded] = useState(true);
+  const isNodeRefreshing = Boolean(selectedNodeExecutionState?.isPending || selectedNodeExecutionState?.isComputing);
   const hasAnyOutput = Boolean(textOutput) || Boolean(graphicsOutput);
   const hasAnyOutputRef = useRef(false);
   const graphicsViewportRef = useRef<HTMLDivElement | null>(null);
@@ -74,7 +80,6 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
       if (!selectedNodeId) {
         setTextOutput('');
         setGraphicsOutput(null);
-        setIsRefreshing(false);
         return;
       }
 
@@ -118,7 +123,6 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
       let cancelled = false;
 
       const fetchResult = async () => {
-        setIsRefreshing(true);
         try {
           const response = await axios.get(`/api/nodes/${selectedNodeId}/result`);
           if (cancelled) return;
@@ -132,10 +136,6 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
           if (error.response?.status !== 404 && !hasAnyOutputRef.current) {
             setTextOutput(`Error loading result: ${error.message}`);
             setGraphicsOutput(null);
-          }
-        } finally {
-          if (!cancelled) {
-            setIsRefreshing(false);
           }
         }
       };
@@ -204,7 +204,7 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
         >
           <strong>Text Output</strong>
           <span>
-            {isRefreshing ? 'Refreshing... ' : ''}
+            {isNodeRefreshing ? 'Refreshing... ' : ''}
             {textExpanded ? '▼' : '▶'}
           </span>
         </div>

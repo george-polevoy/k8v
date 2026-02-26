@@ -1139,7 +1139,16 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
               Auto recompute when upstream changes
             </label>
             {nodeExecutionState?.hasError && nodeExecutionState.errorMessage && (
-              <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '11px' }}>
+              <div
+                data-testid="node-execution-error"
+                style={{
+                  marginTop: '8px',
+                  color: '#b91c1c',
+                  fontSize: '11px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
                 {nodeExecutionState.errorMessage}
               </div>
             )}

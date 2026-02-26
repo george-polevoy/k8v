@@ -9,6 +9,7 @@ export class GraphEngine {
   private dataStore: DataStore;
   private nodeExecutor: NodeExecutor;
   private computationCache: Map<string, ComputationResult> = new Map();
+  private manualRecomputeVersionByNodeId: Map<string, number> = new Map();
 
   constructor(dataStore: DataStore, nodeExecutor: NodeExecutor) {
     this.dataStore = dataStore;
@@ -18,7 +19,11 @@ export class GraphEngine {
   /**
    * Compute a node and all its dependencies
    */
-  async computeNode(graph: Graph, nodeId: string): Promise<ComputationResult> {
+  async computeNode(
+    graph: Graph,
+    nodeId: string,
+    options: { recomputeVersion?: number } = {}
+  ): Promise<ComputationResult> {
     const node = graph.nodes.find(n => n.id === nodeId);
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
@@ -27,13 +32,13 @@ export class GraphEngine {
     // Compute dependencies first so recomputation checks can use fresh dependency results.
     const dependencies = this.getDependencies(graph, nodeId);
     for (const depNodeId of dependencies) {
-      await this.computeNode(graph, depNodeId);
+      await this.computeNode(graph, depNodeId, options);
     }
 
     const currentResult = await this.getCachedOrStoredResult(nodeId);
 
     // Check if recomputation is needed
-    if (await this.needsRecomputation(graph, node, currentResult)) {
+    if (await this.needsRecomputation(graph, node, currentResult, options)) {
       // Get inputs from connected nodes
       const inputs = await this.getNodeInputs(graph, nodeId);
 
@@ -48,6 +53,9 @@ export class GraphEngine {
         graphicsOutput: undefined,
       };
       this.computationCache.set(nodeId, result);
+      if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
+        this.manualRecomputeVersionByNodeId.set(nodeId, options.recomputeVersion);
+      }
 
       // Update node version to mark as computed
       node.lastComputed = Date.now();
@@ -68,8 +76,16 @@ export class GraphEngine {
   private async needsRecomputation(
     graph: Graph,
     node: GraphNode,
-    currentResult: ComputationResult | null
+    currentResult: ComputationResult | null,
+    options: { recomputeVersion?: number }
   ): Promise<boolean> {
+    if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
+      const lastManualRecomputeVersion = this.manualRecomputeVersionByNodeId.get(node.id);
+      if (lastManualRecomputeVersion !== options.recomputeVersion) {
+        return true;
+      }
+    }
+
     // Check if node has never been computed or node definition changed.
     if (!currentResult || currentResult.version !== node.version) {
       return true;
@@ -171,6 +187,7 @@ export class GraphEngine {
    */
   clearCache(): void {
     this.computationCache.clear();
+    this.manualRecomputeVersionByNodeId.clear();
   }
 
   private async getCachedOrStoredResult(nodeId: string): Promise<ComputationResult | null> {
