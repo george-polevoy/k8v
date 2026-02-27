@@ -49,7 +49,8 @@ type NodeType =
   | 'subgraph'
   | 'external_input'
   | 'numeric_input'
-  | 'external_output';
+  | 'external_output'
+  | 'annotation';
 
 interface DataSchema {
   type: string;

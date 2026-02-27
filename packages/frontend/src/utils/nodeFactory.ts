@@ -1,5 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import { GraphNode, NodeType, RuntimeId } from '../types';
+import {
+  DEFAULT_ANNOTATION_BACKGROUND_COLOR,
+  DEFAULT_ANNOTATION_BORDER_COLOR,
+  DEFAULT_ANNOTATION_FONT_COLOR,
+  DEFAULT_ANNOTATION_FONT_SIZE,
+  DEFAULT_ANNOTATION_TEXT,
+  normalizeAnnotationFontSize,
+} from './annotation';
 
 export interface CreateNodeOptions {
   name?: string;
@@ -9,6 +17,11 @@ export interface CreateNodeOptions {
   pythonEnv?: string;
   inputNames?: string[];
   outputNames?: string[];
+  annotationText?: string;
+  annotationBackgroundColor?: string;
+  annotationBorderColor?: string;
+  annotationFontColor?: string;
+  annotationFontSize?: number;
 }
 
 /**
@@ -130,6 +143,38 @@ export function createExternalOutputNode(options: CreateNodeOptions): GraphNode 
     },
     config: {
       type: NodeType.EXTERNAL_OUTPUT,
+    },
+    version: Date.now().toString(),
+  };
+}
+
+/**
+ * Factory function for creating annotation nodes.
+ */
+export function createAnnotationNode(options: CreateNodeOptions): GraphNode {
+  return {
+    id: uuidv4(),
+    type: NodeType.ANNOTATION,
+    position: options.position,
+    metadata: {
+      name: options.name || 'Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: NodeType.ANNOTATION,
+      config: {
+        text: options.annotationText ?? DEFAULT_ANNOTATION_TEXT,
+        backgroundColor: options.annotationBackgroundColor ?? DEFAULT_ANNOTATION_BACKGROUND_COLOR,
+        borderColor: options.annotationBorderColor ?? DEFAULT_ANNOTATION_BORDER_COLOR,
+        fontColor: options.annotationFontColor ?? DEFAULT_ANNOTATION_FONT_COLOR,
+        fontSize: normalizeAnnotationFontSize(
+          options.annotationFontSize,
+          DEFAULT_ANNOTATION_FONT_SIZE
+        ),
+        cardWidth: 320,
+        cardHeight: 200,
+      },
     },
     version: Date.now().toString(),
   };

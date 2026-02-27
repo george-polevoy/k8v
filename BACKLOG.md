@@ -121,3 +121,15 @@ Status: DONE
 - Add drawing handle selection, drag-move, rename, and delete interactions. (DONE)
 - Render persisted drawings in MCP screenshot renderer and expose MCP drawing manipulation tools. (DONE)
 - Add regression tests for drawing payload acceptance and duplicate-id validation. (DONE)
+
+### B-013 Annotation Note Cards
+Status: DONE
+
+- Add non-computing `annotation` node type for canvas notes. (DONE)
+- Add markdown + TeX/LaTeX rendering support for annotation card content. (DONE)
+- Add annotation card styling controls (background color + font color) in node panel and creation dialog. (DONE)
+- Add all-side annotation resize handles with persisted size/position updates. (DONE)
+- Verification:
+  - `npm run lint`
+  - `npm run test`
+  - `npx tsx --test packages/frontend/tests/e2e/annotationCard.test.ts`

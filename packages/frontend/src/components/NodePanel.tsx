@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
+import { normalizeColorString } from '../utils/color';
+import ColorSelectionDialog from './ColorSelectionDialog';
+import {
+  DEFAULT_ANNOTATION_BACKGROUND_COLOR,
+  DEFAULT_ANNOTATION_BORDER_COLOR,
+  DEFAULT_ANNOTATION_FONT_COLOR,
+  DEFAULT_ANNOTATION_FONT_SIZE,
+  DEFAULT_ANNOTATION_TEXT,
+  MAX_ANNOTATION_FONT_SIZE,
+  MIN_ANNOTATION_FONT_SIZE,
+  normalizeAnnotationConfig,
+  normalizeAnnotationFontSize,
+} from '../utils/annotation';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -107,6 +120,8 @@ interface NodePanelProps {
   showGraphSection?: boolean;
 }
 
+type AnnotationColorTarget = 'background' | 'border' | 'font';
+
 function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps) {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
@@ -138,6 +153,16 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const [numericMinDraft, setNumericMinDraft] = useState('0');
   const [numericMaxDraft, setNumericMaxDraft] = useState('100');
   const [numericStepDraft, setNumericStepDraft] = useState('1');
+  const [annotationTextDraft, setAnnotationTextDraft] = useState(DEFAULT_ANNOTATION_TEXT);
+  const [annotationBackgroundColorDraft, setAnnotationBackgroundColorDraft] = useState(
+    DEFAULT_ANNOTATION_BACKGROUND_COLOR
+  );
+  const [annotationBorderColorDraft, setAnnotationBorderColorDraft] = useState(
+    DEFAULT_ANNOTATION_BORDER_COLOR
+  );
+  const [annotationFontColorDraft, setAnnotationFontColorDraft] = useState(DEFAULT_ANNOTATION_FONT_COLOR);
+  const [annotationFontSizeDraft, setAnnotationFontSizeDraft] = useState(String(DEFAULT_ANNOTATION_FONT_SIZE));
+  const [annotationColorDialogTarget, setAnnotationColorDialogTarget] = useState<AnnotationColorTarget | null>(null);
   const [drawingNameValue, setDrawingNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
@@ -181,6 +206,17 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
       setNumericMinDraft(String(numericConfig.min));
       setNumericMaxDraft(String(numericConfig.max));
       setNumericStepDraft(String(numericConfig.step));
+    }
+
+    if (selectedNode?.config.type === NodeType.ANNOTATION) {
+      const annotationConfig = normalizeAnnotationConfig(
+        selectedNode.config.config as Record<string, unknown> | undefined
+      );
+      setAnnotationTextDraft(annotationConfig.text);
+      setAnnotationBackgroundColorDraft(annotationConfig.backgroundColor);
+      setAnnotationBorderColorDraft(annotationConfig.borderColor);
+      setAnnotationFontColorDraft(annotationConfig.fontColor);
+      setAnnotationFontSizeDraft(String(annotationConfig.fontSize));
     }
 
     setInputValidationError(null);
@@ -397,6 +433,78 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     setNumericMaxDraft(String(current.max));
     setNumericStepDraft(String(current.step));
   }, [selectedNode]);
+
+  const commitAnnotationSettings = useCallback((overrides?: {
+    text?: string;
+    backgroundColor?: string;
+    borderColor?: string;
+    fontColor?: string;
+    fontSize?: number;
+  }) => {
+    if (!selectedNode || selectedNode.config.type !== NodeType.ANNOTATION) {
+      return;
+    }
+
+    const current = normalizeAnnotationConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    const parsedDraftFontSize = Number.parseFloat(annotationFontSizeDraft);
+    const draftFontSize = Number.isFinite(parsedDraftFontSize) ? parsedDraftFontSize : current.fontSize;
+    const next = {
+      text: overrides?.text ?? annotationTextDraft,
+      backgroundColor: normalizeColorString(
+        overrides?.backgroundColor ?? annotationBackgroundColorDraft,
+        DEFAULT_ANNOTATION_BACKGROUND_COLOR
+      ),
+      borderColor: normalizeColorString(
+        overrides?.borderColor ?? annotationBorderColorDraft,
+        DEFAULT_ANNOTATION_BORDER_COLOR
+      ),
+      fontColor: normalizeColorString(
+        overrides?.fontColor ?? annotationFontColorDraft,
+        DEFAULT_ANNOTATION_FONT_COLOR
+      ),
+      fontSize: normalizeAnnotationFontSize(overrides?.fontSize ?? draftFontSize, current.fontSize),
+    };
+
+    setAnnotationTextDraft(next.text);
+    setAnnotationBackgroundColorDraft(next.backgroundColor);
+    setAnnotationBorderColorDraft(next.borderColor);
+    setAnnotationFontColorDraft(next.fontColor);
+    setAnnotationFontSizeDraft(String(next.fontSize));
+
+    if (
+      next.text === current.text &&
+      next.backgroundColor === current.backgroundColor &&
+      next.borderColor === current.borderColor &&
+      next.fontColor === current.fontColor &&
+      next.fontSize === current.fontSize
+    ) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config ?? {}),
+          text: next.text,
+          backgroundColor: next.backgroundColor,
+          borderColor: next.borderColor,
+          fontColor: next.fontColor,
+          fontSize: next.fontSize,
+        },
+      },
+    });
+  }, [
+    annotationBackgroundColorDraft,
+    annotationBorderColorDraft,
+    annotationFontColorDraft,
+    annotationFontSizeDraft,
+    annotationTextDraft,
+    selectedNode,
+    updateNode,
+  ]);
 
   const addInputPort = useCallback(() => {
     if (!selectedNode) {
@@ -713,6 +821,9 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
 
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
   const isNumericInputNode = selectedNode?.config.type === NodeType.NUMERIC_INPUT;
+  const isAnnotationNode = selectedNode?.config.type === NodeType.ANNOTATION;
+  const supportsExecutionControls = Boolean(selectedNode && !isAnnotationNode);
+  const supportsInputEditing = Boolean(selectedNode && !isNumericInputNode && !isAnnotationNode);
   const graphPythonEnvs = graph?.pythonEnvs ?? [];
   const selectedPythonEnvExists = Boolean(
     selectedNode?.config.pythonEnv &&
@@ -727,6 +838,36 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
       : autoRecomputeEnabled
         ? '#22c55e'
         : '#94a3b8';
+  const annotationColorDialogOpen = annotationColorDialogTarget !== null;
+  const annotationColorDialogTitle = annotationColorDialogTarget === 'background'
+    ? 'Annotation Background'
+    : annotationColorDialogTarget === 'border'
+      ? 'Annotation Border'
+      : 'Annotation Text';
+  const annotationColorDialogDefaultColor = annotationColorDialogTarget === 'background'
+    ? DEFAULT_ANNOTATION_BACKGROUND_COLOR
+    : annotationColorDialogTarget === 'border'
+      ? DEFAULT_ANNOTATION_BORDER_COLOR
+      : DEFAULT_ANNOTATION_FONT_COLOR;
+  const annotationColorDialogInitialColor = annotationColorDialogTarget === 'background'
+    ? annotationBackgroundColorDraft
+    : annotationColorDialogTarget === 'border'
+      ? annotationBorderColorDraft
+      : annotationFontColorDraft;
+
+  const applyAnnotationColorFromDialog = (color: string) => {
+    if (annotationColorDialogTarget === 'background') {
+      setAnnotationBackgroundColorDraft(color);
+      commitAnnotationSettings({ backgroundColor: color });
+    } else if (annotationColorDialogTarget === 'border') {
+      setAnnotationBorderColorDraft(color);
+      commitAnnotationSettings({ borderColor: color });
+    } else if (annotationColorDialogTarget === 'font') {
+      setAnnotationFontColorDraft(color);
+      commitAnnotationSettings({ fontColor: color });
+    }
+    setAnnotationColorDialogTarget(null);
+  };
 
   return (
     <div
@@ -1111,263 +1252,267 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
             />
           </div>
 
-          <div style={{
-            marginBottom: '16px',
-            padding: '10px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            background: '#fff',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ fontSize: '12px', color: '#334155', fontWeight: 600 }}>Execution Status</span>
-              <span style={{
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: statusLightColor,
-                border: '1px solid rgba(0,0,0,0.15)',
-                display: 'inline-block',
-              }} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-              <input
-                data-testid="auto-recompute-toggle"
-                type="checkbox"
-                checked={autoRecomputeEnabled}
-                onChange={(event) => setAutoRecompute(event.target.checked)}
-              />
-              Auto recompute when upstream changes
-            </label>
-            {nodeExecutionState?.hasError && nodeExecutionState.errorMessage && (
-              <div
-                data-testid="node-execution-error"
-                style={{
-                  marginTop: '8px',
-                  color: '#b91c1c',
-                  fontSize: '11px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {nodeExecutionState.errorMessage}
+          {supportsExecutionControls && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', color: '#334155', fontWeight: 600 }}>Execution Status</span>
+                <span style={{
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  background: statusLightColor,
+                  border: '1px solid rgba(0,0,0,0.15)',
+                  display: 'inline-block',
+                }} />
               </div>
-            )}
-            <button
-              data-testid="run-selected-node-button"
-              onClick={() => {
-                void computeNode(selectedNode.id);
-              }}
-              style={{
-                marginTop: '10px',
-                width: '100%',
-                padding: '8px',
-                background: '#0ea5e9',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
-              Run Selected Node
-            </button>
-            {selectedNodeGraphicsDebug && selectedNodeGraphicsDebug.nodeId === selectedNode.id && (
-              <div
-                data-testid="node-graphics-debug"
-                style={{
-                  marginTop: '10px',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  border: '1px solid #dbe4ef',
-                  background: '#f8fafc',
-                  fontSize: '10px',
-                  fontFamily: 'monospace',
-                  color: '#334155',
-                  lineHeight: 1.35,
-                  wordBreak: 'break-word',
-                }}
-              >
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                <input
+                  data-testid="auto-recompute-toggle"
+                  type="checkbox"
+                  checked={autoRecomputeEnabled}
+                  onChange={(event) => setAutoRecompute(event.target.checked)}
+                />
+                Auto recompute when upstream changes
+              </label>
+              {nodeExecutionState?.hasError && nodeExecutionState.errorMessage && (
                 <div
+                  data-testid="node-execution-error"
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: isGraphicsDebugExpanded ? '6px' : '0',
+                    marginTop: '8px',
+                    color: '#b91c1c',
+                    fontSize: '11px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
                   }}
                 >
-                  <span style={{ fontWeight: 700 }}>Graphics Budget Debug</span>
-                  <button
-                    data-testid="node-graphics-debug-toggle"
-                    onClick={() => {
-                      setIsGraphicsDebugExpanded((value) => !value);
-                    }}
-                    style={{
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '4px',
-                      background: '#f8fafc',
-                      padding: '3px 8px',
-                      fontSize: '10px',
-                      color: '#334155',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {isGraphicsDebugExpanded ? 'Hide details' : 'Show details'}
-                  </button>
+                  {nodeExecutionState.errorMessage}
                 </div>
-                {isGraphicsDebugExpanded && (
-                  <>
-                    <div>hasGraphicsOutput: {selectedNodeGraphicsDebug.hasGraphicsOutput ? 'true' : 'false'}</div>
-                    <div>isRenderableGraphics: {selectedNodeGraphicsDebug.isRenderableGraphics ? 'true' : 'false'}</div>
-                    <div>graphicsId: {selectedNodeGraphicsDebug.graphicsId ?? '-'}</div>
-                    <div>mimeType: {selectedNodeGraphicsDebug.mimeType ?? '-'}</div>
-                    <div>levelCount: {selectedNodeGraphicsDebug.levelCount}</div>
-                    <div>levelPixels: {formatDebugPixelList(selectedNodeGraphicsDebug.levelPixels)}</div>
-                    <div>viewportScale: {formatDebugMetricValue(selectedNodeGraphicsDebug.viewportScale, 4)}</div>
-                    <div>projectionWidth: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectionWidth)}</div>
-                    <div>projectedWidthOnScreen: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectedWidthOnScreen, 2)}</div>
-                    <div>devicePixelRatio: {formatDebugMetricValue(selectedNodeGraphicsDebug.devicePixelRatio, 2)}</div>
-                    <div>estimatedMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.estimatedMaxPixels)}</div>
-                    <div>stableMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.stableMaxPixels)}</div>
-                    <div>selectedLevel: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevel)}</div>
-                    <div>selectedLevelPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevelPixels)}</div>
-                    <div>shouldLoadByViewport: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphicsByViewport ? 'true' : 'false'}</div>
-                    <div>canReloadProjectedGraphics: {selectedNodeGraphicsDebug.canReloadProjectedGraphics ? 'true' : 'false'}</div>
-                    <div>shouldLoadProjectedGraphics: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphics ? 'true' : 'false'}</div>
-                    <div>requestUrl: {selectedNodeGraphicsDebug.requestUrl ?? '-'}</div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div style={{
-            marginBottom: '16px',
-            padding: '10px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            background: '#fff',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <span style={{ fontWeight: 'bold', fontSize: '12px' }}>Inputs</span>
+              )}
               <button
-                data-testid="add-input-button"
-                onClick={addInputPort}
-                disabled={isNumericInputNode}
+                data-testid="run-selected-node-button"
+                onClick={() => {
+                  void computeNode(selectedNode.id);
+                }}
                 style={{
-                  padding: '4px 8px',
-                  background: isNumericInputNode ? '#f1f5f9' : '#e2e8f0',
-                  border: '1px solid #cbd5e1',
+                  marginTop: '10px',
+                  width: '100%',
+                  padding: '8px',
+                  background: '#0ea5e9',
+                  color: 'white',
+                  border: 'none',
                   borderRadius: '4px',
-                  cursor: isNumericInputNode ? 'not-allowed' : 'pointer',
-                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
                 }}
               >
-                + Add Input
+                Run Selected Node
               </button>
-            </div>
-
-            {isNumericInputNode ? (
-              <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
-                Numeric input nodes do not accept inbound ports.
-              </div>
-            ) : selectedNode.metadata.inputs.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>No inputs defined</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {selectedNode.metadata.inputs.map((input, index) => (
+              {selectedNodeGraphicsDebug && selectedNodeGraphicsDebug.nodeId === selectedNode.id && (
+                <div
+                  data-testid="node-graphics-debug"
+                  style={{
+                    marginTop: '10px',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    border: '1px solid #dbe4ef',
+                    background: '#f8fafc',
+                    fontSize: '10px',
+                    fontFamily: 'monospace',
+                    color: '#334155',
+                    lineHeight: 1.35,
+                    wordBreak: 'break-word',
+                  }}
+                >
                   <div
-                    data-testid={`input-row-${index}`}
-                    key={`${input.name}-${index}`}
-                    style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '6px', alignItems: 'center' }}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: isGraphicsDebugExpanded ? '6px' : '0',
+                    }}
                   >
-                    <input
-                      data-testid={`input-name-${index}`}
-                      type="text"
-                      value={inputDraftNames[index] ?? input.name}
-                      onChange={(event) => {
-                        const next = [...inputDraftNames];
-                        next[index] = event.target.value;
-                        setInputDraftNames(next);
-                      }}
-                      onBlur={() => commitInputName(index)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.currentTarget.blur();
-                        }
-                        if (event.key === 'Escape') {
-                          setInputDraftNames(selectedNode.metadata.inputs.map((item) => item.name));
-                          setInputValidationError(null);
-                          event.currentTarget.blur();
-                        }
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '6px',
-                        border: '1px solid #ddd',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        boxSizing: 'border-box',
-                      }}
-                    />
+                    <span style={{ fontWeight: 700 }}>Graphics Budget Debug</span>
                     <button
-                      data-testid={`input-move-up-${index}`}
-                      onClick={() => moveInputPort(index, 'up')}
-                      disabled={index === 0}
-                      title="Move up"
+                      data-testid="node-graphics-debug-toggle"
+                      onClick={() => {
+                        setIsGraphicsDebugExpanded((value) => !value);
+                      }}
                       style={{
-                        padding: '4px 6px',
                         border: '1px solid #cbd5e1',
-                        background: index === 0 ? '#f1f5f9' : '#fff',
-                        cursor: index === 0 ? 'not-allowed' : 'pointer',
                         borderRadius: '4px',
-                        fontSize: '11px',
-                      }}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      data-testid={`input-move-down-${index}`}
-                      onClick={() => moveInputPort(index, 'down')}
-                      disabled={index === selectedNode.metadata.inputs.length - 1}
-                      title="Move down"
-                      style={{
-                        padding: '4px 6px',
-                        border: '1px solid #cbd5e1',
-                        background: index === selectedNode.metadata.inputs.length - 1 ? '#f1f5f9' : '#fff',
-                        cursor: index === selectedNode.metadata.inputs.length - 1 ? 'not-allowed' : 'pointer',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                      }}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      data-testid={`input-delete-${index}`}
-                      onClick={() => deleteInputPort(index)}
-                      title="Delete input"
-                      style={{
-                        padding: '4px 6px',
-                        border: '1px solid #fecaca',
-                        background: '#fff1f2',
-                        color: '#b91c1c',
+                        background: '#f8fafc',
+                        padding: '3px 8px',
+                        fontSize: '10px',
+                        color: '#334155',
                         cursor: 'pointer',
-                        borderRadius: '4px',
-                        fontSize: '11px',
                       }}
                     >
-                      ✕
+                      {isGraphicsDebugExpanded ? 'Hide details' : 'Show details'}
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
+                  {isGraphicsDebugExpanded && (
+                    <>
+                      <div>hasGraphicsOutput: {selectedNodeGraphicsDebug.hasGraphicsOutput ? 'true' : 'false'}</div>
+                      <div>isRenderableGraphics: {selectedNodeGraphicsDebug.isRenderableGraphics ? 'true' : 'false'}</div>
+                      <div>graphicsId: {selectedNodeGraphicsDebug.graphicsId ?? '-'}</div>
+                      <div>mimeType: {selectedNodeGraphicsDebug.mimeType ?? '-'}</div>
+                      <div>levelCount: {selectedNodeGraphicsDebug.levelCount}</div>
+                      <div>levelPixels: {formatDebugPixelList(selectedNodeGraphicsDebug.levelPixels)}</div>
+                      <div>viewportScale: {formatDebugMetricValue(selectedNodeGraphicsDebug.viewportScale, 4)}</div>
+                      <div>projectionWidth: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectionWidth)}</div>
+                      <div>projectedWidthOnScreen: {formatDebugMetricValue(selectedNodeGraphicsDebug.projectedWidthOnScreen, 2)}</div>
+                      <div>devicePixelRatio: {formatDebugMetricValue(selectedNodeGraphicsDebug.devicePixelRatio, 2)}</div>
+                      <div>estimatedMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.estimatedMaxPixels)}</div>
+                      <div>stableMaxPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.stableMaxPixels)}</div>
+                      <div>selectedLevel: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevel)}</div>
+                      <div>selectedLevelPixels: {formatDebugMetricValue(selectedNodeGraphicsDebug.selectedLevelPixels)}</div>
+                      <div>shouldLoadByViewport: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphicsByViewport ? 'true' : 'false'}</div>
+                      <div>canReloadProjectedGraphics: {selectedNodeGraphicsDebug.canReloadProjectedGraphics ? 'true' : 'false'}</div>
+                      <div>shouldLoadProjectedGraphics: {selectedNodeGraphicsDebug.shouldLoadProjectedGraphics ? 'true' : 'false'}</div>
+                      <div>requestUrl: {selectedNodeGraphicsDebug.requestUrl ?? '-'}</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
-            {inputValidationError && (
-              <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '11px' }}>
-                {inputValidationError}
+          {!isAnnotationNode && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontWeight: 'bold', fontSize: '12px' }}>Inputs</span>
+                <button
+                  data-testid="add-input-button"
+                  onClick={addInputPort}
+                  disabled={!supportsInputEditing}
+                  style={{
+                    padding: '4px 8px',
+                    background: !supportsInputEditing ? '#f1f5f9' : '#e2e8f0',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '4px',
+                    cursor: !supportsInputEditing ? 'not-allowed' : 'pointer',
+                    fontSize: '11px',
+                  }}
+                >
+                  + Add Input
+                </button>
               </div>
-            )}
-          </div>
+
+              {isNumericInputNode ? (
+                <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+                  Numeric input nodes do not accept inbound ports.
+                </div>
+              ) : selectedNode.metadata.inputs.length === 0 ? (
+                <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>No inputs defined</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {selectedNode.metadata.inputs.map((input, index) => (
+                    <div
+                      data-testid={`input-row-${index}`}
+                      key={`${input.name}-${index}`}
+                      style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '6px', alignItems: 'center' }}
+                    >
+                      <input
+                        data-testid={`input-name-${index}`}
+                        type="text"
+                        value={inputDraftNames[index] ?? input.name}
+                        onChange={(event) => {
+                          const next = [...inputDraftNames];
+                          next[index] = event.target.value;
+                          setInputDraftNames(next);
+                        }}
+                        onBlur={() => commitInputName(index)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.currentTarget.blur();
+                          }
+                          if (event.key === 'Escape') {
+                            setInputDraftNames(selectedNode.metadata.inputs.map((item) => item.name));
+                            setInputValidationError(null);
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                      <button
+                        data-testid={`input-move-up-${index}`}
+                        onClick={() => moveInputPort(index, 'up')}
+                        disabled={index === 0}
+                        title="Move up"
+                        style={{
+                          padding: '4px 6px',
+                          border: '1px solid #cbd5e1',
+                          background: index === 0 ? '#f1f5f9' : '#fff',
+                          cursor: index === 0 ? 'not-allowed' : 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                        }}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        data-testid={`input-move-down-${index}`}
+                        onClick={() => moveInputPort(index, 'down')}
+                        disabled={index === selectedNode.metadata.inputs.length - 1}
+                        title="Move down"
+                        style={{
+                          padding: '4px 6px',
+                          border: '1px solid #cbd5e1',
+                          background: index === selectedNode.metadata.inputs.length - 1 ? '#f1f5f9' : '#fff',
+                          cursor: index === selectedNode.metadata.inputs.length - 1 ? 'not-allowed' : 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                        }}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        data-testid={`input-delete-${index}`}
+                        onClick={() => deleteInputPort(index)}
+                        title="Delete input"
+                        style={{
+                          padding: '4px 6px',
+                          border: '1px solid #fecaca',
+                          background: '#fff1f2',
+                          color: '#b91c1c',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {inputValidationError && (
+                <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '11px' }}>
+                  {inputValidationError}
+                </div>
+              )}
+            </div>
+          )}
 
           {selectedNode.config.type === NodeType.NUMERIC_INPUT && (
             <div style={{
@@ -1495,6 +1640,184 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
                     }}
                   />
                 </label>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.config.type === NodeType.ANNOTATION && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+            }}>
+              <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
+                Annotation Content
+              </div>
+              <textarea
+                data-testid="annotation-markdown-input"
+                value={annotationTextDraft}
+                onChange={(event) => setAnnotationTextDraft(event.target.value)}
+                onBlur={(event) => commitAnnotationSettings({ text: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    const current = normalizeAnnotationConfig(
+                      selectedNode.config.config as Record<string, unknown> | undefined
+                    );
+                    setAnnotationTextDraft(current.text);
+                    setAnnotationBackgroundColorDraft(current.backgroundColor);
+                    setAnnotationBorderColorDraft(current.borderColor);
+                    setAnnotationFontColorDraft(current.fontColor);
+                    setAnnotationFontSizeDraft(String(current.fontSize));
+                    event.currentTarget.blur();
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  minHeight: '160px',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  boxSizing: 'border-box',
+                  marginBottom: '10px',
+                }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                <button
+                  data-testid="annotation-background-color-input"
+                  type="button"
+                  onClick={() => setAnnotationColorDialogTarget('background')}
+                  style={{
+                    width: '100%',
+                    minHeight: '34px',
+                    padding: '6px 8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    color: '#0f172a',
+                    fontSize: '11px',
+                  }}
+                >
+                  <span>Background</span>
+                  <span
+                    style={{
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      border: '1px solid #334155',
+                      background: annotationBackgroundColorDraft,
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                <button
+                  data-testid="annotation-border-color-input"
+                  type="button"
+                  onClick={() => setAnnotationColorDialogTarget('border')}
+                  style={{
+                    width: '100%',
+                    minHeight: '34px',
+                    padding: '6px 8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    color: '#0f172a',
+                    fontSize: '11px',
+                  }}
+                >
+                  <span>Border</span>
+                  <span
+                    style={{
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      border: '1px solid #334155',
+                      background: annotationBorderColorDraft,
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                <button
+                  data-testid="annotation-font-color-input"
+                  type="button"
+                  onClick={() => setAnnotationColorDialogTarget('font')}
+                  style={{
+                    width: '100%',
+                    minHeight: '34px',
+                    padding: '6px 8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    color: '#0f172a',
+                    fontSize: '11px',
+                  }}
+                >
+                  <span>Text</span>
+                  <span
+                    style={{
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      border: '1px solid #334155',
+                      background: annotationFontColorDraft,
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+              </div>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569', marginTop: '10px' }}>
+                Font size (px)
+                <input
+                  data-testid="annotation-font-size-input"
+                  type="number"
+                  min={MIN_ANNOTATION_FONT_SIZE}
+                  max={MAX_ANNOTATION_FONT_SIZE}
+                  step={1}
+                  value={annotationFontSizeDraft}
+                  onChange={(event) => setAnnotationFontSizeDraft(event.target.value)}
+                  onBlur={() => commitAnnotationSettings()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                    if (event.key === 'Escape') {
+                      const current = normalizeAnnotationConfig(
+                        selectedNode.config.config as Record<string, unknown> | undefined
+                      );
+                      setAnnotationFontSizeDraft(String(current.fontSize));
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '6px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </label>
+              <div style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
+                Markdown and LaTeX are supported. Use inline math like <code>$a^2 + b^2 = c^2$</code> or block math with <code>$$...$$</code>.
               </div>
             </div>
           )}
@@ -1687,6 +2010,17 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
           </button>
         </div>
       )}
+      <ColorSelectionDialog
+        open={annotationColorDialogOpen}
+        title={annotationColorDialogTitle}
+        description="Choose annotation color and opacity."
+        initialColor={annotationColorDialogInitialColor}
+        defaultColor={annotationColorDialogDefaultColor}
+        confirmLabel="Use Color"
+        allowOpacity
+        onCancel={() => setAnnotationColorDialogTarget(null)}
+        onConfirm={applyAnnotationColorFromDialog}
+      />
     </div>
   );
 }

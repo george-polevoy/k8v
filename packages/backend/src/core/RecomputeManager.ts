@@ -1,4 +1,4 @@
-import { ComputationResult, Connection, Graph, GraphNode } from '../types/index.js';
+import { ComputationResult, Connection, Graph, GraphNode, NodeType } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { GraphEngine } from './GraphEngine.js';
 
@@ -80,6 +80,10 @@ function getAutoRecomputeEnabled(node: GraphNode): boolean {
   return Boolean(node.config.config?.autoRecompute);
 }
 
+function isComputableNode(node: GraphNode): boolean {
+  return node.type !== NodeType.ANNOTATION;
+}
+
 function clampRecomputeConcurrency(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_RECOMPUTE_CONCURRENCY;
@@ -120,6 +124,9 @@ export class RecomputeManager {
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
+    if (!isComputableNode(node)) {
+      throw new Error(`Node ${nodeId} is not executable`);
+    }
 
     await this.enqueueTask(graphId, {
       type: 'manual_node',
@@ -144,7 +151,9 @@ export class RecomputeManager {
 
     await this.enqueueTask(graphId, {
       type: 'manual_graph',
-      rootNodeIds: graph.nodes.map((node) => node.id),
+      rootNodeIds: graph.nodes
+        .filter((node) => isComputableNode(node))
+        .map((node) => node.id),
     });
 
     const results = new Map<string, ComputationResult>();
@@ -483,7 +492,12 @@ export class RecomputeManager {
     rootNodeIds: string[]
   ): string[] {
     if (type === 'manual_graph') {
-      return this.topologicalSortNodeIds(graph);
+      const computableNodeIds = new Set(
+        graph.nodes
+          .filter((node) => isComputableNode(node))
+          .map((node) => node.id)
+      );
+      return this.topologicalSortNodeIds(graph).filter((nodeId) => computableNodeIds.has(nodeId));
     }
 
     const graphNodeIds = new Set(graph.nodes.map((node) => node.id));
@@ -498,17 +512,28 @@ export class RecomputeManager {
 
     if (type === 'graph_update') {
       for (const node of graph.nodes) {
-        if (impactedNodeIds.has(node.id) && getAutoRecomputeEnabled(node)) {
+        if (
+          impactedNodeIds.has(node.id) &&
+          isComputableNode(node) &&
+          getAutoRecomputeEnabled(node)
+        ) {
           selectedNodeIds.add(node.id);
         }
       }
     } else {
       for (const rootNodeId of normalizedRoots) {
-        selectedNodeIds.add(rootNodeId);
+        const rootNode = graph.nodes.find((node) => node.id === rootNodeId);
+        if (rootNode && isComputableNode(rootNode)) {
+          selectedNodeIds.add(rootNodeId);
+        }
       }
 
       for (const node of graph.nodes) {
-        if (impactedNodeIds.has(node.id) && getAutoRecomputeEnabled(node)) {
+        if (
+          impactedNodeIds.has(node.id) &&
+          isComputableNode(node) &&
+          getAutoRecomputeEnabled(node)
+        ) {
           selectedNodeIds.add(node.id);
         }
       }

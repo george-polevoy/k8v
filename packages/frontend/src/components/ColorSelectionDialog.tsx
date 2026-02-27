@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { normalizeHexColor } from '../utils/color';
+import {
+  colorWithOpacityToCss,
+  normalizeColorWithOpacity,
+  normalizeHexColor,
+  serializeColorWithOpacity,
+} from '../utils/color';
 
 const DEFAULT_PRESET_COLORS = [
   '#ffffff',
@@ -23,27 +28,53 @@ interface ColorSelectionDialogProps {
   initialColor: string;
   defaultColor?: string;
   presetColors?: string[];
+  allowOpacity?: boolean;
   confirmLabel?: string;
   description?: string;
   onCancel: () => void;
   onConfirm: (color: string) => void;
 }
 
-function resolveTypedColor(value: string): string | null {
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === 'white') {
-    return '#ffffff';
+interface RgbChannels {
+  r: number;
+  g: number;
+  b: number;
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
-  if (trimmed === 'green') {
-    return '#22c55e';
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function clampChannel(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
-  if (trimmed === 'red') {
-    return '#ef4444';
-  }
-  if (/^#[0-9a-f]{6}$/i.test(trimmed)) {
-    return trimmed;
-  }
-  return null;
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function hexToRgbChannels(hex: string): RgbChannels {
+  const normalizedHex = normalizeHexColor(hex, '#000000');
+  return {
+    r: Number.parseInt(normalizedHex.slice(1, 3), 16),
+    g: Number.parseInt(normalizedHex.slice(3, 5), 16),
+    b: Number.parseInt(normalizedHex.slice(5, 7), 16),
+  };
+}
+
+function rgbChannelsToHex(channels: RgbChannels): string {
+  const channel = (value: number) => clampChannel(value).toString(16).padStart(2, '0');
+  return `#${channel(channels.r)}${channel(channels.g)}${channel(channels.b)}`;
+}
+
+function channelToPercent(channel: number): number {
+  return clampPercent((clampChannel(channel) / 255) * 100);
+}
+
+function percentToChannel(percent: number): number {
+  return clampChannel((clampPercent(percent) / 100) * 255);
 }
 
 function ColorSelectionDialog({
@@ -52,22 +83,48 @@ function ColorSelectionDialog({
   initialColor,
   defaultColor = '#ffffff',
   presetColors = DEFAULT_PRESET_COLORS,
+  allowOpacity = false,
   confirmLabel = 'Apply',
   description,
   onCancel,
   onConfirm,
 }: ColorSelectionDialogProps) {
-  const [draftColor, setDraftColor] = useState(() => normalizeHexColor(initialColor, defaultColor));
-  const [draftInput, setDraftInput] = useState(() => normalizeHexColor(initialColor, defaultColor));
+  const initialParsedColor = normalizeColorWithOpacity(initialColor, defaultColor);
+  const initialRgb = hexToRgbChannels(initialParsedColor.hex);
+  const [draftColor, setDraftColor] = useState(() => initialParsedColor.hex);
+  const [draftOpacity, setDraftOpacity] = useState(() => initialParsedColor.alpha);
+  const [draftRedPercent, setDraftRedPercent] = useState(() => channelToPercent(initialRgb.r));
+  const [draftGreenPercent, setDraftGreenPercent] = useState(() => channelToPercent(initialRgb.g));
+  const [draftBluePercent, setDraftBluePercent] = useState(() => channelToPercent(initialRgb.b));
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    const normalized = normalizeHexColor(initialColor, defaultColor);
-    setDraftColor(normalized);
-    setDraftInput(normalized);
+    const parsed = normalizeColorWithOpacity(initialColor, defaultColor);
+    const parsedRgb = hexToRgbChannels(parsed.hex);
+    setDraftColor(parsed.hex);
+    setDraftOpacity(parsed.alpha);
+    setDraftRedPercent(channelToPercent(parsedRgb.r));
+    setDraftGreenPercent(channelToPercent(parsedRgb.g));
+    setDraftBluePercent(channelToPercent(parsedRgb.b));
   }, [defaultColor, initialColor, open]);
+
+  const applyRgbPercents = (nextRed: number, nextGreen: number, nextBlue: number) => {
+    const normalizedRed = clampPercent(nextRed);
+    const normalizedGreen = clampPercent(nextGreen);
+    const normalizedBlue = clampPercent(nextBlue);
+    setDraftRedPercent(normalizedRed);
+    setDraftGreenPercent(normalizedGreen);
+    setDraftBluePercent(normalizedBlue);
+    setDraftColor(
+      rgbChannelsToHex({
+        r: percentToChannel(normalizedRed),
+        g: percentToChannel(normalizedGreen),
+        b: percentToChannel(normalizedBlue),
+      })
+    );
+  };
 
   if (!open) {
     return null;
@@ -105,76 +162,102 @@ function ColorSelectionDialog({
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-          <input
-            type="color"
-            value={draftColor}
-            onChange={(event) => {
-              const normalized = normalizeHexColor(event.target.value, defaultColor);
-              setDraftColor(normalized);
-              setDraftInput(normalized);
-            }}
-            style={{
-              width: '54px',
-              height: '34px',
-              border: '1px solid #cbd5e1',
-              borderRadius: '6px',
-              padding: 0,
-              background: '#ffffff',
-              cursor: 'pointer',
-            }}
-          />
-          <input
-            type="text"
-            value={draftInput}
-            onChange={(event) => {
-              const nextText = event.target.value;
-              setDraftInput(nextText);
-              const typedColor = resolveTypedColor(nextText);
-              if (typedColor) {
-                setDraftColor(typedColor);
-              }
-            }}
-            onBlur={() => {
-              const normalized = normalizeHexColor(draftInput, draftColor);
-              setDraftColor(normalized);
-              setDraftInput(normalized);
-            }}
-            placeholder="#ffffff"
-            spellCheck={false}
-            style={{
-              flex: 1,
-              padding: '7px 8px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              boxSizing: 'border-box',
-            }}
-          />
           <div
-            title="Preview"
             style={{
               width: '24px',
               height: '24px',
               borderRadius: '50%',
               border: '1px solid #334155',
-              background: draftColor,
+              background: allowOpacity
+                ? colorWithOpacityToCss({ hex: draftColor, alpha: draftOpacity })
+                : draftColor,
               flexShrink: 0,
             }}
           />
+          <div style={{ fontSize: '11px', color: '#475569' }}>Preview</div>
         </div>
+        <div style={{ marginBottom: '12px', display: 'grid', gap: '8px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
+            Red: {draftRedPercent}%
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={draftRedPercent}
+              onChange={(event) => {
+                const nextRed = Number.parseInt(event.target.value, 10);
+                applyRgbPercents(nextRed, draftGreenPercent, draftBluePercent);
+              }}
+              style={{ width: '100%' }}
+            />
+          </label>
+          <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
+            Green: {draftGreenPercent}%
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={draftGreenPercent}
+              onChange={(event) => {
+                const nextGreen = Number.parseInt(event.target.value, 10);
+                applyRgbPercents(draftRedPercent, nextGreen, draftBluePercent);
+              }}
+              style={{ width: '100%' }}
+            />
+          </label>
+          <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
+            Blue: {draftBluePercent}%
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={draftBluePercent}
+              onChange={(event) => {
+                const nextBlue = Number.parseInt(event.target.value, 10);
+                applyRgbPercents(draftRedPercent, draftGreenPercent, nextBlue);
+              }}
+              style={{ width: '100%' }}
+            />
+          </label>
+        </div>
+        {allowOpacity && (
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: '#475569', marginBottom: '4px' }}>
+              Opacity: {Math.round(draftOpacity * 100)}%
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(draftOpacity * 100)}
+              onChange={(event) => {
+                const nextOpacity = Math.min(100, Math.max(0, Number.parseInt(event.target.value, 10))) / 100;
+                setDraftOpacity(nextOpacity);
+              }}
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '6px', marginBottom: '12px' }}>
-          {presetColors.map((preset) => {
+          {presetColors.map((preset, index) => {
             const normalizedPreset = normalizeHexColor(preset, defaultColor);
             return (
               <button
                 key={normalizedPreset}
+                data-testid={`color-preset-${index}`}
+                data-color={normalizedPreset}
                 type="button"
                 onClick={() => {
+                  const presetRgb = hexToRgbChannels(normalizedPreset);
                   setDraftColor(normalizedPreset);
-                  setDraftInput(normalizedPreset);
+                  setDraftRedPercent(channelToPercent(presetRgb.r));
+                  setDraftGreenPercent(channelToPercent(presetRgb.g));
+                  setDraftBluePercent(channelToPercent(presetRgb.b));
                 }}
-                title={normalizedPreset}
                 style={{
                   width: '100%',
                   aspectRatio: '1 / 1',
@@ -208,6 +291,10 @@ function ColorSelectionDialog({
             type="button"
             onClick={() => {
               const normalized = normalizeHexColor(draftColor, defaultColor);
+              if (allowOpacity) {
+                onConfirm(serializeColorWithOpacity({ hex: normalized, alpha: draftOpacity }, true));
+                return;
+              }
               onConfirm(normalized);
             }}
             style={{

@@ -87,6 +87,28 @@ function createNumericInputNode(id: string, value: number) {
   };
 }
 
+function createAnnotationNode(id: string) {
+  return {
+    id,
+    type: 'annotation',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: `Annotation ${id}`,
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: '# Note',
+        backgroundColor: '#fef3c7',
+        fontColor: '#1f2937',
+      },
+    },
+    version: '1',
+  };
+}
+
 function createPngGraphicsNode(id: string) {
   return {
     id,
@@ -239,6 +261,31 @@ test('POST /api/graphs accepts numeric_input nodes and compute returns numeric v
     assert.equal(computeResponse.status, 200);
     const result = await computeResponse.json();
     assert.equal(result.outputs.value, 42);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('annotation nodes are accepted and are non-executable via node compute endpoint', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const annotationNode = createAnnotationNode('annotation-1');
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [annotationNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.equal(createdGraph.nodes[0].type, 'annotation');
+
+    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'annotation-1' }),
+    });
+    assert.equal(computeResponse.status, 500);
+    const body = await computeResponse.json();
+    assert.match(String(body.error ?? ''), /not executable/i);
   } finally {
     await ctx.close();
   }

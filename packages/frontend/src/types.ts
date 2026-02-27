@@ -53,6 +53,7 @@ export enum NodeType {
   EXTERNAL_INPUT = 'external_input',
   NUMERIC_INPUT = 'numeric_input',
   EXTERNAL_OUTPUT = 'external_output',
+  ANNOTATION = 'annotation',
 }
 
 export type RuntimeId = 'javascript_vm' | 'python_process';

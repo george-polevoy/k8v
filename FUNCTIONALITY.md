@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of February 23, 2026.
+This file tracks what is currently implemented in the codebase as of February 27, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -50,6 +50,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
 - Node cards can be resized directly on canvas via drag handle; resized width/height persists per node with minimum-size guards and no fixed maximum cap.
+- `annotation` nodes render markdown note cards (including TeX/LaTeX math) directly on canvas via an HTML overlay synchronized to pan/zoom.
+- Annotation cards display note content only (no card title) and render no overlay text when content is empty.
+- New annotation cards are created with empty text content (no default template).
+- `annotation` node cards support configurable background, border, and font colors.
+- Annotation color controls support opacity (alpha) and use the shared color dialog used by drawing/canvas background workflows.
+- `annotation` node cards support configurable font size.
+- `annotation` node cards support all-side resize handles (north/south/east/west + corners) and persist updated size/position.
 - Minimap/navigation assistant with click-to-center behavior.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
@@ -83,6 +90,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Run selected node manually.
 - Edit selected drawing name and delete selected drawing from node panel.
 - Node panel shows selected-node graphics budget debug values (`maxPixels` inputs/selection) for projected graphics troubleshooting.
+- Node panel supports annotation content editing (markdown + TeX/LaTeX), annotation card color controls, and annotation font-size controls.
 
 ## Node Status and Indicators
 
@@ -129,6 +137,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## Runtime and Execution Engine
 
 - NodeExecutor supports inline code, library, subgraph, external input, numeric input, external output node types.
+- `annotation` nodes are presentation-only and excluded from backend recompute execution.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
 - Graph-level script execution timeout (`executionTimeoutMs`) defaults to 30 seconds and is editable in graph settings.

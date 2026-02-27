@@ -63,6 +63,26 @@ function createNumericInputNode(config?: Record<string, unknown>): GraphNode {
   };
 }
 
+function createAnnotationNode(): GraphNode {
+  return {
+    id: 'annotation-node',
+    type: NodeType.ANNOTATION,
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: 'Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: NodeType.ANNOTATION,
+      config: {
+        text: 'hello',
+      },
+    },
+    version: '1',
+  };
+}
+
 function hasPythonAvailable(): boolean {
   const result = spawnSync(process.env.K8V_PYTHON_BIN || 'python3', ['--version'], {
     encoding: 'utf8',
@@ -309,6 +329,26 @@ test('NodeExecutor executes numeric_input nodes with normalized min/max/step/val
     };
     const normalizedResult = await executor.execute(numericNode, {});
     assert.equal(normalizedResult.outputs.value, 3);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('NodeExecutor executes annotation nodes as non-computing no-op outputs', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const runtime = new StubRuntime({ outputs: { output: 42 } });
+  const executor = new NodeExecutor(dataStore, {
+    javascript_vm: runtime,
+  });
+  const annotationNode = createAnnotationNode();
+
+  try {
+    const result = await executor.execute(annotationNode, {});
+    assert.deepEqual(result.outputs, {});
+    assert.deepEqual(result.schema, {});
+    assert.equal(runtime.calls, 0);
   } finally {
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });

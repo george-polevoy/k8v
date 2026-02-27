@@ -1006,7 +1006,7 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
               fontSize: '11px',
             }}
           >
-            <span>{canvasBackgroundDraft.baseColor}</span>
+            <span>Choose color</span>
             <span
               style={{
                 width: '14px',

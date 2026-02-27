@@ -17,18 +17,30 @@ const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
 const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 const NODE_MIN_WIDTH = 180;
+const ANNOTATION_NODE_MIN_WIDTH = 140;
+const ANNOTATION_NODE_MIN_HEIGHT = 84;
 
 function clonePosition(position: Position): Position {
   return { x: position.x, y: position.y };
 }
 
 function getNodeMinHeight(node: GraphNode): number {
+  if (node.type === NodeType.ANNOTATION) {
+    return ANNOTATION_NODE_MIN_HEIGHT;
+  }
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
   const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
   if (node.type === NodeType.NUMERIC_INPUT) {
     return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
   }
   return baseHeight;
+}
+
+function getNodeMinWidth(node: GraphNode): number {
+  if (node.type === NodeType.ANNOTATION) {
+    return ANNOTATION_NODE_MIN_WIDTH;
+  }
+  return NODE_MIN_WIDTH;
 }
 
 function resolveNodeCardSizeFromNode(node: GraphNode): ProjectionNodeCardSize {
@@ -42,7 +54,7 @@ function resolveNodeCardSizeFromNode(node: GraphNode): ProjectionNodeCardSize {
     : minHeight;
 
   return {
-    width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
+    width: Math.max(getNodeMinWidth(node), Math.round(rawWidth)),
     height: Math.max(minHeight, Math.round(rawHeight)),
   };
 }

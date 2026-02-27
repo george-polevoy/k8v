@@ -11,10 +11,15 @@
   },
   "dependencies": {
     "axios": "^1.6.2",
+    "katex": "^0.16.11",
     "pixi.js": "^7.4.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
     "reactflow": "^11.10.4",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "uuid": "^9.0.1",
     "zustand": "^4.4.7"
   },

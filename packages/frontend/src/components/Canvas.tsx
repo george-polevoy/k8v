@@ -29,7 +29,7 @@ import {
 } from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
 import { deriveGradientStops, normalizeCanvasBackground, resolveGraphCanvasBackground } from '../utils/canvasBackground';
-import { hexColorToNumber } from '../utils/color';
+import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
   buildGraphicsImageUrl,
   estimateProjectedPixelBudget,
@@ -42,13 +42,23 @@ import {
   resolveWheelZoomSensitivityMultiplier,
   shouldWheelPanCanvas,
 } from '../utils/wheelNavigation';
+import {
+  DEFAULT_GRAPH_PROJECTION_ID,
+  withNodeCardSizeInProjection,
+  withNodePositionInProjection,
+} from '../utils/projections';
 import { v4 as uuidv4 } from 'uuid';
+import AnnotationMarkdown from './AnnotationMarkdown';
+import { normalizeAnnotationConfig } from '../utils/annotation';
 
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
 const MIN_NODE_HEIGHT = 68;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
+const ANNOTATION_TEXT_INSET_X = 8;
+const ANNOTATION_TEXT_INSET_Y = 8;
+const ANNOTATION_TEXT_INSET_BOTTOM = 8;
 const PORT_SPACING = 18;
 const PORT_RADIUS = 4;
 const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
@@ -72,6 +82,8 @@ const NUMERIC_SLIDER_TRACK_WIDTH = 4;
 const NUMERIC_SLIDER_KNOB_RADIUS = 7;
 const NODE_RESIZE_HANDLE_SIZE = 10;
 const NODE_RESIZE_HANDLE_MARGIN = 4;
+const ANNOTATION_NODE_MIN_WIDTH = 140;
+const ANNOTATION_NODE_MIN_HEIGHT = 84;
 const SMOKE_EMIT_INTERVAL_MS = 140;
 const SMOKE_MIN_DURATION_MS = 720;
 const SMOKE_MAX_DURATION_MS = 1320;
@@ -139,12 +151,42 @@ interface NodeResizeState {
   nodeId: string;
   pointerX: number;
   pointerY: number;
+  x: number;
+  y: number;
   width: number;
   height: number;
+  handle: ResizeHandleDirection;
   minWidth: number;
   minHeight: number;
+  currentX: number;
+  currentY: number;
   currentWidth: number;
   currentHeight: number;
+}
+
+type ResizeHandleDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+interface HoveredResizeHandle {
+  nodeId: string;
+  handle: ResizeHandleDirection;
+}
+
+interface AnnotationOverlayEntry {
+  nodeId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  backgroundColor: string;
+  fontColor: string;
+  fontSize: number;
+}
+
+interface AnnotationOverlayTransform {
+  x: number;
+  y: number;
+  scale: number;
 }
 
 interface ConnectionDragState {
@@ -474,7 +516,17 @@ function isRenderablePythonGraphicsOutput(
     isRenderableGraphicsArtifact(graphicsOutput);
 }
 
+function getNodeMinWidth(node: GraphNode): number {
+  if (node.type === NodeType.ANNOTATION) {
+    return ANNOTATION_NODE_MIN_WIDTH;
+  }
+  return NODE_MIN_WIDTH;
+}
+
 function getNodeMinHeight(node: GraphNode): number {
+  if (node.type === NodeType.ANNOTATION) {
+    return ANNOTATION_NODE_MIN_HEIGHT;
+  }
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
   const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
   if (node.type === NodeType.NUMERIC_INPUT) {
@@ -487,7 +539,7 @@ function resolveNodeCardDimensions(
   node: GraphNode,
   draftSize?: { width: number; height: number }
 ): NodeCardDimensions {
-  const minWidth = NODE_MIN_WIDTH;
+  const minWidth = getNodeMinWidth(node);
   const minHeight = getNodeMinHeight(node);
   const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
   const widthCandidate = draftSize
@@ -502,11 +554,57 @@ function resolveNodeCardDimensions(
   return { width, height, minWidth, minHeight };
 }
 
+function resolveResizeCursor(handle: ResizeHandleDirection): string {
+  if (handle === 'n' || handle === 's') {
+    return 'ns-resize';
+  }
+  if (handle === 'e' || handle === 'w') {
+    return 'ew-resize';
+  }
+  if (handle === 'ne' || handle === 'sw') {
+    return 'nesw-resize';
+  }
+  return 'nwse-resize';
+}
+
+function areAnnotationOverlaysEqual(
+  left: AnnotationOverlayEntry[],
+  right: AnnotationOverlayEntry[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+    if (
+      leftItem.nodeId !== rightItem.nodeId ||
+      leftItem.x !== rightItem.x ||
+      leftItem.y !== rightItem.y ||
+      leftItem.width !== rightItem.width ||
+      leftItem.height !== rightItem.height ||
+      leftItem.text !== rightItem.text ||
+      leftItem.backgroundColor !== rightItem.backgroundColor ||
+      leftItem.fontColor !== rightItem.fontColor ||
+      leftItem.fontSize !== rightItem.fontSize
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function resolveNodeRenderTargetPosition(
   node: GraphNode,
-  dragState: NodeDragState | null
+  dragState: NodeDragState | null,
+  draftPosition?: Position
 ): Position {
   if (!dragState || dragState.nodeId !== node.id) {
+    if (draftPosition) {
+      return { ...draftPosition };
+    }
     return { ...node.position };
   }
 
@@ -602,10 +700,12 @@ function drawNodeCardFrame(
   height: number,
   strokeColor: number,
   fillColor: number,
-  squareBottomCorners: boolean
+  squareBottomCorners: boolean,
+  strokeAlpha = 1,
+  fillAlpha = 1
 ): void {
-  graphics.lineStyle(2, strokeColor, 1);
-  graphics.beginFill(fillColor, 1);
+  graphics.lineStyle(2, strokeColor, strokeAlpha);
+  graphics.beginFill(fillColor, fillAlpha);
 
   if (!squareBottomCorners) {
     graphics.drawRoundedRect(0, 0, width, height, 10);
@@ -863,9 +963,9 @@ function Canvas() {
   const nodeGraphicsOutputs = useGraphStore((state) => state.nodeGraphicsOutputs);
   const selectNode = useGraphStore((state) => state.selectNode);
   const updateNode = useGraphStore((state) => state.updateNode);
+  const updateGraph = useGraphStore((state) => state.updateGraph);
   const selectDrawing = useGraphStore((state) => state.selectDrawing);
   const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
-  const updateNodeCardSize = useGraphStore((state) => state.updateNodeCardSize);
   const updateDrawingPosition = useGraphStore((state) => state.updateDrawingPosition);
   const addDrawing = useGraphStore((state) => state.addDrawing);
   const addDrawingPath = useGraphStore((state) => state.addDrawingPath);
@@ -938,12 +1038,21 @@ function Canvas() {
   const panStateRef = useRef<PanState | null>(null);
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
   const nodeResizeStateRef = useRef<NodeResizeState | null>(null);
-  const hoveredNodeResizeHandleNodeIdRef = useRef<string | null>(null);
+  const hoveredNodeResizeHandleRef = useRef<HoveredResizeHandle | null>(null);
   const nodeCardDraftSizesRef = useRef<Map<string, { width: number; height: number }>>(new Map());
+  const nodeCardDraftPositionsRef = useRef<Map<string, Position>>(new Map());
   const lastGraphIdRef = useRef<string | null>(null);
   const viewportInitializedRef = useRef(false);
   const handledDrawingCreateRequestRef = useRef(0);
+  const annotationOverlaysRef = useRef<AnnotationOverlayEntry[]>([]);
+  const annotationOverlayTransformRef = useRef<AnnotationOverlayTransform>({ x: 0, y: 0, scale: 1 });
   const [canvasReady, setCanvasReady] = useState(false);
+  const [annotationOverlays, setAnnotationOverlays] = useState<AnnotationOverlayEntry[]>([]);
+  const [annotationOverlayTransform, setAnnotationOverlayTransform] = useState<AnnotationOverlayTransform>({
+    x: 0,
+    y: 0,
+    scale: 1,
+  });
   selectedNodeIdRef.current = selectedNodeId;
   selectedDrawingIdRef.current = selectedDrawingId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
@@ -1017,8 +1126,12 @@ function Canvas() {
       canvas.style.cursor = 'crosshair';
       return;
     }
-    if (nodeResizeStateRef.current || hoveredNodeResizeHandleNodeIdRef.current) {
-      canvas.style.cursor = 'nwse-resize';
+    if (nodeResizeStateRef.current || hoveredNodeResizeHandleRef.current) {
+      const resizeHandle =
+        nodeResizeStateRef.current?.handle ??
+        hoveredNodeResizeHandleRef.current?.handle ??
+        'se';
+      canvas.style.cursor = resolveResizeCursor(resizeHandle);
       return;
     }
     if (numericSliderDragStateRef.current || hoveredNumericSliderNodeIdRef.current) {
@@ -2095,6 +2208,22 @@ function Canvas() {
     const viewportScale = viewportContainer
       ? Math.max(Math.abs(viewportContainer.scale.x || 1), 0.0001)
       : 1;
+    const nextAnnotationOverlayTransform: AnnotationOverlayTransform = viewportContainer
+      ? {
+        x: snapToPixel(viewportContainer.position.x),
+        y: snapToPixel(viewportContainer.position.y),
+        scale: viewportScale,
+      }
+      : { x: 0, y: 0, scale: 1 };
+    const previousAnnotationOverlayTransform = annotationOverlayTransformRef.current;
+    if (
+      previousAnnotationOverlayTransform.x !== nextAnnotationOverlayTransform.x ||
+      previousAnnotationOverlayTransform.y !== nextAnnotationOverlayTransform.y ||
+      Math.abs(previousAnnotationOverlayTransform.scale - nextAnnotationOverlayTransform.scale) > 0.0001
+    ) {
+      annotationOverlayTransformRef.current = nextAnnotationOverlayTransform;
+      setAnnotationOverlayTransform(nextAnnotationOverlayTransform);
+    }
     const now = performance.now();
     let activeProjectionTransition = projectionTransitionRef.current;
     let projectionTransitionProgress = 1;
@@ -2157,8 +2286,13 @@ function Canvas() {
 
     if (!currentGraph) {
       hoveredNumericSliderNodeIdRef.current = null;
-      hoveredNodeResizeHandleNodeIdRef.current = null;
+      hoveredNodeResizeHandleRef.current = null;
       nodeCardDraftSizesRef.current.clear();
+      nodeCardDraftPositionsRef.current.clear();
+      if (annotationOverlaysRef.current.length > 0) {
+        annotationOverlaysRef.current = [];
+        setAnnotationOverlays([]);
+      }
       clearAllNodeGraphicsTextures();
       if (selectedNodeGraphicsDebugRef.current !== null) {
         selectedNodeGraphicsDebugRef.current = null;
@@ -2179,13 +2313,13 @@ function Canvas() {
     }
 
     if (
-      hoveredNodeResizeHandleNodeIdRef.current &&
+      hoveredNodeResizeHandleRef.current &&
       (
-        !currentGraph.nodes.some((node) => node.id === hoveredNodeResizeHandleNodeIdRef.current) ||
-        selectedNodeIdRef.current !== hoveredNodeResizeHandleNodeIdRef.current
+        !currentGraph.nodes.some((node) => node.id === hoveredNodeResizeHandleRef.current?.nodeId) ||
+        selectedNodeIdRef.current !== hoveredNodeResizeHandleRef.current?.nodeId
       )
     ) {
-      hoveredNodeResizeHandleNodeIdRef.current = null;
+      hoveredNodeResizeHandleRef.current = null;
     }
 
     const currentNodeIds = new Set(currentGraph.nodes.map((node) => node.id));
@@ -2194,9 +2328,15 @@ function Canvas() {
         nodeCardDraftSizesRef.current.delete(nodeId);
       }
     }
+    for (const nodeId of nodeCardDraftPositionsRef.current.keys()) {
+      if (!currentNodeIds.has(nodeId)) {
+        nodeCardDraftPositionsRef.current.delete(nodeId);
+      }
+    }
 
     const activeNodeGraphicsTextureIds = new Set<string>();
     let selectedNodeGraphicsDebugNext: NodeGraphicsComputationDebug | null = null;
+    const nextAnnotationOverlays: AnnotationOverlayEntry[] = [];
     const selectedNodeIdValue = selectedNodeIdRef.current;
     const activeNodeDragState = nodeDragStateRef.current;
 
@@ -2206,7 +2346,11 @@ function Canvas() {
         activeNodeDragState && activeNodeDragState.nodeId === node.id
           ? activeNodeDragState
           : null;
-      const targetPosition = resolveNodeRenderTargetPosition(node, dragStateForNode);
+      const targetPosition = resolveNodeRenderTargetPosition(
+        node,
+        dragStateForNode,
+        nodeCardDraftPositionsRef.current.get(node.id)
+      );
       const targetWidth = dimensions.width;
       const targetHeight = dimensions.height;
       const fromTransitionState = activeProjectionTransition?.fromNodes.get(node.id);
@@ -2281,6 +2425,24 @@ function Canvas() {
         x: snapToPixel(interpolatedPosition.x),
         y: snapToPixel(interpolatedPosition.y),
       };
+      if (node.type === NodeType.ANNOTATION) {
+        const annotationConfig = normalizeAnnotationConfig(
+          node.config.config as Record<string, unknown> | undefined
+        );
+        if (annotationConfig.text.length > 0) {
+          nextAnnotationOverlays.push({
+            nodeId: node.id,
+            x: position.x + ANNOTATION_TEXT_INSET_X,
+            y: position.y + ANNOTATION_TEXT_INSET_Y,
+            width: Math.max(32, width - (ANNOTATION_TEXT_INSET_X * 2)),
+            height: Math.max(24, height - ANNOTATION_TEXT_INSET_Y - ANNOTATION_TEXT_INSET_BOTTOM),
+            text: annotationConfig.text,
+            backgroundColor: annotationConfig.backgroundColor,
+            fontColor: annotationConfig.fontColor,
+            fontSize: annotationConfig.fontSize,
+          });
+        }
+      }
       const graphicsBounds: WorldBounds | null =
         shouldProjectGraphics && expectedProjectedGraphicsHeight > 0
           ? {
@@ -2308,6 +2470,14 @@ function Canvas() {
       container.position.set(snapToPixel(position.x), snapToPixel(position.y));
       container.eventMode = 'static';
       container.cursor = 'pointer';
+      // Keep the card body selectable even when fill alpha is 0 (fully transparent).
+      const hitPadding = NODE_RESIZE_HANDLE_SIZE * 0.5;
+      container.hitArea = new Rectangle(
+        -hitPadding,
+        -hitPadding,
+        width + (hitPadding * 2),
+        height + (hitPadding * 2)
+      );
 
       let projectedGraphicsHeight = expectedProjectedGraphicsHeight;
       let projectedGraphicsTexture: Texture | null = null;
@@ -2370,16 +2540,37 @@ function Canvas() {
         Boolean(projectedGraphicsTexture) ||
         (shouldLoadProjectedGraphics && Boolean(graphicsOutput))
       );
+      const annotationConfig = node.type === NodeType.ANNOTATION
+        ? normalizeAnnotationConfig(node.config.config as Record<string, unknown> | undefined)
+        : null;
+      const annotationBackground = annotationConfig
+        ? colorStringToPixi(annotationConfig.backgroundColor, '#fef3c7')
+        : null;
+      const annotationBorder = annotationConfig
+        ? colorStringToPixi(annotationConfig.borderColor, '#334155')
+        : null;
 
       const frame = new Graphics();
       drawNodeCardFrame(
         frame,
         width,
         height,
-        isSelected ? 0x1d4ed8 : 0x334155,
-        isSelected ? 0xe2e8f0 : 0xf8fafc,
-        hasProjectedGraphics
+        annotationBorder
+          ? annotationBorder.color
+          : isSelected
+            ? 0x1d4ed8
+            : 0x334155,
+        annotationBackground
+          ? annotationBackground.color
+          : isSelected
+            ? 0xe2e8f0
+            : 0xf8fafc,
+        hasProjectedGraphics,
+        annotationBorder?.alpha ?? 1,
+        annotationBackground?.alpha ?? 1
       );
+      frame.eventMode = 'static';
+      frame.hitArea = new Rectangle(0, 0, width, height);
       container.addChild(frame);
 
       const nodeExecutionState = nodeExecutionStatesRef.current[node.id];
@@ -2393,25 +2584,29 @@ function Canvas() {
           : autoRecomputeEnabled
             ? 0x22c55e
             : 0x94a3b8;
-      const statusLight = new Graphics();
-      statusLight.lineStyle(1, 0x0f172a, 0.25);
-      statusLight.beginFill(statusLightColor, 1);
-      statusLight.drawCircle(width - 13, 12, 5);
-      statusLight.endFill();
-      container.addChild(statusLight);
+      if (!annotationConfig) {
+        const statusLight = new Graphics();
+        statusLight.lineStyle(1, 0x0f172a, 0.25);
+        statusLight.beginFill(statusLightColor, 1);
+        statusLight.drawCircle(width - 13, 12, 5);
+        statusLight.endFill();
+        container.addChild(statusLight);
+      }
 
-      const titleText = truncateTextToWidth(
-        node.metadata.name,
-        width - 34,
-        (candidate) => candidate.length * NODE_TITLE_CHAR_WIDTH_ESTIMATE
-      );
-      const title = new Text(titleText, NODE_TITLE_TEXT_STYLE);
-      title.resolution = PIXEL_RATIO;
-      textNodesRef.current.add(title);
-      title.position.set(12, 8);
-      container.addChild(title);
+      if (!annotationConfig) {
+        const titleText = truncateTextToWidth(
+          node.metadata.name,
+          width - 34,
+          (candidate) => candidate.length * NODE_TITLE_CHAR_WIDTH_ESTIMATE
+        );
+        const title = new Text(titleText, NODE_TITLE_TEXT_STYLE);
+        title.resolution = PIXEL_RATIO;
+        textNodesRef.current.add(title);
+        title.position.set(12, 8);
+        container.addChild(title);
+      }
 
-      if (node.type !== NodeType.NUMERIC_INPUT) {
+      if (node.type !== NodeType.NUMERIC_INPUT && node.type !== NodeType.ANNOTATION) {
         const subtitle = new Text(node.type.replace(/_/g, ' '), {
           fontFamily: 'Arial',
           fontSize: 11,
@@ -2574,9 +2769,26 @@ function Canvas() {
       }
 
       if (isNumericInputNode) {
-        const numericConfig = normalizeNumericInputConfig(
+        const activeNumericSliderDragState = numericSliderDragStateRef.current;
+        const numericSliderDragStateForNode =
+          activeNumericSliderDragState && activeNumericSliderDragState.nodeId === node.id
+            ? activeNumericSliderDragState
+            : null;
+        const numericConfigBase = normalizeNumericInputConfig(
           node.config.config as Record<string, unknown> | undefined
         );
+        const numericConfig = numericSliderDragStateForNode
+          ? {
+            ...numericConfigBase,
+            // Preserve live drag value if the canvas re-renders before pointerup commits it.
+            value: snapNumericInputValue(
+              numericSliderDragStateForNode.currentValue,
+              numericConfigBase.min,
+              numericConfigBase.max,
+              numericConfigBase.step
+            ),
+          }
+          : numericConfigBase;
         const trackX = NUMERIC_SLIDER_LEFT_PADDING;
         const trackWidth = Math.max(
           40,
@@ -2697,68 +2909,102 @@ function Canvas() {
       }
 
       if (isSelected) {
+        const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
         const handleSize = NODE_RESIZE_HANDLE_SIZE;
-        const handleX = width - handleSize - NODE_RESIZE_HANDLE_MARGIN;
-        const handleY = height - handleSize - NODE_RESIZE_HANDLE_MARGIN;
-        const resizeHandle = new Graphics();
-        resizeHandle.beginFill(0x1d4ed8, 0.9);
-        resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
-        resizeHandle.endFill();
-        resizeHandle.eventMode = 'static';
-        resizeHandle.cursor = 'nwse-resize';
-        resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
-          if (drawingEnabledRef.current) {
-            return;
-          }
-          event.stopPropagation();
-          hoveredNodeResizeHandleNodeIdRef.current = node.id;
-          applyCanvasCursor();
-        });
-        resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
-          if (drawingEnabledRef.current) {
-            return;
-          }
-          event.stopPropagation();
-          if (nodeResizeStateRef.current?.nodeId === node.id) {
-            return;
-          }
-          if (hoveredNodeResizeHandleNodeIdRef.current === node.id) {
-            hoveredNodeResizeHandleNodeIdRef.current = null;
-          }
-          applyCanvasCursor();
-        });
-        resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
-          if (drawingEnabledRef.current) {
-            return;
-          }
-          if (event.button !== 0) return;
-          event.stopPropagation();
-          const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
-          canvas?.focus({ preventScroll: true });
+        const createResizeHandle = (
+          handleX: number,
+          handleY: number,
+          handleDirection: ResizeHandleDirection
+        ) => {
+          const resizeHandle = new Graphics();
+          resizeHandle.lineStyle(1, 0x1e3a8a, 0.7);
+          resizeHandle.beginFill(0x1d4ed8, 0.9);
+          resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
+          resizeHandle.endFill();
+          resizeHandle.eventMode = 'static';
+          resizeHandle.cursor = resolveResizeCursor(handleDirection);
+          resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            event.stopPropagation();
+            hoveredNodeResizeHandleRef.current = { nodeId: node.id, handle: handleDirection };
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            event.stopPropagation();
+            if (
+              nodeResizeStateRef.current?.nodeId === node.id &&
+              nodeResizeStateRef.current.handle === handleDirection
+            ) {
+              return;
+            }
+            if (
+              hoveredNodeResizeHandleRef.current?.nodeId === node.id &&
+              hoveredNodeResizeHandleRef.current.handle === handleDirection
+            ) {
+              hoveredNodeResizeHandleRef.current = null;
+            }
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            if (event.button !== 0) return;
+            event.stopPropagation();
+            const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+            canvas?.focus({ preventScroll: true });
 
-          selectedConnectionIdRef.current = null;
-          selectedNodeIdRef.current = node.id;
-          selectNode(node.id);
-          nodeResizeStateRef.current = {
-            nodeId: node.id,
-            pointerX: event.global.x,
-            pointerY: event.global.y,
-            width,
-            height,
-            minWidth: dimensions.minWidth,
-            minHeight: dimensions.minHeight,
-            currentWidth: width,
-            currentHeight: height,
-          };
-          nodeCardDraftSizesRef.current.set(node.id, { width, height });
-          hoveredNodeResizeHandleNodeIdRef.current = node.id;
-          requestCanvasAnimationLoop();
-          applyCanvasCursor();
-        });
-        resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
-          event.stopPropagation();
-        });
-        container.addChild(resizeHandle);
+            selectedConnectionIdRef.current = null;
+            selectedNodeIdRef.current = node.id;
+            selectNode(node.id);
+            nodeResizeStateRef.current = {
+              nodeId: node.id,
+              pointerX: event.global.x,
+              pointerY: event.global.y,
+              x: currentPosition.x,
+              y: currentPosition.y,
+              width,
+              height,
+              handle: handleDirection,
+              minWidth: dimensions.minWidth,
+              minHeight: dimensions.minHeight,
+              currentX: currentPosition.x,
+              currentY: currentPosition.y,
+              currentWidth: width,
+              currentHeight: height,
+            };
+            nodeCardDraftSizesRef.current.set(node.id, { width, height });
+            nodeCardDraftPositionsRef.current.set(node.id, { x: currentPosition.x, y: currentPosition.y });
+            hoveredNodeResizeHandleRef.current = { nodeId: node.id, handle: handleDirection };
+            requestCanvasAnimationLoop();
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
+            event.stopPropagation();
+          });
+          container.addChild(resizeHandle);
+        };
+
+        if (node.type === NodeType.ANNOTATION) {
+          const edgeOffset = handleSize * 0.5;
+          createResizeHandle(-edgeOffset, -edgeOffset, 'nw');
+          createResizeHandle((width * 0.5) - edgeOffset, -edgeOffset, 'n');
+          createResizeHandle(width - edgeOffset, -edgeOffset, 'ne');
+          createResizeHandle(width - edgeOffset, (height * 0.5) - edgeOffset, 'e');
+          createResizeHandle(width - edgeOffset, height - edgeOffset, 'se');
+          createResizeHandle((width * 0.5) - edgeOffset, height - edgeOffset, 's');
+          createResizeHandle(-edgeOffset, height - edgeOffset, 'sw');
+          createResizeHandle(-edgeOffset, (height * 0.5) - edgeOffset, 'w');
+        } else {
+          const handleX = width - handleSize - NODE_RESIZE_HANDLE_MARGIN;
+          const handleY = height - handleSize - NODE_RESIZE_HANDLE_MARGIN;
+          createResizeHandle(handleX, handleY, 'se');
+        }
       }
 
       if (projectedGraphicsTexture) {
@@ -2920,6 +3166,11 @@ function Canvas() {
       });
     }
 
+    if (!areAnnotationOverlaysEqual(annotationOverlaysRef.current, nextAnnotationOverlays)) {
+      annotationOverlaysRef.current = nextAnnotationOverlays;
+      setAnnotationOverlays(nextAnnotationOverlays);
+    }
+
     drawConnections();
     drawFreehandStrokes();
 
@@ -3052,8 +3303,9 @@ function Canvas() {
       panStateRef.current = null;
       nodeDragStateRef.current = null;
       nodeResizeStateRef.current = null;
-      hoveredNodeResizeHandleNodeIdRef.current = null;
+      hoveredNodeResizeHandleRef.current = null;
       nodeCardDraftSizesRef.current.clear();
+      nodeCardDraftPositionsRef.current.clear();
       numericSliderDragStateRef.current = null;
       hoveredNumericSliderNodeIdRef.current = null;
       drawingDragStateRef.current = null;
@@ -3169,17 +3421,64 @@ function Canvas() {
 
       const resizeState = nodeResizeStateRef.current;
       if (resizeState) {
-        if (
+        const positionChanged = (
+          Math.abs(resizeState.currentX - resizeState.x) > 0.5 ||
+          Math.abs(resizeState.currentY - resizeState.y) > 0.5
+        );
+        const sizeChanged = (
           Math.abs(resizeState.currentWidth - resizeState.width) > 0.5 ||
           Math.abs(resizeState.currentHeight - resizeState.height) > 0.5
-        ) {
-          updateNodeCardSize(
-            resizeState.nodeId,
-            resizeState.currentWidth,
-            resizeState.currentHeight
+        );
+        const currentGraph = graphRef.current;
+        if ((positionChanged || sizeChanged) && currentGraph) {
+          const activeProjectionId = currentGraph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+          const nextPosition = {
+            x: resizeState.currentX,
+            y: resizeState.currentY,
+          };
+          const nextCardSize = {
+            width: resizeState.currentWidth,
+            height: resizeState.currentHeight,
+          };
+          const nextNodes = currentGraph.nodes.map((node) => {
+            if (node.id !== resizeState.nodeId) {
+              return node;
+            }
+            return {
+              ...node,
+              position: nextPosition,
+              config: {
+                ...node.config,
+                config: {
+                  ...(node.config.config ?? {}),
+                  cardWidth: nextCardSize.width,
+                  cardHeight: nextCardSize.height,
+                },
+              },
+            };
+          });
+          const nextProjections = (currentGraph.projections ?? []).map((projection) =>
+            projection.id === activeProjectionId
+              ? withNodeCardSizeInProjection(
+                withNodePositionInProjection(projection, resizeState.nodeId, nextPosition),
+                resizeState.nodeId,
+                nextCardSize
+              )
+              : projection
           );
+
+          void updateGraph({
+            ...currentGraph,
+            nodes: nextNodes,
+            projections: nextProjections,
+            updatedAt: Date.now(),
+          });
         }
         nodeCardDraftSizesRef.current.delete(resizeState.nodeId);
+        nodeCardDraftPositionsRef.current.delete(resizeState.nodeId);
+        if (hoveredNodeResizeHandleRef.current?.nodeId === resizeState.nodeId) {
+          hoveredNodeResizeHandleRef.current = null;
+        }
         nodeResizeStateRef.current = null;
       }
 
@@ -3286,24 +3585,72 @@ function Canvas() {
         const scale = currentViewport.scale.x || 1;
         const deltaX = (event.global.x - nodeResizeState.pointerX) / scale;
         const deltaY = (event.global.y - nodeResizeState.pointerY) / scale;
+        const resizeHandle = nodeResizeState.handle;
+        const resizeFromWest = resizeHandle.includes('w');
+        const resizeFromEast = resizeHandle.includes('e');
+        const resizeFromNorth = resizeHandle.includes('n');
+        const resizeFromSouth = resizeHandle.includes('s');
+        let nextLeft = nodeResizeState.x;
+        let nextTop = nodeResizeState.y;
+        let nextRight = nodeResizeState.x + nodeResizeState.width;
+        let nextBottom = nodeResizeState.y + nodeResizeState.height;
+
+        if (resizeFromEast) {
+          nextRight = nodeResizeState.x + nodeResizeState.width + deltaX;
+        }
+        if (resizeFromWest) {
+          nextLeft = nodeResizeState.x + deltaX;
+        }
+        if (resizeFromSouth) {
+          nextBottom = nodeResizeState.y + nodeResizeState.height + deltaY;
+        }
+        if (resizeFromNorth) {
+          nextTop = nodeResizeState.y + deltaY;
+        }
+
+        if ((nextRight - nextLeft) < nodeResizeState.minWidth) {
+          if (resizeFromWest && !resizeFromEast) {
+            nextLeft = nextRight - nodeResizeState.minWidth;
+          } else {
+            nextRight = nextLeft + nodeResizeState.minWidth;
+          }
+        }
+        if ((nextBottom - nextTop) < nodeResizeState.minHeight) {
+          if (resizeFromNorth && !resizeFromSouth) {
+            nextTop = nextBottom - nodeResizeState.minHeight;
+          } else {
+            nextBottom = nextTop + nodeResizeState.minHeight;
+          }
+        }
+
+        const nextX = snapToPixel(nextLeft);
+        const nextY = snapToPixel(nextTop);
         const nextWidth = Math.max(
           nodeResizeState.minWidth,
-          snapToPixel(nodeResizeState.width + deltaX)
+          snapToPixel(nextRight - nextLeft)
         );
         const nextHeight = Math.max(
           nodeResizeState.minHeight,
-          snapToPixel(nodeResizeState.height + deltaY)
+          snapToPixel(nextBottom - nextTop)
         );
 
         if (
+          nextX !== nodeResizeState.currentX ||
+          nextY !== nodeResizeState.currentY ||
           nextWidth !== nodeResizeState.currentWidth ||
           nextHeight !== nodeResizeState.currentHeight
         ) {
+          nodeResizeState.currentX = nextX;
+          nodeResizeState.currentY = nextY;
           nodeResizeState.currentWidth = nextWidth;
           nodeResizeState.currentHeight = nextHeight;
           nodeCardDraftSizesRef.current.set(nodeResizeState.nodeId, {
             width: nextWidth,
             height: nextHeight,
+          });
+          nodeCardDraftPositionsRef.current.set(nodeResizeState.nodeId, {
+            x: nextX,
+            y: nextY,
           });
           renderGraphRef.current();
         }
@@ -3602,7 +3949,7 @@ function Canvas() {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, refreshCanvasBackgroundTexture, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, setSelectedNodeGraphicsDebug, syncNodePortPositions, updateDrawingPosition, updateNodeCardSize, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
+  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, refreshCanvasBackgroundTexture, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, setSelectedNodeGraphicsDebug, syncNodePortPositions, updateDrawingPosition, updateGraph, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;
@@ -3666,6 +4013,50 @@ function Canvas() {
         ref={canvasHostRef}
         style={{ width: '100%', height: '100%', overflow: 'hidden' }}
       />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+          zIndex: 4,
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            transform: `translate(${annotationOverlayTransform.x}px, ${annotationOverlayTransform.y}px) scale(${annotationOverlayTransform.scale})`,
+            transformOrigin: '0 0',
+            width: '1px',
+            height: '1px',
+          }}
+        >
+          {annotationOverlays.map((overlayEntry) => (
+            <div
+              key={overlayEntry.nodeId}
+              data-testid={`annotation-overlay-${overlayEntry.nodeId}`}
+              style={{
+                position: 'absolute',
+                left: `${overlayEntry.x}px`,
+                top: `${overlayEntry.y}px`,
+                width: `${overlayEntry.width}px`,
+                height: `${overlayEntry.height}px`,
+                overflow: 'hidden',
+                padding: '4px 6px 6px',
+                color: overlayEntry.fontColor,
+              }}
+            >
+              <AnnotationMarkdown
+                markdown={overlayEntry.text}
+                color={overlayEntry.fontColor}
+                fontSize={overlayEntry.fontSize}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
       <div
         style={{
           position: 'absolute',

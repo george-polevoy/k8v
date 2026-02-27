@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInlineCodeNode, createNumericInputNode } from '../src/utils/nodeFactory.ts';
+import { createAnnotationNode, createInlineCodeNode, createNumericInputNode } from '../src/utils/nodeFactory.ts';
 import { NodeType } from '../src/types.ts';
 
 test('createInlineCodeNode uses javascript_vm runtime by default', () => {
@@ -55,4 +55,20 @@ test('createNumericInputNode uses numeric defaults and numeric_input type', () =
   assert.equal(node.config.config?.min, 0);
   assert.equal(node.config.config?.max, 100);
   assert.equal(node.config.config?.step, 1);
+});
+
+test('createAnnotationNode uses markdown/text color defaults and annotation type', () => {
+  const node = createAnnotationNode({
+    position: { x: 4, y: 9 },
+  });
+
+  assert.equal(node.type, NodeType.ANNOTATION);
+  assert.equal(node.config.type, NodeType.ANNOTATION);
+  assert.equal(node.metadata.inputs.length, 0);
+  assert.equal(node.metadata.outputs.length, 0);
+  assert.equal(node.config.config?.text, '');
+  assert.equal(node.config.config?.backgroundColor, '#fef3c7');
+  assert.equal(node.config.config?.borderColor, '#334155');
+  assert.equal(node.config.config?.fontColor, '#1f2937');
+  assert.equal(node.config.config?.fontSize, 14);
 });

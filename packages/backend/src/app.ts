@@ -97,7 +97,9 @@ function buildProjectionNodePositionMap(nodes: GraphNode[]): Record<string, { x:
 
 const NODE_WIDTH = 220;
 const NODE_MIN_WIDTH = 180;
+const ANNOTATION_NODE_MIN_WIDTH = 140;
 const MIN_NODE_HEIGHT = 68;
+const ANNOTATION_NODE_MIN_HEIGHT = 84;
 const HEADER_HEIGHT = 36;
 const NODE_BODY_PADDING = 6;
 const PORT_SPACING = 18;
@@ -118,12 +120,22 @@ function normalizeCanvasBackgroundValue(background: CanvasBackground | undefined
 }
 
 function getNodeMinHeight(node: GraphNode): number {
+  if (node.type === 'annotation') {
+    return ANNOTATION_NODE_MIN_HEIGHT;
+  }
   const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
   const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
   if (node.type === 'numeric_input') {
     return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
   }
   return baseHeight;
+}
+
+function getNodeMinWidth(node: GraphNode): number {
+  if (node.type === 'annotation') {
+    return ANNOTATION_NODE_MIN_WIDTH;
+  }
+  return NODE_MIN_WIDTH;
 }
 
 function buildProjectionNodeCardSizeMap(
@@ -140,7 +152,7 @@ function buildProjectionNodeCardSizeMap(
       ? nodeConfig.cardHeight
       : minHeight;
     map[node.id] = {
-      width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
+      width: Math.max(getNodeMinWidth(node), Math.round(rawWidth)),
       height: Math.max(minHeight, Math.round(rawHeight)),
     };
   }

@@ -39,6 +39,7 @@ export enum NodeType {
   EXTERNAL_INPUT = 'external_input',
   NUMERIC_INPUT = 'numeric_input',
   EXTERNAL_OUTPUT = 'external_output',
+  ANNOTATION = 'annotation',
 }
 
 // Graph-scoped Python environment definition

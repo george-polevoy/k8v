@@ -50,7 +50,7 @@ test(
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
 
-      await page.locator(`button[title="${selectedColor}"]`).first().click();
+      await page.locator(`button[data-color="${selectedColor}"]`).first().click();
       await page.getByRole('button', { name: 'Use Color' }).click();
 
       await page.locator('[data-testid="canvas-background-save"]').click();

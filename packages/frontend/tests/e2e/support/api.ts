@@ -26,6 +26,30 @@ interface GraphNodePayload {
   version: string;
 }
 
+interface AnnotationNodePayload {
+  id: string;
+  type: 'annotation';
+  position: { x: number; y: number };
+  metadata: {
+    name: string;
+    inputs: [];
+    outputs: [];
+  };
+  config: {
+    type: 'annotation';
+    config: {
+      text: string;
+      backgroundColor: string;
+      borderColor: string;
+      fontColor: string;
+      fontSize?: number;
+      cardWidth?: number;
+      cardHeight?: number;
+    };
+  };
+  version: string;
+}
+
 interface GraphResponse {
   id: string;
   canvasBackground?: {
@@ -34,6 +58,10 @@ interface GraphResponse {
   };
   nodes: Array<{
     id: string;
+    position?: {
+      x?: unknown;
+      y?: unknown;
+    };
     metadata?: {
       name?: string;
       inputs?: Array<{ name?: string }>;
@@ -46,6 +74,8 @@ interface GraphResponse {
         value?: unknown;
         cardWidth?: unknown;
         cardHeight?: unknown;
+        text?: unknown;
+        fontSize?: unknown;
       };
     };
   }>;
@@ -136,6 +166,60 @@ export async function createEmptyGraph(name?: string): Promise<{ graphId: string
   return { graphId: graph.id };
 }
 
+export async function createAnnotationGraph(options?: {
+  nodeName?: string;
+  nodePosition?: { x: number; y: number };
+  text?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  fontColor?: string;
+  fontSize?: number;
+  cardWidth?: number;
+  cardHeight?: number;
+}): Promise<{ graphId: string; nodeId: string }> {
+  const nodeId = randomUUID();
+  const node: AnnotationNodePayload = {
+    id: nodeId,
+    type: 'annotation',
+    position: options?.nodePosition ?? { x: 120, y: 140 },
+    metadata: {
+      name: options?.nodeName ?? 'Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: options?.text ?? '',
+        backgroundColor: options?.backgroundColor ?? '#fef3c7',
+        borderColor: options?.borderColor ?? '#334155',
+        fontColor: options?.fontColor ?? '#1f2937',
+        ...(typeof options?.fontSize === 'number' ? { fontSize: options.fontSize } : {}),
+        ...(typeof options?.cardWidth === 'number' ? { cardWidth: options.cardWidth } : {}),
+        ...(typeof options?.cardHeight === 'number' ? { cardHeight: options.cardHeight } : {}),
+      },
+    },
+    version: Date.now().toString(),
+  };
+
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: toAutotestGraphName(`e2e_annotation_${Date.now()}`),
+      nodes: [node],
+      connections: [],
+      drawings: [],
+    }),
+  });
+
+  const graph = await expectJsonResponse(response, 'Create annotation graph') as GraphResponse;
+  assert.ok(graph.id, 'Create annotation graph response should include graph id');
+  return { graphId: graph.id, nodeId };
+}
+
 export async function getNumericNodeValue(graphId: string, nodeId: string): Promise<number> {
   const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
     method: 'GET',
@@ -195,6 +279,67 @@ export async function getNodeCardSize(
   return { width, height };
 }
 
+export async function getNodePosition(
+  graphId: string,
+  nodeId: string
+): Promise<{ x: number; y: number }> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
+  assert.ok(
+    node.position &&
+    typeof node.position.x === 'number' &&
+    typeof node.position.y === 'number',
+    `Node ${nodeId} should include numeric position`
+  );
+  return {
+    x: node.position.x,
+    y: node.position.y,
+  };
+}
+
+export async function getAnnotationNodeText(
+  graphId: string,
+  nodeId: string
+): Promise<string> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
+  const text = node.config?.config?.text;
+  assert.equal(typeof text, 'string', `Node ${nodeId} annotation text must be a string`);
+  return text;
+}
+
+export async function getAnnotationNodeFontSize(
+  graphId: string,
+  nodeId: string
+): Promise<number> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
+  const fontSize = node.config?.config?.fontSize;
+  assert.equal(typeof fontSize, 'number', `Node ${nodeId} annotation fontSize must be a number`);
+  return fontSize;
+}
+
 export async function waitForNodeCardSize(
   graphId: string,
   nodeId: string,
@@ -214,6 +359,72 @@ export async function waitForNodeCardSize(
 
   throw new Error(
     `Timed out waiting for node card size in graph ${graphId}. Last size: ${JSON.stringify(lastSize)}`
+  );
+}
+
+export async function waitForNodePosition(
+  graphId: string,
+  nodeId: string,
+  predicate: (position: { x: number; y: number }) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<{ x: number; y: number }> {
+  const startedAt = Date.now();
+  let lastPosition = { x: Number.NaN, y: Number.NaN };
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastPosition = await getNodePosition(graphId, nodeId);
+    if (predicate(lastPosition)) {
+      return lastPosition;
+    }
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for node position in graph ${graphId}. Last value: ${JSON.stringify(lastPosition)}`
+  );
+}
+
+export async function waitForAnnotationNodeText(
+  graphId: string,
+  nodeId: string,
+  predicate: (text: string) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<string> {
+  const startedAt = Date.now();
+  let lastText = '';
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastText = await getAnnotationNodeText(graphId, nodeId);
+    if (predicate(lastText)) {
+      return lastText;
+    }
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for annotation text in graph ${graphId}. Last value: ${JSON.stringify(lastText)}`
+  );
+}
+
+export async function waitForAnnotationNodeFontSize(
+  graphId: string,
+  nodeId: string,
+  predicate: (fontSize: number) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<number> {
+  const startedAt = Date.now();
+  let lastFontSize = Number.NaN;
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastFontSize = await getAnnotationNodeFontSize(graphId, nodeId);
+    if (predicate(lastFontSize)) {
+      return lastFontSize;
+    }
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for annotation font size in graph ${graphId}. Last value: ${JSON.stringify(lastFontSize)}`
   );
 }
 

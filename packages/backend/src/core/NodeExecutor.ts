@@ -64,6 +64,9 @@ export class NodeExecutor {
       case NodeType.EXTERNAL_OUTPUT:
         outputs = await this.executeExternalOutput(node, inputs);
         break;
+      case NodeType.ANNOTATION:
+        outputs = await this.executeAnnotationNode();
+        break;
       default:
         throw new Error(`Unknown node type: ${node.config.type}`);
     }
@@ -193,6 +196,14 @@ export class NodeExecutor {
   private async executeExternalOutput(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
     // External output nodes pass through their inputs as outputs
     return inputs;
+  }
+
+  /**
+   * Execute annotation node
+   */
+  private async executeAnnotationNode(): Promise<Record<string, any>> {
+    // Annotation nodes are presentation-only and do not produce computation outputs.
+    return {};
   }
 
   /**
