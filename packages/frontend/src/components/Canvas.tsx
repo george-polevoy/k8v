@@ -927,6 +927,7 @@ function Canvas() {
   const previousNodeExecutionStatesRef = useRef<Record<string, NodeExecutionState>>({});
   const nodeGraphicsOutputsRef = useRef(nodeGraphicsOutputs);
   const nodeGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
+  const nodePendingGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
   const graphicsTextureCacheRef = useRef<Map<string, GraphicsTextureCacheEntry>>(new Map());
   const pendingGraphicsTextureLoadsRef = useRef<Map<string, Texture>>(new Map());
   const graphRef = useRef(graph);
@@ -1392,24 +1393,7 @@ function Canvas() {
     });
   }, [requestCanvasAnimationLoop]);
 
-  const getNodeGraphicsTextureForNode = useCallback((nodeId: string, source: string): Texture => {
-    const previousSource = nodeGraphicsTextureBindingsRef.current.get(nodeId);
-    if (previousSource === source) {
-      const existing = graphicsTextureCacheRef.current.get(source);
-      if (existing) {
-        queueNodeGraphicsTextureRefresh(source, existing.texture);
-        return existing.texture;
-      }
-      const texture = Texture.from(source);
-      graphicsTextureCacheRef.current.set(source, { texture, refCount: 1 });
-      queueNodeGraphicsTextureRefresh(source, texture);
-      return texture;
-    }
-
-    if (previousSource) {
-      releaseTextureSource(previousSource);
-    }
-
+  const retainTextureSource = useCallback((source: string): GraphicsTextureCacheEntry => {
     let cached = graphicsTextureCacheRef.current.get(source);
     if (!cached) {
       cached = { texture: Texture.from(source), refCount: 0 };
@@ -1417,10 +1401,63 @@ function Canvas() {
     }
 
     cached.refCount += 1;
-    nodeGraphicsTextureBindingsRef.current.set(nodeId, source);
     queueNodeGraphicsTextureRefresh(source, cached.texture);
-    return cached.texture;
-  }, [queueNodeGraphicsTextureRefresh, releaseTextureSource]);
+    return cached;
+  }, [queueNodeGraphicsTextureRefresh]);
+
+  const getNodeGraphicsTextureForNode = useCallback((nodeId: string, source: string): Texture => {
+    const currentSource = nodeGraphicsTextureBindingsRef.current.get(nodeId);
+    const pendingSource = nodePendingGraphicsTextureBindingsRef.current.get(nodeId);
+    if (pendingSource && pendingSource !== source) {
+      releaseTextureSource(pendingSource);
+      nodePendingGraphicsTextureBindingsRef.current.delete(nodeId);
+    }
+
+    if (currentSource === source) {
+      const existing = graphicsTextureCacheRef.current.get(source);
+      if (existing) {
+        queueNodeGraphicsTextureRefresh(source, existing.texture);
+        return existing.texture;
+      }
+
+      return retainTextureSource(source).texture;
+    }
+
+    if (pendingSource !== source) {
+      retainTextureSource(source);
+      nodePendingGraphicsTextureBindingsRef.current.set(nodeId, source);
+    }
+
+    const nextTexture = graphicsTextureCacheRef.current.get(source)?.texture;
+    const canPromoteImmediately = Boolean(nextTexture && (nextTexture.baseTexture.valid || !currentSource));
+    if (nextTexture && canPromoteImmediately) {
+      if (currentSource) {
+        releaseTextureSource(currentSource);
+      }
+      nodeGraphicsTextureBindingsRef.current.set(nodeId, source);
+      nodePendingGraphicsTextureBindingsRef.current.delete(nodeId);
+      return nextTexture;
+    }
+
+    if (currentSource) {
+      const currentTexture = graphicsTextureCacheRef.current.get(currentSource)?.texture;
+      if (currentTexture) {
+        queueNodeGraphicsTextureRefresh(currentSource, currentTexture);
+        return currentTexture;
+      }
+    }
+
+    if (nextTexture) {
+      nodeGraphicsTextureBindingsRef.current.set(nodeId, source);
+      nodePendingGraphicsTextureBindingsRef.current.delete(nodeId);
+      return nextTexture;
+    }
+
+    const retained = retainTextureSource(source);
+    nodeGraphicsTextureBindingsRef.current.set(nodeId, source);
+    nodePendingGraphicsTextureBindingsRef.current.delete(nodeId);
+    return retained.texture;
+  }, [queueNodeGraphicsTextureRefresh, releaseTextureSource, retainTextureSource]);
 
   const releaseUnusedNodeGraphicsTextures = useCallback((activeNodeIds: Set<string>) => {
     for (const [nodeId, source] of nodeGraphicsTextureBindingsRef.current.entries()) {
@@ -1431,6 +1468,15 @@ function Canvas() {
       releaseTextureSource(source);
       nodeGraphicsTextureBindingsRef.current.delete(nodeId);
     }
+
+    for (const [nodeId, source] of nodePendingGraphicsTextureBindingsRef.current.entries()) {
+      if (activeNodeIds.has(nodeId)) {
+        continue;
+      }
+
+      releaseTextureSource(source);
+      nodePendingGraphicsTextureBindingsRef.current.delete(nodeId);
+    }
   }, [releaseTextureSource]);
 
   const clearAllNodeGraphicsTextures = useCallback(() => {
@@ -1439,6 +1485,7 @@ function Canvas() {
     }
     graphicsTextureCacheRef.current.clear();
     nodeGraphicsTextureBindingsRef.current.clear();
+    nodePendingGraphicsTextureBindingsRef.current.clear();
     pendingGraphicsTextureLoadsRef.current.clear();
   }, [destroyNodeGraphicsTexture]);
 
