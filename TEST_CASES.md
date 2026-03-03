@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: February 27, 2026.
+Last reviewed: March 3, 2026.
 
 ## Coverage Legend
 
@@ -25,6 +25,7 @@ Last reviewed: February 27, 2026.
 - `A-E2E-12` `packages/frontend/tests/e2e/graphExecutionTimeout.test.ts`: graph panel script timeout setting persists graph-level execution timeout and accepts large values (no max clamp).
 - `A-E2E-13` `packages/frontend/tests/e2e/nodeDragReRenderStability.test.ts`: node drag remains visually stable while canvas rerenders during recompute-status polling, and dropped position persists.
 - `A-E2E-14` `packages/frontend/tests/e2e/annotationCard.test.ts`: annotation card renders markdown + KaTeX math, persists left/top edge resize updates (size + position), stays selectable with fully transparent background fill, persists font-size updates in node panel, and preserves empty text state (no template fallback, no overlay render when cleared).
+- `A-E2E-15` `packages/frontend/tests/e2e/inlineCodeOutputPortSync.test.ts`: editing inline-code source in the node panel updates inferred output port metadata on blur.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -106,7 +107,13 @@ Last reviewed: February 27, 2026.
 - `A-BE-51` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor forwards graph-level `executionTimeoutMs` to runtime requests and defaults to 30 seconds when absent.
 - `A-BE-52` `packages/backend/tests/app.test.ts`: annotation nodes are accepted by graph API and rejected as non-executable for node-targeted compute calls.
 - `A-BE-53` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor treats annotation nodes as non-computing no-op outputs and does not invoke runtimes.
+- `A-BE-54` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime retries once after timeout and only reports timeout after retry attempts are exhausted.
+- `A-BE-55` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id?noRecompute=true` applies connection updates without enqueueing backend recompute work.
+- `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `PUT /api/graphs/:id` updates preserve node positions/card sizes and projection metadata.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
+- `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
+- `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
+- `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
 
 ## Manual Regression Test Cases
 
@@ -182,6 +189,7 @@ Last reviewed: February 27, 2026.
 - `M-MCP-08`: MCP projection tools can add a projection (cloned from active projection coordinates/card sizes/background by default) and switch active projection state.
 - `M-MCP-09`: MCP `bulk_edit` applies ordered graph-edit operations sequentially and persists the final graph state.
 - `M-MCP-10`: MCP numeric-input creation tools (`node_add_numeric_input` and `bulk_edit` `node_add_numeric_input`) persist slider nodes that round-trip through `graph_get`.
+- `M-MCP-11`: MCP `connections_list` and `connection_set`/`connection_replace` can inspect and atomically rewire one target input without duplicate inbound edges.
 
 ## Feature Coverage Map
 
@@ -199,6 +207,7 @@ Last reviewed: February 27, 2026.
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
 | Graph panel projection management (add + select + remove active projection) | `M-GRAPH-10`, `M-GRAPH-11` | Manual |
 | Graph updates reject removing all projections (at least one projection must remain) | `A-BE-43`, `M-GRAPH-11` | Automated + Manual |
+| Connections-only graph updates preserve node layout/projection metadata | `A-BE-56` | Automated |
 | New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Graph panel projection background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-BE-42`, `A-FE-19`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
@@ -244,7 +253,7 @@ Last reviewed: February 27, 2026.
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
 | Edit inline-code node `pythonEnv` binding | `A-FE-08`, `A-BE-21`, `M-PANEL-08` | Automated + Manual |
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
-| Edit inline-code source with stable local draft and save-on-blur | `M-PANEL-07` | Manual |
+| Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
 | Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `A-E2E-01`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Annotation node editing (`markdown` content + note colors, including border/opacity via shared color dialog, plus font size) | `A-E2E-14`, `A-FE-28`, `M-PANEL-15` | Automated + Manual |
@@ -266,6 +275,7 @@ Last reviewed: February 27, 2026.
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
 | Frontend graph updates do not run local auto-recompute chains | `A-FE-05` | Automated |
 | Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
+| Graph update API optional recompute suppression (`PUT /api/graphs/:id?noRecompute=true`) | `A-BE-55` | Automated |
 | Auto-recompute pending status includes impacted descendants | `A-BE-48`, `M-STATUS-01` | Automated + Manual |
 | Graph-level recompute worker concurrency is configurable | `A-BE-47`, `A-E2E-11` | Automated |
 | Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
@@ -285,13 +295,13 @@ Last reviewed: February 27, 2026.
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
-| MCP graph-edit API coverage | `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10` | Manual |
+| MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
 | MCP screenshot node-number overlay (stable unique identifiers) | `M-MCP-03` | Manual |
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, and annotation markdown/TeX resize flows (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, and inline-code output-port sync on source edit (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

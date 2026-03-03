@@ -1008,6 +1008,19 @@ async function getGraph(backendUrl: string, graphId: string): Promise<Graph> {
   return normalizeGraph(graph);
 }
 
+interface UpdateGraphRequestOptions {
+  noRecompute?: boolean;
+}
+
+function buildGraphUpdateEndpoint(graphId: string, options?: UpdateGraphRequestOptions): string {
+  const params = new URLSearchParams();
+  if (options?.noRecompute) {
+    params.set('noRecompute', 'true');
+  }
+  const query = params.toString();
+  return `/api/graphs/${encodeURIComponent(graphId)}${query ? `?${query}` : ''}`;
+}
+
 async function updateGraph(
   backendUrl: string,
   graphId: string,
@@ -1026,7 +1039,7 @@ async function updateGraph(
     };
 
     try {
-      const persisted = await requestJson<Graph>(backendUrl, `/api/graphs/${encodeURIComponent(graphId)}`, {
+      const persisted = await requestJson<Graph>(backendUrl, buildGraphUpdateEndpoint(graphId), {
         method: 'PUT',
         body: JSON.stringify(body),
       });
@@ -1043,6 +1056,66 @@ async function updateGraph(
   throw new Error(`Failed to update graph ${graphId} after ${maxAttempts} attempts`);
 }
 
+async function updateGraphConnectionsWithResult<TResult>(
+  backendUrl: string,
+  graphId: string,
+  mutateConnections: (graph: Graph) => { connections: Connection[]; result: TResult },
+  options?: UpdateGraphRequestOptions
+): Promise<{ graph: Graph; result: TResult }> {
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const currentGraph = await getGraph(backendUrl, graphId);
+    const mutation = mutateConnections(structuredClone(currentGraph));
+
+    const body = {
+      connections: mutation.connections,
+      ifMatchUpdatedAt: currentGraph.updatedAt,
+    };
+
+    try {
+      const persisted = await requestJson<Graph>(
+        backendUrl,
+        buildGraphUpdateEndpoint(graphId, options),
+        {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }
+      );
+      return {
+        graph: normalizeGraph(persisted),
+        result: mutation.result,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt < maxAttempts && /reload and retry/i.test(message)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Failed to update graph ${graphId} after ${maxAttempts} attempts`);
+}
+
+async function updateGraphConnections(
+  backendUrl: string,
+  graphId: string,
+  mutateConnections: (graph: Graph) => Connection[],
+  options?: UpdateGraphRequestOptions
+): Promise<Graph> {
+  const result = await updateGraphConnectionsWithResult(
+    backendUrl,
+    graphId,
+    (graph) => ({
+      connections: mutateConnections(graph),
+      result: undefined,
+    }),
+    options
+  );
+  return result.graph;
+}
+
 function getNode(graph: Graph, nodeId: string): GraphNode {
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) {
@@ -1057,6 +1130,135 @@ function assertValidPortName(name: string, kind: 'input' | 'output'): void {
       `${kind} port name "${name}" is invalid. Use letters/numbers/underscore and start with letter/underscore.`
     );
   }
+}
+
+export interface ConnectionListFilters {
+  nodeId?: string;
+  targetPort?: string;
+}
+
+export function filterConnections(
+  connections: Connection[],
+  filters: ConnectionListFilters = {}
+): Connection[] {
+  const nodeId = filters.nodeId?.trim();
+  const targetPort = filters.targetPort?.trim();
+
+  return connections.filter((connection) => {
+    if (nodeId && connection.sourceNodeId !== nodeId && connection.targetNodeId !== nodeId) {
+      return false;
+    }
+    if (targetPort && connection.targetPort !== targetPort) {
+      return false;
+    }
+    return true;
+  });
+}
+
+interface ConnectionSetInput {
+  sourceNodeId: string;
+  sourcePort: string;
+  targetNodeId: string;
+  targetPort: string;
+  connectionId?: string;
+}
+
+interface ConnectionSetResult {
+  changed: boolean;
+  connection: Connection;
+  connections: Connection[];
+  replacedConnectionIds: string[];
+}
+
+function assertConnectionPortsExist(
+  graph: Graph,
+  sourceNodeId: string,
+  sourcePort: string,
+  targetNodeId: string,
+  targetPort: string
+): void {
+  const sourceNode = getNode(graph, sourceNodeId);
+  const targetNode = getNode(graph, targetNodeId);
+  if (!sourceNode.metadata.outputs.some((output) => output.name === sourcePort)) {
+    throw new Error(`Source port ${sourcePort} not found on node ${sourceNodeId}`);
+  }
+  if (!targetNode.metadata.inputs.some((input) => input.name === targetPort)) {
+    throw new Error(`Target port ${targetPort} not found on node ${targetNodeId}`);
+  }
+}
+
+function applyConnectionSet(current: Graph, input: ConnectionSetInput): ConnectionSetResult {
+  assertConnectionPortsExist(
+    current,
+    input.sourceNodeId,
+    input.sourcePort,
+    input.targetNodeId,
+    input.targetPort
+  );
+
+  const inbound = current.connections.filter(
+    (connection) =>
+      connection.targetNodeId === input.targetNodeId &&
+      connection.targetPort === input.targetPort
+  );
+
+  const matchingInbound = inbound.find(
+    (connection) =>
+      connection.sourceNodeId === input.sourceNodeId &&
+      connection.sourcePort === input.sourcePort
+  );
+
+  const explicitConnectionId = input.connectionId?.trim() || undefined;
+  if (explicitConnectionId) {
+    const conflicting = current.connections.find(
+      (connection) =>
+        connection.id === explicitConnectionId &&
+        !inbound.some((candidate) => candidate.id === explicitConnectionId)
+    );
+    if (conflicting) {
+      throw new Error(`Connection id ${explicitConnectionId} already exists in graph ${current.id}`);
+    }
+  }
+
+  const nextConnectionId = explicitConnectionId ?? matchingInbound?.id ?? randomUUID();
+  const existingSingleInbound = inbound.length === 1 ? inbound[0] : undefined;
+  const unchanged =
+    Boolean(existingSingleInbound) &&
+    existingSingleInbound?.sourceNodeId === input.sourceNodeId &&
+    existingSingleInbound?.sourcePort === input.sourcePort &&
+    existingSingleInbound?.id === nextConnectionId;
+
+  if (unchanged && existingSingleInbound) {
+    return {
+      changed: false,
+      connection: existingSingleInbound,
+      connections: current.connections,
+      replacedConnectionIds: [],
+    };
+  }
+
+  const nextConnection: Connection = {
+    id: nextConnectionId,
+    sourceNodeId: input.sourceNodeId,
+    sourcePort: input.sourcePort,
+    targetNodeId: input.targetNodeId,
+    targetPort: input.targetPort,
+  };
+
+  return {
+    changed: true,
+    connection: nextConnection,
+    connections: [
+      ...current.connections.filter(
+        (connection) =>
+          !(connection.targetNodeId === input.targetNodeId && connection.targetPort === input.targetPort)
+      ),
+      nextConnection,
+    ],
+    replacedConnectionIds: inbound
+      .filter((connection) => connection.id !== nextConnectionId)
+      .map((connection) => connection.id),
+  };
 }
 
 interface PortMatch {
@@ -1144,6 +1346,128 @@ function inferOutputPortNamesFromCode(code: string): string[] {
   );
 
   return uniquePortNamesByAppearance([...dotMatches, ...bracketMatches]);
+}
+
+function reconcileInlineOutputPorts(
+  node: GraphNode,
+  code: string,
+  connections: Connection[]
+): PortDefinition[] {
+  const inferredNames = inferOutputPortNamesFromCode(code);
+  if (inferredNames.length === 0) {
+    return node.metadata.outputs;
+  }
+
+  const existingByName = new Map(node.metadata.outputs.map((port) => [port.name, port]));
+  const connectedOutputNames = new Set(
+    connections
+      .filter((connection) => connection.sourceNodeId === node.id)
+      .map((connection) => connection.sourcePort)
+  );
+
+  const orderedNames: string[] = [];
+  const seen = new Set<string>();
+  const pushUnique = (name: string) => {
+    if (seen.has(name)) {
+      return;
+    }
+    seen.add(name);
+    orderedNames.push(name);
+  };
+
+  for (const name of inferredNames) {
+    pushUnique(name);
+  }
+
+  for (const output of node.metadata.outputs) {
+    if (connectedOutputNames.has(output.name)) {
+      pushUnique(output.name);
+    }
+  }
+
+  return orderedNames.map((name) => {
+    const existing = existingByName.get(name);
+    if (existing) {
+      return existing;
+    }
+    return {
+      name,
+      schema: { type: 'object' },
+    };
+  });
+}
+
+function updateInlineCodeNodeCode(
+  node: GraphNode,
+  code: string,
+  connections: Connection[],
+  outputNames?: string[],
+  runtime?: string,
+  pythonEnv?: string
+): GraphNode {
+  const existingByName = new Map(node.metadata.outputs.map((port) => [port.name, port]));
+  const connectedOutputNames = new Set(
+    connections
+      .filter((connection) => connection.sourceNodeId === node.id)
+      .map((connection) => connection.sourcePort)
+  );
+  const resolveExplicitOutputNames = (): string[] | null => {
+    if (!Array.isArray(outputNames)) {
+      return null;
+    }
+
+    const orderedNames: string[] = [];
+    const seen = new Set<string>();
+    const pushUnique = (name: string) => {
+      if (!name || seen.has(name)) {
+        return;
+      }
+      seen.add(name);
+      orderedNames.push(name);
+    };
+
+    for (const candidateName of outputNames) {
+      assertValidPortName(candidateName, 'output');
+      pushUnique(candidateName);
+    }
+
+    for (const existing of node.metadata.outputs) {
+      if (connectedOutputNames.has(existing.name)) {
+        pushUnique(existing.name);
+      }
+    }
+
+    return orderedNames;
+  };
+
+  const explicitOutputNames = resolveExplicitOutputNames();
+  const nextOutputs = node.type === 'inline_code'
+    ? (explicitOutputNames
+      ? explicitOutputNames.map((name) => existingByName.get(name) ?? { name, schema: { type: 'object' } })
+      : reconcileInlineOutputPorts(node, code, connections))
+    : node.metadata.outputs;
+  const outputNamesChanged =
+    nextOutputs.length !== node.metadata.outputs.length ||
+    nextOutputs.some((output, index) => output.name !== node.metadata.outputs[index]?.name);
+
+  return {
+    ...node,
+    ...(outputNamesChanged
+      ? {
+          metadata: {
+            ...node.metadata,
+            outputs: nextOutputs,
+          },
+        }
+      : {}),
+    config: {
+      ...node.config,
+      code,
+      ...(runtime ? { runtime } : {}),
+      ...(pythonEnv ? { pythonEnv } : {}),
+    },
+    version: ensureNodeVersion(node),
+  };
 }
 
 function ensureNodeVersion(node: GraphNode): string {
@@ -1367,6 +1691,7 @@ export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
     op: z.literal('node_set_code'),
     nodeId: z.string(),
     code: z.string(),
+    outputNames: z.array(z.string()).optional(),
     runtime: z.string().optional(),
     pythonEnv: z.string().optional(),
   }),
@@ -1403,6 +1728,14 @@ export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
   }),
   z.object({
     op: z.literal('connection_add'),
+    sourceNodeId: z.string(),
+    sourcePort: z.string(),
+    targetNodeId: z.string(),
+    targetPort: z.string(),
+    connectionId: z.string().optional(),
+  }),
+  z.object({
+    op: z.enum(['connection_set', 'connection_replace']),
     sourceNodeId: z.string(),
     sourcePort: z.string(),
     targetNodeId: z.string(),
@@ -1854,16 +2187,14 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
           ...current,
           nodes: current.nodes.map((node) =>
             node.id === operation.nodeId
-              ? {
-                  ...node,
-                  config: {
-                    ...node.config,
-                    code: operation.code,
-                    ...(operation.runtime ? { runtime: operation.runtime } : {}),
-                    ...(operation.pythonEnv ? { pythonEnv: operation.pythonEnv } : {}),
-                  },
-                  version: ensureNodeVersion(node),
-                }
+              ? updateInlineCodeNodeCode(
+                  node,
+                  operation.code,
+                  current.connections,
+                  operation.outputNames,
+                  operation.runtime,
+                  operation.pythonEnv
+                )
               : node
           ),
         },
@@ -2036,14 +2367,13 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
         },
       };
     case 'connection_add': {
-      const sourceNode = getNode(current, operation.sourceNodeId);
-      const targetNode = getNode(current, operation.targetNodeId);
-      if (!sourceNode.metadata.outputs.some((output) => output.name === operation.sourcePort)) {
-        throw new Error(`Source port ${operation.sourcePort} not found on node ${operation.sourceNodeId}`);
-      }
-      if (!targetNode.metadata.inputs.some((input) => input.name === operation.targetPort)) {
-        throw new Error(`Target port ${operation.targetPort} not found on node ${operation.targetNodeId}`);
-      }
+      assertConnectionPortsExist(
+        current,
+        operation.sourceNodeId,
+        operation.sourcePort,
+        operation.targetNodeId,
+        operation.targetPort
+      );
 
       const duplicate = current.connections.some(
         (connection) =>
@@ -2069,6 +2399,31 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
               targetPort: operation.targetPort,
             },
           ],
+        },
+      };
+    }
+    case 'connection_set':
+    case 'connection_replace': {
+      const result = applyConnectionSet(current, {
+        sourceNodeId: operation.sourceNodeId,
+        sourcePort: operation.sourcePort,
+        targetNodeId: operation.targetNodeId,
+        targetPort: operation.targetPort,
+        connectionId: operation.connectionId,
+      });
+
+      if (!result.changed) {
+        return { graph: current };
+      }
+
+      return {
+        graph: {
+          ...current,
+          connections: result.connections,
+        },
+        details: {
+          connection: result.connection,
+          replacedConnectionIds: result.replacedConnectionIds,
         },
       };
     }
@@ -2962,27 +3317,19 @@ server.registerTool(
       graphId: z.string(),
       nodeId: z.string(),
       code: z.string(),
+      outputNames: z.array(z.string()).optional(),
       runtime: z.string().optional(),
       pythonEnv: z.string().optional(),
       backendUrl: z.string().optional(),
     },
   },
-  async ({ graphId, nodeId, code, runtime, pythonEnv, backendUrl }) => {
+  async ({ graphId, nodeId, code, outputNames, runtime, pythonEnv, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
     const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
       ...current,
       nodes: current.nodes.map((node) =>
         node.id === nodeId
-          ? {
-              ...node,
-              config: {
-                ...node.config,
-                code,
-                ...(runtime ? { runtime } : {}),
-                ...(pythonEnv ? { pythonEnv } : {}),
-              },
-              version: ensureNodeVersion(node),
-            }
+          ? updateInlineCodeNodeCode(node, code, current.connections, outputNames, runtime, pythonEnv)
           : node
       ),
     }));
@@ -3258,6 +3605,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  'connections_list',
+  {
+    description: 'List graph connections with optional node/target-port filtering.',
+    inputSchema: {
+      graphId: z.string(),
+      nodeId: z.string().optional(),
+      targetPort: z.string().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({ graphId, nodeId, targetPort, backendUrl }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const graph = await getGraph(resolvedBackendUrl, graphId);
+    const connections = filterConnections(graph.connections, { nodeId, targetPort });
+
+    return textResult({
+      graphId: graph.id,
+      filters: {
+        ...(nodeId?.trim() ? { nodeId: nodeId.trim() } : {}),
+        ...(targetPort?.trim() ? { targetPort: targetPort.trim() } : {}),
+      },
+      count: connections.length,
+      connections,
+    });
+  }
+);
+
+server.registerTool(
   'connection_add',
   {
     description: 'Create a connection between two ports.',
@@ -3268,6 +3643,7 @@ server.registerTool(
       targetNodeId: z.string(),
       targetPort: z.string(),
       connectionId: z.string().optional(),
+      noRecompute: z.boolean().optional(),
       backendUrl: z.string().optional(),
     },
   },
@@ -3278,34 +3654,29 @@ server.registerTool(
     targetNodeId,
     targetPort,
     connectionId,
+    noRecompute,
     backendUrl,
   }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
 
-    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => {
-      const sourceNode = getNode(current, sourceNodeId);
-      const targetNode = getNode(current, targetNodeId);
-      if (!sourceNode.metadata.outputs.some((output) => output.name === sourcePort)) {
-        throw new Error(`Source port ${sourcePort} not found on node ${sourceNodeId}`);
-      }
-      if (!targetNode.metadata.inputs.some((input) => input.name === targetPort)) {
-        throw new Error(`Target port ${targetPort} not found on node ${targetNodeId}`);
-      }
+    const graph = await updateGraphConnections(
+      resolvedBackendUrl,
+      graphId,
+      (current) => {
+        assertConnectionPortsExist(current, sourceNodeId, sourcePort, targetNodeId, targetPort);
 
-      const duplicate = current.connections.some(
-        (connection) =>
-          connection.sourceNodeId === sourceNodeId &&
-          connection.sourcePort === sourcePort &&
-          connection.targetNodeId === targetNodeId &&
-          connection.targetPort === targetPort
-      );
-      if (duplicate) {
-        return current;
-      }
+        const duplicate = current.connections.some(
+          (connection) =>
+            connection.sourceNodeId === sourceNodeId &&
+            connection.sourcePort === sourcePort &&
+            connection.targetNodeId === targetNodeId &&
+            connection.targetPort === targetPort
+        );
+        if (duplicate) {
+          return current.connections;
+        }
 
-      return {
-        ...current,
-        connections: [
+        return [
           ...current.connections,
           {
             id: connectionId ?? randomUUID(),
@@ -3314,11 +3685,130 @@ server.registerTool(
             targetNodeId,
             targetPort,
           },
-        ],
-      };
-    });
+        ];
+      },
+      {
+        noRecompute,
+      }
+    );
 
     return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'connection_set',
+  {
+    description:
+      'Atomically set the source for a target input port, replacing any existing inbound connection(s).',
+    inputSchema: {
+      graphId: z.string(),
+      sourceNodeId: z.string(),
+      sourcePort: z.string(),
+      targetNodeId: z.string(),
+      targetPort: z.string(),
+      connectionId: z.string().optional(),
+      noRecompute: z.boolean().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({
+    graphId,
+    sourceNodeId,
+    sourcePort,
+    targetNodeId,
+    targetPort,
+    connectionId,
+    noRecompute,
+    backendUrl,
+  }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const { graph, result: operationResult } = await updateGraphConnectionsWithResult(
+      resolvedBackendUrl,
+      graphId,
+      (current) => {
+        const result = applyConnectionSet(current, {
+          sourceNodeId,
+          sourcePort,
+          targetNodeId,
+          targetPort,
+          connectionId,
+        });
+        return {
+          connections: result.connections,
+          result,
+        };
+      },
+      {
+        noRecompute,
+      }
+    );
+
+    return textResult({
+      graphId,
+      connection: operationResult.connection,
+      replacedConnectionIds: operationResult.replacedConnectionIds,
+      changed: operationResult.changed,
+      graph,
+    });
+  }
+);
+
+server.registerTool(
+  'connection_replace',
+  {
+    description:
+      'Alias of connection_set: atomically set the source for a target input port and replace existing inbound edge(s).',
+    inputSchema: {
+      graphId: z.string(),
+      sourceNodeId: z.string(),
+      sourcePort: z.string(),
+      targetNodeId: z.string(),
+      targetPort: z.string(),
+      connectionId: z.string().optional(),
+      noRecompute: z.boolean().optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({
+    graphId,
+    sourceNodeId,
+    sourcePort,
+    targetNodeId,
+    targetPort,
+    connectionId,
+    noRecompute,
+    backendUrl,
+  }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const { graph, result: operationResult } = await updateGraphConnectionsWithResult(
+      resolvedBackendUrl,
+      graphId,
+      (current) => {
+        const result = applyConnectionSet(current, {
+          sourceNodeId,
+          sourcePort,
+          targetNodeId,
+          targetPort,
+          connectionId,
+        });
+        return {
+          connections: result.connections,
+          result,
+        };
+      },
+      {
+        noRecompute,
+      }
+    );
+
+    return textResult({
+      graphId,
+      connection: operationResult.connection,
+      replacedConnectionIds: operationResult.replacedConnectionIds,
+      changed: operationResult.changed,
+      graph,
+    });
   }
 );
 
@@ -3329,15 +3819,20 @@ server.registerTool(
     inputSchema: {
       graphId: z.string(),
       connectionId: z.string(),
+      noRecompute: z.boolean().optional(),
       backendUrl: z.string().optional(),
     },
   },
-  async ({ graphId, connectionId, backendUrl }) => {
+  async ({ graphId, connectionId, noRecompute, backendUrl }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-    const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
-      ...current,
-      connections: current.connections.filter((connection) => connection.id !== connectionId),
-    }));
+    const graph = await updateGraphConnections(
+      resolvedBackendUrl,
+      graphId,
+      (current) => current.connections.filter((connection) => connection.id !== connectionId),
+      {
+        noRecompute,
+      }
+    );
 
     return textResult(graph);
   }

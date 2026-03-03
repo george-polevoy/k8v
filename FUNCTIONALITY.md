@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of February 27, 2026.
+This file tracks what is currently implemented in the codebase as of March 3, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -11,6 +11,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Persist graph edits through `PUT /api/graphs/:id`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
 - Graph update API supports optimistic concurrency via `ifMatchUpdatedAt`; stale clients receive conflict instead of silently overwriting newer graph edits.
+- Graph update API supports optional `?noRecompute=true` query flag to skip backend auto-recompute enqueue for that update.
+- Graph update API preserves existing node layout/projection metadata when updates only provide `connections`.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
@@ -77,6 +79,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Edit inline-code runtime (currently JavaScript VM).
 - For `python_process` inline nodes, select a named graph-level Python environment (`pythonEnv`) or fall back to backend default Python.
 - Edit inline-code source with local draft state and persist on blur.
+- Inline-code source edits auto-sync inferred output ports; connected legacy output ports are preserved to avoid invalidating existing edges.
 - Input port management:
   - add input
   - rename input
@@ -155,7 +158,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## MCP and Agent API
 
 - MCP server package at `packages/mcp-server`.
-- MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`), moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, delete, and compute.
+- MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`), moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, deterministic per-input rewiring (`connection_set` / `connection_replace`), delete, and compute.
+- MCP `node_set_code` and bulk-edit `node_set_code` infer inline output ports from updated code and retain currently connected legacy outputs for connection-safe edits; optional `outputNames` allows explicit output-port schema updates for delegated helper-style code.
+- MCP `connections_list` tool lists edges for a graph with optional `nodeId`/`targetPort` filters.
+- MCP connection mutation tools (`connection_add`, `connection_delete`, `connection_set`, `connection_replace`) accept optional `noRecompute` to avoid backend auto-recompute enqueue.
 - MCP graph-edit tools for projections: add a projection (cloned from current active coordinates/card sizes/background by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.

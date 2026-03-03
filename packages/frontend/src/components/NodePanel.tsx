@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
+import { inferInlineOutputPortNames } from '../utils/inlinePortInference';
 import { normalizeColorString } from '../utils/color';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import {
@@ -27,6 +28,57 @@ function getNextInputName(inputs: PortDefinition[]): string {
     candidate = `input${index}`;
   }
   return candidate;
+}
+
+function reconcileInlineOutputPorts(
+  node: GraphNode,
+  code: string,
+  graphConnections: Array<{
+    sourceNodeId: string;
+    sourcePort: string;
+  }>
+): PortDefinition[] {
+  const inferredNames = inferInlineOutputPortNames(code);
+  if (inferredNames.length === 0) {
+    return node.metadata.outputs;
+  }
+
+  const existingByName = new Map(node.metadata.outputs.map((port) => [port.name, port]));
+  const connectedOutputNames = new Set(
+    graphConnections
+      .filter((connection) => connection.sourceNodeId === node.id)
+      .map((connection) => connection.sourcePort)
+  );
+
+  const orderedNames: string[] = [];
+  const seen = new Set<string>();
+  const pushUnique = (name: string) => {
+    if (seen.has(name)) {
+      return;
+    }
+    seen.add(name);
+    orderedNames.push(name);
+  };
+
+  for (const name of inferredNames) {
+    pushUnique(name);
+  }
+  for (const port of node.metadata.outputs) {
+    if (connectedOutputNames.has(port.name)) {
+      pushUnique(port.name);
+    }
+  }
+
+  return orderedNames.map((name) => {
+    const existing = existingByName.get(name);
+    if (existing) {
+      return existing;
+    }
+    return {
+      name,
+      schema: { type: 'object' },
+    };
+  });
 }
 
 function formatGraphOptionLabel(name: string, id: string): string {
@@ -266,13 +318,26 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
       return;
     }
 
+    const nextOutputs = reconcileInlineOutputPorts(selectedNode, codeValue, graph?.connections ?? []);
+    const outputNamesChanged =
+      nextOutputs.length !== selectedNode.metadata.outputs.length ||
+      nextOutputs.some((output, index) => output.name !== selectedNode.metadata.outputs[index]?.name);
+
     updateNode(selectedNode.id, {
       config: {
         ...selectedNode.config,
         code: codeValue,
       },
+      ...(outputNamesChanged
+        ? {
+            metadata: {
+              ...selectedNode.metadata,
+              outputs: nextOutputs,
+            },
+          }
+        : {}),
     });
-  }, [codeValue, selectedNode, updateNode]);
+  }, [codeValue, graph?.connections, selectedNode, updateNode]);
 
   const updateSelectedNodeInputs = useCallback((
     nextInputs: PortDefinition[],
