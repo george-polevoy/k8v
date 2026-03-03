@@ -11,6 +11,7 @@ import {
 } from '../types';
 import axios from 'axios';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
 import { normalizeHexColor } from '../utils/color';
 import {
   applyProjectionToNodes,
@@ -194,6 +195,7 @@ function normalizeGraph(graph: Graph): Graph {
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     executionTimeoutMs: normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs),
+    connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
     drawings: drawings.map((drawing) => ({
       ...drawing,

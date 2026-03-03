@@ -31,6 +31,7 @@ import {
 } from '../types';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
 import { deriveGradientStops, normalizeCanvasBackground, resolveGraphCanvasBackground } from '../utils/canvasBackground';
+import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
   buildGraphicsImageUrl,
@@ -70,7 +71,10 @@ const ZOOM_SENSITIVITY = 0.0014;
 const VIEWPORT_MARGIN = 100;
 const EDGE_HIT_WIDTH = 16;
 const CONNECTION_WIRE_SCREEN_WIDTH = 1;
-const CONNECTION_WIRE_ALPHA = 0.2;
+const CONNECTION_WIRE_FOREGROUND_ALPHA = 0.92;
+const CONNECTION_WIRE_BACKGROUND_ALPHA = 0.64;
+const CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA = 1;
+const CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA = 0.9;
 const MINIMAP_WIDTH = 220;
 const MINIMAP_HEIGHT = 140;
 const MINIMAP_PADDING = 8;
@@ -1778,7 +1782,9 @@ function Canvas() {
     const localY = clientY - canvasRect.top;
     const worldPoint = viewport.toLocal(new Point(localX, localY));
     const scale = Math.max(viewport.scale.x, 0.1);
-    const maxDistanceWorld = EDGE_HIT_WIDTH / scale;
+    const connectionStroke = resolveGraphConnectionStroke(graphRef.current);
+    const hitWidth = Math.max(EDGE_HIT_WIDTH, connectionStroke.backgroundWidth * 6);
+    const maxDistanceWorld = hitWidth / scale;
     const maxDistanceSquared = maxDistanceWorld * maxDistanceWorld;
 
     let pickedId: string | null = null;
@@ -1806,7 +1812,25 @@ function Canvas() {
     connectionGeometriesRef.current.clear();
     if (!currentGraph) return;
     const viewportScale = Math.max(viewportRef.current?.scale.x ?? 1, 0.1);
-    const connectionLineWidth = CONNECTION_WIRE_SCREEN_WIDTH / viewportScale;
+    const connectionStroke = resolveGraphConnectionStroke(currentGraph);
+    const foregroundLineWidth = Math.max(
+      connectionStroke.foregroundWidth / viewportScale,
+      CONNECTION_WIRE_SCREEN_WIDTH / viewportScale
+    );
+    const backgroundLineWidth = Math.max(
+      connectionStroke.backgroundWidth / viewportScale,
+      foregroundLineWidth * 2
+    );
+    const foregroundColor = hexColorToNumber(
+      connectionStroke.foregroundColor,
+      DEFAULT_GRAPH_CONNECTION_STROKE.foregroundColor
+    );
+    const backgroundColor = hexColorToNumber(
+      connectionStroke.backgroundColor,
+      DEFAULT_GRAPH_CONNECTION_STROKE.backgroundColor
+    );
+    const selectedForegroundColor = blendPixiColors(foregroundColor, 0x2563eb, 0.55);
+    const selectedBackgroundColor = blendPixiColors(backgroundColor, 0x93c5fd, 0.45);
 
     for (const connection of currentGraph.connections) {
       const sourceVisual = nodeVisualsRef.current.get(connection.sourceNodeId);
@@ -1830,7 +1854,21 @@ function Canvas() {
       const geometry = getBezierGeometry(connection.id, startX, startY, endX, endY);
       connectionGeometriesRef.current.set(connection.id, geometry);
       const isSelectedConnection = selectedConnectionIdRef.current === connection.id;
-      edges.lineStyle(connectionLineWidth, isSelectedConnection ? 0x1d4ed8 : 0x64748b, CONNECTION_WIRE_ALPHA);
+      edges.lineStyle(
+        backgroundLineWidth,
+        isSelectedConnection ? selectedBackgroundColor : backgroundColor,
+        isSelectedConnection ? CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA : CONNECTION_WIRE_BACKGROUND_ALPHA,
+        0.5,
+        false
+      );
+      drawBezierConnection(edges, startX, startY, endX, endY);
+      edges.lineStyle(
+        foregroundLineWidth,
+        isSelectedConnection ? selectedForegroundColor : foregroundColor,
+        isSelectedConnection ? CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA : CONNECTION_WIRE_FOREGROUND_ALPHA,
+        0.5,
+        false
+      );
       drawBezierConnection(edges, startX, startY, endX, endY);
     }
 
@@ -1855,7 +1893,21 @@ function Canvas() {
       }
     }
 
-    edges.lineStyle(connectionLineWidth, 0x1d4ed8, CONNECTION_WIRE_ALPHA);
+    edges.lineStyle(
+      backgroundLineWidth,
+      selectedBackgroundColor,
+      CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA,
+      0.5,
+      false
+    );
+    drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
+    edges.lineStyle(
+      foregroundLineWidth,
+      selectedForegroundColor,
+      CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA,
+      0.5,
+      false
+    );
     drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
   }, [requestCanvasAnimationLoop]);
 

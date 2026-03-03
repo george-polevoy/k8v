@@ -56,6 +56,12 @@ interface GraphResponse {
     mode?: unknown;
     baseColor?: unknown;
   };
+  connectionStroke?: {
+    foregroundColor?: unknown;
+    backgroundColor?: unknown;
+    foregroundWidth?: unknown;
+    backgroundWidth?: unknown;
+  };
   nodes: Array<{
     id: string;
     position?: {
@@ -79,6 +85,85 @@ interface GraphResponse {
       };
     };
   }>;
+}
+
+export async function getGraphConnectionStroke(
+  graphId: string
+): Promise<{
+  foregroundColor: string;
+  backgroundColor: string;
+  foregroundWidth: number;
+  backgroundWidth: number;
+}> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+
+  const foregroundColor = graph.connectionStroke?.foregroundColor;
+  const backgroundColor = graph.connectionStroke?.backgroundColor;
+  const foregroundWidth = graph.connectionStroke?.foregroundWidth;
+  const backgroundWidth = graph.connectionStroke?.backgroundWidth;
+
+  if (typeof foregroundColor !== 'string') {
+    throw new Error(`Graph ${graphId} connectionStroke.foregroundColor should be a string`);
+  }
+  if (typeof backgroundColor !== 'string') {
+    throw new Error(`Graph ${graphId} connectionStroke.backgroundColor should be a string`);
+  }
+  if (typeof foregroundWidth !== 'number' || !Number.isFinite(foregroundWidth)) {
+    throw new Error(`Graph ${graphId} connectionStroke.foregroundWidth should be a finite number`);
+  }
+  if (typeof backgroundWidth !== 'number' || !Number.isFinite(backgroundWidth)) {
+    throw new Error(`Graph ${graphId} connectionStroke.backgroundWidth should be a finite number`);
+  }
+
+  return {
+    foregroundColor: foregroundColor.toLowerCase(),
+    backgroundColor: backgroundColor.toLowerCase(),
+    foregroundWidth,
+    backgroundWidth,
+  };
+}
+
+export async function waitForGraphConnectionStroke(
+  graphId: string,
+  predicate: (stroke: {
+    foregroundColor: string;
+    backgroundColor: string;
+    foregroundWidth: number;
+    backgroundWidth: number;
+  }) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<{
+  foregroundColor: string;
+  backgroundColor: string;
+  foregroundWidth: number;
+  backgroundWidth: number;
+}> {
+  const startedAt = Date.now();
+  let lastStroke = {
+    foregroundColor: '',
+    backgroundColor: '',
+    foregroundWidth: Number.NaN,
+    backgroundWidth: Number.NaN,
+  };
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastStroke = await getGraphConnectionStroke(graphId);
+    if (predicate(lastStroke)) {
+      return lastStroke;
+    }
+
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for connection stroke in graph ${graphId}. Last value: ${JSON.stringify(lastStroke)}`
+  );
 }
 
 function toAutotestGraphName(name: string): string {

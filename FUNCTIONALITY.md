@@ -23,6 +23,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph update API rejects projection updates that remove all projections (at least one projection must remain).
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Graph panel projection background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog for the active projection.
+- Graph panel connection stroke management: configure per-graph foreground/background connector colors and widths (background width auto-locked to 2x foreground).
 - Current graph ID is shown in graph panel for explicit graph-target confirmation.
 
 ## Canvas and Interaction
@@ -42,6 +43,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graphics mip/offscreen reload decisions are deferred until projection transition animation completes to avoid reload churn.
 - Switching active projection applies that projection's stored node coordinates and card dimensions.
 - Edge rendering with Bezier curves.
+- Connection lines render with dual layered strokes (background + foreground) to remain legible over mixed canvas backgrounds.
 - Edge hit-testing and selection.
 - Delete selected edge with `Delete`/`Backspace`.
 - Delete selected node with `Delete`/`Backspace`.

@@ -26,6 +26,7 @@ Last reviewed: March 3, 2026.
 - `A-E2E-13` `packages/frontend/tests/e2e/nodeDragReRenderStability.test.ts`: node drag remains visually stable while canvas rerenders during recompute-status polling, and dropped position persists.
 - `A-E2E-14` `packages/frontend/tests/e2e/annotationCard.test.ts`: annotation card renders markdown + KaTeX math, persists left/top edge resize updates (size + position), stays selectable with fully transparent background fill, persists font-size updates in node panel, and preserves empty text state (no template fallback, no overlay render when cleared).
 - `A-E2E-15` `packages/frontend/tests/e2e/inlineCodeOutputPortSync.test.ts`: editing inline-code source in the node panel updates inferred output port metadata on blur.
+- `A-E2E-16` `packages/frontend/tests/e2e/connectionStroke.test.ts`: graph panel connection stroke controls persist foreground/background colors and preserve the required 2x background-to-foreground width ratio.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -54,6 +55,7 @@ Last reviewed: March 3, 2026.
 - `A-FE-26` `packages/frontend/tests/wheelNavigation.test.ts`: wheel navigation helpers keep pinch/mouse-wheel zoom behavior, pan for trackpad two-finger scroll, and map modifier scrolling (`Shift` horizontal, `Alt` vertical).
 - `A-FE-27` `packages/frontend/tests/graphStore.test.ts`: `loadGraph` normalizes missing graph `executionTimeoutMs` to the 30-second default.
 - `A-FE-28` `packages/frontend/tests/nodeFactory.test.ts`: annotation node factory defaults (`text`, `backgroundColor`, `borderColor`, `fontColor`, `fontSize`) and node type.
+- `A-FE-29` `packages/frontend/tests/connectionStroke.test.ts`: connection-stroke normalization enforces defaults, 2x width ratio, and foreground/background brightness separation.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -110,6 +112,8 @@ Last reviewed: March 3, 2026.
 - `A-BE-54` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime retries once after timeout and only reports timeout after retry attempts are exhausted.
 - `A-BE-55` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id?noRecompute=true` applies connection updates without enqueueing backend recompute work.
 - `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `PUT /api/graphs/:id` updates preserve node positions/card sizes and projection metadata.
+- `A-BE-57` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph-level connection stroke settings.
+- `A-BE-58` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` persists graph-level connection stroke updates while normalizing 2x width ratio and brightness separation.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -128,6 +132,7 @@ Last reviewed: March 3, 2026.
 - `M-GRAPH-09`: Graph panel projection background controls persist mode (`solid`/`gradient`) and selected base color for the active projection.
 - `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates/card sizes/background and switch active projection.
 - `M-GRAPH-11`: Graph panel projection controls can remove the active non-default projection, while always keeping at least one projection.
+- `M-GRAPH-12`: Graph panel connection-stroke controls persist per-graph foreground/background colors and 2x width ratio.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift + wheel scrolls horizontally and Alt + wheel scrolls vertically without zoom.
 - `M-CANVAS-03`: Dragging empty space pans viewport.
@@ -154,6 +159,7 @@ Last reviewed: March 3, 2026.
 - `M-CANVAS-24`: While projection-switch animation is running, projected graphics textures are not reloaded; mip/offscreen reload/disposal resumes after animation completes.
 - `M-CANVAS-25`: Two-finger trackpad scroll pans the viewport while pinch zoom and mouse-wheel zoom still zoom in/out.
 - `M-CANVAS-26`: Annotation cards render markdown text + TeX/LaTeX math on canvas and support all-side resize handles.
+- `M-CANVAS-27`: Connection lines stay visible across mixed bright/dark canvas backgrounds via dual layered strokes.
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
@@ -211,6 +217,7 @@ Last reviewed: March 3, 2026.
 | New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Graph panel projection background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-BE-42`, `A-FE-19`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
+| Graph panel connection stroke management (per-graph colors + widths, 2x background ratio) | `A-BE-57`, `A-BE-58`, `A-FE-29`, `A-E2E-16`, `M-GRAPH-12` | Automated + Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
 | Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
@@ -228,7 +235,7 @@ Last reviewed: March 3, 2026.
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card dimensions are stored per active projection | `A-FE-23`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card size normalization preserves oversized values (no fixed max cap) | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
-| Edge rendering with Bezier curves | `M-CANVAS-07` | Manual |
+| Edge rendering with Bezier curves and dual-layer visibility stroke | `A-FE-29`, `A-E2E-16`, `M-CANVAS-07`, `M-CANVAS-27` | Automated + Manual |
 | Edge hit-testing and selection | `M-CANVAS-07` | Manual |
 | Delete selected edge with `Delete`/`Backspace` | `M-CANVAS-07` | Manual |
 | Delete selected node with `Delete`/`Backspace` | `M-CANVAS-08` | Manual |
@@ -302,6 +309,6 @@ Last reviewed: March 3, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, and inline-code output-port sync on source edit (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, inline-code output-port sync on source edit, and graph connection-stroke settings persistence (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

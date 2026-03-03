@@ -11,6 +11,13 @@ export interface CanvasBackgroundSettings {
   baseColor: string;
 }
 
+export interface GraphConnectionStrokeSettings {
+  foregroundColor: string;
+  backgroundColor: string;
+  foregroundWidth: number;
+  backgroundWidth: number;
+}
+
 export interface ProjectionNodeCardSize {
   width: number;
   height: number;
@@ -115,6 +122,7 @@ export interface Graph {
   recomputeConcurrency?: number;
   executionTimeoutMs?: number;
   canvasBackground?: CanvasBackgroundSettings;
+  connectionStroke?: GraphConnectionStrokeSettings;
   projections?: GraphProjection[];
   activeProjectionId?: string;
   pythonEnvs?: PythonEnvironment[];

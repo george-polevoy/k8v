@@ -116,6 +116,22 @@ export const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
   baseColor: '#1d437e',
 };
 
+export const GraphConnectionStroke = z.object({
+  foregroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  foregroundWidth: z.number().finite().positive(),
+  backgroundWidth: z.number().finite().positive(),
+});
+
+export type GraphConnectionStroke = z.infer<typeof GraphConnectionStroke>;
+
+export const DEFAULT_GRAPH_CONNECTION_STROKE: GraphConnectionStroke = {
+  foregroundColor: '#334155',
+  backgroundColor: '#cbd5e1',
+  foregroundWidth: 1,
+  backgroundWidth: 2,
+};
+
 export const DEFAULT_GRAPH_PROJECTION_ID = 'default';
 export const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
 export const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
@@ -189,6 +205,7 @@ export const Graph = z.object({
   recomputeConcurrency: z.number().int().min(1).max(32).optional(),
   executionTimeoutMs: z.number().finite().positive().optional(),
   canvasBackground: CanvasBackground.optional(),
+  connectionStroke: GraphConnectionStroke.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
   pythonEnvs: z.array(PythonEnvironment).default([]),

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { CanvasBackgroundSettings, PythonEnvironment } from '../types';
+import {
+  CanvasBackgroundSettings,
+  GraphConnectionStrokeSettings,
+  PythonEnvironment,
+} from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import {
+  DEFAULT_GRAPH_CONNECTION_STROKE,
+  normalizeGraphConnectionStroke,
+} from '../utils/connectionStroke';
 import {
   applyProjectionToNodes,
   cloneProjectionNodeCardSizes,
@@ -102,6 +110,8 @@ interface GraphPanelProps {
   embedded?: boolean;
 }
 
+type ConnectionStrokeColorTarget = 'foreground' | 'background' | null;
+
 function GraphPanel({ embedded = false }: GraphPanelProps) {
   const graph = useGraphStore((state) => state.graph);
   const graphSummaries = useGraphStore((state) => state.graphSummaries);
@@ -117,6 +127,11 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     normalizeCanvasBackground(undefined)
   );
   const [showCanvasBackgroundColorDialog, setShowCanvasBackgroundColorDialog] = useState(false);
+  const [connectionStrokeDraft, setConnectionStrokeDraft] = useState<GraphConnectionStrokeSettings>(
+    normalizeGraphConnectionStroke(undefined)
+  );
+  const [connectionStrokeColorTarget, setConnectionStrokeColorTarget] =
+    useState<ConnectionStrokeColorTarget>(null);
   const [pythonEnvDrafts, setPythonEnvDrafts] = useState<PythonEnvironment[]>([]);
   const [pythonEnvValidationError, setPythonEnvValidationError] = useState<string | null>(null);
   const [recomputeConcurrencyValue, setRecomputeConcurrencyValue] = useState(
@@ -147,6 +162,7 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       setCanvasBackgroundDraft(
         normalizeCanvasBackground(activeProjection?.canvasBackground ?? graph.canvasBackground)
       );
+      setConnectionStrokeDraft(normalizeGraphConnectionStroke(graph.connectionStroke));
       setPythonEnvDrafts(graph.pythonEnvs ?? []);
       setRecomputeConcurrencyValue(
         String(
@@ -164,11 +180,13 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     } else {
       setGraphNameValue('');
       setCanvasBackgroundDraft(normalizeCanvasBackground(undefined));
+      setConnectionStrokeDraft(normalizeGraphConnectionStroke(undefined));
       setPythonEnvDrafts([]);
       setRecomputeConcurrencyValue(String(MIN_RECOMPUTE_CONCURRENCY));
       setExecutionTimeoutSecondsValue(String(DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS));
     }
     setPythonEnvValidationError(null);
+    setConnectionStrokeColorTarget(null);
   }, [graph]);
 
   useEffect(() => {
@@ -333,6 +351,56 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       setIsGraphActionInFlight(false);
     }
   }, [canvasBackgroundDraft, graph, refreshGraphSummaries, updateGraph]);
+
+  const updateConnectionStrokeForegroundWidth = useCallback((nextValue: string) => {
+    const parsedValue = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsedValue)) {
+      return;
+    }
+    setConnectionStrokeDraft((current) => normalizeGraphConnectionStroke({
+      ...current,
+      foregroundWidth: parsedValue,
+      backgroundWidth: parsedValue * 2,
+    }));
+  }, []);
+
+  const updateConnectionStrokeBackgroundWidth = useCallback((nextValue: string) => {
+    const parsedValue = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsedValue)) {
+      return;
+    }
+    setConnectionStrokeDraft((current) => normalizeGraphConnectionStroke({
+      ...current,
+      foregroundWidth: parsedValue * 0.5,
+      backgroundWidth: parsedValue,
+    }));
+  }, []);
+
+  const commitConnectionStroke = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const normalized = normalizeGraphConnectionStroke(connectionStrokeDraft);
+    setConnectionStrokeDraft(normalized);
+    const current = normalizeGraphConnectionStroke(graph.connectionStroke);
+    if (
+      normalized.foregroundColor === current.foregroundColor &&
+      normalized.backgroundColor === current.backgroundColor &&
+      normalized.foregroundWidth === current.foregroundWidth &&
+      normalized.backgroundWidth === current.backgroundWidth
+    ) {
+      return;
+    }
+
+    setIsGraphActionInFlight(true);
+    try {
+      await updateGraph({ connectionStroke: normalized });
+      await refreshGraphSummaries();
+    } finally {
+      setIsGraphActionInFlight(false);
+    }
+  }, [connectionStrokeDraft, graph, refreshGraphSummaries, updateGraph]);
 
   const updatePythonEnvDraftField = useCallback((
     index: number,
@@ -574,6 +642,16 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     projectionOptions.length > 1 &&
     activeProjectionId !== DEFAULT_GRAPH_PROJECTION_ID
   );
+  const isConnectionStrokeColorDialogOpen = connectionStrokeColorTarget !== null;
+  const connectionStrokeDialogTitle = connectionStrokeColorTarget === 'background'
+    ? 'Connection Background Color'
+    : 'Connection Foreground Color';
+  const connectionStrokeDialogDescription = connectionStrokeColorTarget === 'background'
+    ? 'Background stroke is drawn under the foreground stroke and auto-kept at 2x foreground width.'
+    : 'Foreground stroke is drawn on top of the background stroke for connector clarity.';
+  const connectionStrokeDialogInitialColor = connectionStrokeColorTarget === 'background'
+    ? connectionStrokeDraft.backgroundColor
+    : connectionStrokeDraft.foregroundColor;
 
   return (
     <div
@@ -1050,6 +1128,175 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           }}
         >
           <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
+            Connection Strokes
+          </div>
+
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Foreground color
+          </label>
+          <button
+            data-testid="connection-stroke-foreground-color-input"
+            type="button"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              if (!graph || isGraphActionInFlight) {
+                return;
+              }
+              setConnectionStrokeColorTarget('foreground');
+            }}
+            style={{
+              width: '100%',
+              height: '34px',
+              marginBottom: '8px',
+              padding: '6px 8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+              background: '#ffffff',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              color: '#0f172a',
+              fontSize: '11px',
+            }}
+          >
+            <span>Choose color</span>
+            <span
+              style={{
+                width: '14px',
+                height: '14px',
+                borderRadius: '50%',
+                border: '1px solid #334155',
+                background: connectionStrokeDraft.foregroundColor,
+                flexShrink: 0,
+              }}
+            />
+          </button>
+
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Background color
+          </label>
+          <button
+            data-testid="connection-stroke-background-color-input"
+            type="button"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              if (!graph || isGraphActionInFlight) {
+                return;
+              }
+              setConnectionStrokeColorTarget('background');
+            }}
+            style={{
+              width: '100%',
+              height: '34px',
+              marginBottom: '8px',
+              padding: '6px 8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+              background: '#ffffff',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              color: '#0f172a',
+              fontSize: '11px',
+            }}
+          >
+            <span>Choose color</span>
+            <span
+              style={{
+                width: '14px',
+                height: '14px',
+                borderRadius: '50%',
+                border: '1px solid #334155',
+                background: connectionStrokeDraft.backgroundColor,
+                flexShrink: 0,
+              }}
+            />
+          </button>
+
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Foreground width
+          </label>
+          <input
+            data-testid="connection-stroke-foreground-width-input"
+            type="number"
+            min={0.25}
+            max={24}
+            step={0.1}
+            value={connectionStrokeDraft.foregroundWidth}
+            disabled={!graph || isGraphActionInFlight}
+            onChange={(event) => updateConnectionStrokeForegroundWidth(event.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px',
+              marginBottom: '8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+            }}
+          />
+
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+            Background width
+          </label>
+          <input
+            data-testid="connection-stroke-background-width-input"
+            type="number"
+            min={0.5}
+            max={48}
+            step={0.1}
+            value={connectionStrokeDraft.backgroundWidth}
+            disabled={!graph || isGraphActionInFlight}
+            onChange={(event) => updateConnectionStrokeBackgroundWidth(event.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px',
+              marginBottom: '4px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
+            Background width stays 2x foreground width.
+          </div>
+
+          <button
+            data-testid="connection-stroke-save"
+            disabled={!graph || isGraphActionInFlight}
+            onClick={() => {
+              void commitConnectionStroke();
+            }}
+            style={{
+              width: '100%',
+              padding: '7px 8px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Save Connection Strokes
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '8px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
             Python Environments
           </div>
           {pythonEnvDrafts.length === 0 ? (
@@ -1199,6 +1446,26 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
             baseColor: color,
           }));
           setShowCanvasBackgroundColorDialog(false);
+        }}
+      />
+      <ColorSelectionDialog
+        open={isConnectionStrokeColorDialogOpen}
+        title={connectionStrokeDialogTitle}
+        description={connectionStrokeDialogDescription}
+        initialColor={connectionStrokeDialogInitialColor}
+        defaultColor={connectionStrokeColorTarget === 'background'
+          ? DEFAULT_GRAPH_CONNECTION_STROKE.backgroundColor
+          : DEFAULT_GRAPH_CONNECTION_STROKE.foregroundColor}
+        confirmLabel="Use Color"
+        onCancel={() => setConnectionStrokeColorTarget(null)}
+        onConfirm={(color) => {
+          setConnectionStrokeDraft((current) => normalizeGraphConnectionStroke({
+            ...current,
+            ...(connectionStrokeColorTarget === 'background'
+              ? { backgroundColor: color }
+              : { foregroundColor: color }),
+          }));
+          setConnectionStrokeColorTarget(null);
         }}
       />
     </div>

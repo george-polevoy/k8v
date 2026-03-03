@@ -208,6 +208,13 @@ function createLargeDrawing(id: string, pointCount = 12_000) {
   };
 }
 
+function resolveBrightness(color: string): number {
+  const r = Number.parseInt(color.slice(1, 3), 16);
+  const g = Number.parseInt(color.slice(3, 5), 16);
+  const b = Number.parseInt(color.slice(5, 7), 16);
+  return (0.299 * r) + (0.587 * g) + (0.114 * b);
+}
+
 test('POST /api/graphs accepts runtime in node config', async () => {
   const ctx = await setupTestServer();
 
@@ -386,6 +393,79 @@ test('POST /api/graphs applies default canvas background settings', async () => 
       mode: 'gradient',
       baseColor: '#1d437e',
     });
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs applies default connection stroke settings', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+    assert.deepEqual(graph.connectionStroke, {
+      foregroundColor: '#334155',
+      backgroundColor: '#cbd5e1',
+      foregroundWidth: 1,
+      backgroundWidth: 2,
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs normalizes and persists connection stroke settings', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      connectionStroke: {
+        foregroundColor: '#334455',
+        backgroundColor: '#334455',
+        foregroundWidth: 1.5,
+        backgroundWidth: 9,
+      },
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    assert.equal(createdGraph.connectionStroke.foregroundColor, '#334455');
+    assert.equal(createdGraph.connectionStroke.foregroundWidth, 1.5);
+    assert.equal(createdGraph.connectionStroke.backgroundWidth, 3);
+    assert.ok(
+      Math.abs(
+        resolveBrightness(createdGraph.connectionStroke.foregroundColor) -
+        resolveBrightness(createdGraph.connectionStroke.backgroundColor)
+      ) >= 24
+    );
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        connectionStroke: {
+          foregroundColor: '#204060',
+          backgroundColor: '#204060',
+          foregroundWidth: 2.25,
+          backgroundWidth: 11,
+        },
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.equal(updatedGraph.connectionStroke.foregroundColor, '#204060');
+    assert.equal(updatedGraph.connectionStroke.foregroundWidth, 2.25);
+    assert.equal(updatedGraph.connectionStroke.backgroundWidth, 4.5);
+    assert.ok(
+      Math.abs(
+        resolveBrightness(updatedGraph.connectionStroke.foregroundColor) -
+        resolveBrightness(updatedGraph.connectionStroke.backgroundColor)
+      ) >= 24
+    );
   } finally {
     await ctx.close();
   }
