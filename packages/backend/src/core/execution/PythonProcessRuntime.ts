@@ -167,9 +167,14 @@ print(result_marker + json.dumps(result) + result_marker)
 
 export class PythonProcessRuntime implements ExecutionRuntime {
   private readonly pythonBin: string;
+  private readonly timeoutRetryCount: number;
 
-  constructor(pythonBin: string = process.env.K8V_PYTHON_BIN || 'python3') {
+  constructor(
+    pythonBin: string = process.env.K8V_PYTHON_BIN || 'python3',
+    timeoutRetryCount = 1
+  ) {
     this.pythonBin = pythonBin;
+    this.timeoutRetryCount = Math.max(0, Math.floor(timeoutRetryCount));
   }
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
@@ -180,42 +185,59 @@ export class PythonProcessRuntime implements ExecutionRuntime {
       code: request.code,
       inputs: request.inputs ?? {},
     });
-    const resultGuid = randomUUID();
-    const resultMarker = `<${resultGuid}>`;
-
     try {
-      const { stdout, stderr, timedOut } = await this.runPython(payload, timeoutMs, pythonBin, cwd, resultGuid);
+      const maxAttempts = this.timeoutRetryCount + 1;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const resultGuid = randomUUID();
+        const resultMarker = `<${resultGuid}>`;
+        const { stdout, stderr, timedOut } = await this.runPython(
+          payload,
+          timeoutMs,
+          pythonBin,
+          cwd,
+          resultGuid
+        );
 
-      if (timedOut) {
-        return {
-          outputs: {},
-          textOutput: 'Error: Script execution timed out',
-        };
-      }
+        if (timedOut) {
+          if (attempt < maxAttempts) {
+            continue;
+          }
+          const retrySuffix = maxAttempts > 1 ? ` after ${maxAttempts} attempts` : '';
+          return {
+            outputs: {},
+            textOutput: `Error: Script execution timed out${retrySuffix}`,
+          };
+        }
 
-      const jsonPayload = this.extractResultPayload(stdout, resultMarker);
-      const trimmed = jsonPayload?.trim() ?? '';
-      if (!trimmed) {
-        return {
-          outputs: {},
-          textOutput: `Error: Python runtime produced no wrapped result payload${stderr ? `\n${stderr.trim()}` : ''}${stdout.trim() ? `\n${stdout.trim()}` : ''}`,
-        };
-      }
+        const jsonPayload = this.extractResultPayload(stdout, resultMarker);
+        const trimmed = jsonPayload?.trim() ?? '';
+        if (!trimmed) {
+          return {
+            outputs: {},
+            textOutput: `Error: Python runtime produced no wrapped result payload${stderr ? `\n${stderr.trim()}` : ''}${stdout.trim() ? `\n${stdout.trim()}` : ''}`,
+          };
+        }
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          return {
+            outputs: {},
+            textOutput: `Error: Failed to parse python output as JSON${stderr ? `\n${stderr.trim()}` : ''}\n${trimmed}`,
+          };
+        }
+
         return {
-          outputs: {},
-          textOutput: `Error: Failed to parse python output as JSON${stderr ? `\n${stderr.trim()}` : ''}\n${trimmed}`,
+          outputs: parsed.outputs && typeof parsed.outputs === 'object' ? parsed.outputs : {},
+          textOutput: typeof parsed.textOutput === 'string' ? parsed.textOutput : undefined,
+          graphicsOutput: typeof parsed.graphicsOutput === 'string' ? parsed.graphicsOutput : undefined,
         };
       }
 
       return {
-        outputs: parsed.outputs && typeof parsed.outputs === 'object' ? parsed.outputs : {},
-        textOutput: typeof parsed.textOutput === 'string' ? parsed.textOutput : undefined,
-        graphicsOutput: typeof parsed.graphicsOutput === 'string' ? parsed.graphicsOutput : undefined,
+        outputs: {},
+        textOutput: 'Error: Python runtime did not produce a result',
       };
     } catch (error: any) {
       const errorMessage = error?.message ?? String(error);

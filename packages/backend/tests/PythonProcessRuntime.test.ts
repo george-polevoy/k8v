@@ -102,6 +102,66 @@ while True:
   assert.match(result.textOutput ?? '', /timed out/i);
 });
 
+test('PythonProcessRuntime retries once after timeout and returns a later successful result', async () => {
+  const runtime = new PythonProcessRuntime('python3', 1) as any;
+  let callCount = 0;
+
+  runtime.runPython = async (
+    _payload: string,
+    _timeoutMs: number,
+    _pythonBin: string,
+    _cwd: string | undefined,
+    resultGuid: string
+  ) => {
+    callCount += 1;
+    if (callCount === 1) {
+      return { stdout: '', stderr: '', timedOut: true };
+    }
+
+    const marker = `<${resultGuid}>`;
+    const payload = JSON.stringify({
+      outputs: { recovered: true },
+      textOutput: null,
+      graphicsOutput: null,
+    });
+    return {
+      stdout: `${marker}${payload}${marker}`,
+      stderr: '',
+      timedOut: false,
+    };
+  };
+
+  const result = await runtime.execute({
+    code: 'outputs.value = 1',
+    inputs: {},
+    timeoutMs: 10,
+  });
+
+  assert.equal(callCount, 2);
+  assert.equal(result.outputs.recovered, true);
+});
+
+test('PythonProcessRuntime reports timeout after all retry attempts are exhausted', async () => {
+  const runtime = new PythonProcessRuntime('python3', 1) as any;
+  let callCount = 0;
+
+  runtime.runPython = async () => {
+    callCount += 1;
+    return { stdout: '', stderr: '', timedOut: true };
+  };
+
+  const result = await runtime.execute({
+    code: 'outputs.value = 1',
+    inputs: {},
+    timeoutMs: 10,
+  });
+
+  assert.equal(callCount, 2);
+  assert.deepEqual(result.outputs, {});
+  assert.match(result.textOutput ?? '', /timed out/i);
+  assert.match(result.textOutput ?? '', /attempts/i);
+});
+
 test('PythonProcessRuntime supports request-level pythonBin and cwd overrides', { skip: skipPythonTests }, async () => {
   const runtime = new PythonProcessRuntime('python-does-not-exist');
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-python-runtime-cwd-'));
