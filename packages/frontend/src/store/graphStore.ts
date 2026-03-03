@@ -22,6 +22,8 @@ import {
 
 const DEFAULT_DRAWING_COLOR = '#ffffff';
 const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
+const RECOMPUTE_POLL_BASE_INTERVAL_MS = 400;
+const RECOMPUTE_POLL_MAX_INTERVAL_MS = 5_000;
 
 export type PencilColor = string;
 export type PencilThickness = 1 | 3 | 9;
@@ -302,6 +304,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   let latestUpdateRequestId = 0;
   let recomputePollGeneration = 0;
   let recomputePollTimer: ReturnType<typeof setTimeout> | null = null;
+  let recomputePollFailureCount = 0;
 
   const hydrateNodeExecutionStates = async (graph: Graph) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
@@ -442,11 +445,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   };
 
   const pollRecomputeStatus = async (graphId: string, generation: number) => {
+    let nextPollDelayMs = RECOMPUTE_POLL_BASE_INTERVAL_MS;
     try {
       const response = await axios.get(`/api/graphs/${graphId}/recompute-status`);
       if (generation !== recomputePollGeneration) {
         return;
       }
+      recomputePollFailureCount = 0;
 
       const currentGraph = get().graph;
       if (!currentGraph || currentGraph.id !== graphId) {
@@ -455,7 +460,12 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
       applyBackendRecomputeStatus(currentGraph, response.data as BackendRecomputeStatus);
     } catch {
-      // Ignore polling errors; the next poll tick will retry.
+      // Slow down retries while the backend is unavailable to reduce request and proxy log spam.
+      recomputePollFailureCount = Math.min(recomputePollFailureCount + 1, 8);
+      nextPollDelayMs = Math.min(
+        RECOMPUTE_POLL_BASE_INTERVAL_MS * (2 ** (recomputePollFailureCount - 1)),
+        RECOMPUTE_POLL_MAX_INTERVAL_MS
+      );
     } finally {
       const shouldScheduleNextPoll =
         generation === recomputePollGeneration &&
@@ -463,7 +473,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       if (shouldScheduleNextPoll) {
         recomputePollTimer = setTimeout(() => {
           void pollRecomputeStatus(graphId, generation);
-        }, 400);
+        }, nextPollDelayMs);
       }
     }
   };
@@ -473,6 +483,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       return;
     }
     recomputePollGeneration += 1;
+    recomputePollFailureCount = 0;
     if (recomputePollTimer) {
       clearTimeout(recomputePollTimer);
       recomputePollTimer = null;

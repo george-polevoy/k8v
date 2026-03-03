@@ -108,6 +108,64 @@ test('loadGraph normalizes missing graph execution timeout to 30 seconds', async
   }
 });
 
+test('recompute status polling backs off after repeated network failures', async () => {
+  const localStorage = new MemoryLocalStorage();
+  (globalThis as any).localStorage = localStorage;
+
+  const originalWindow = (globalThis as any).window;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalGet = axios.get;
+
+  const scheduledTimeouts: Array<{ delay: number; callback: () => void }> = [];
+  (globalThis as any).window = {};
+  (globalThis as any).setTimeout = ((callback: () => void, timeout?: number) => {
+    scheduledTimeouts.push({
+      delay: typeof timeout === 'number' ? timeout : 0,
+      callback,
+    });
+    return scheduledTimeouts.length;
+  }) as typeof setTimeout;
+  (globalThis as any).clearTimeout = (() => undefined) as typeof clearTimeout;
+
+  const graph = makeGraph('g-poll-backoff');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-poll-backoff') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-poll-backoff/recompute-status') {
+      throw new Error('Backend unavailable');
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  useGraphStore.setState({
+    graph: null,
+    selectedNodeId: null,
+    isLoading: false,
+    error: null,
+  });
+
+  try {
+    await useGraphStore.getState().loadGraph('g-poll-backoff');
+
+    await delay(0);
+    assert.equal(scheduledTimeouts.length >= 1, true, 'first poll retry should be scheduled');
+    assert.equal(scheduledTimeouts[0]?.delay, 400);
+
+    scheduledTimeouts[0]?.callback();
+    await delay(0);
+    assert.equal(scheduledTimeouts.length >= 2, true, 'second poll retry should be scheduled');
+    assert.equal(scheduledTimeouts[1]?.delay, 800);
+  } finally {
+    (axios as any).get = originalGet;
+    (globalThis as any).window = originalWindow;
+    (globalThis as any).setTimeout = originalSetTimeout;
+    (globalThis as any).clearTimeout = originalClearTimeout;
+  }
+});
+
 test('deleteGraph replaces current graph with latest remaining graph', async () => {
   const localStorage = new MemoryLocalStorage();
   localStorage.setItem('k8v-current-graph-id', 'g-delete-current');
