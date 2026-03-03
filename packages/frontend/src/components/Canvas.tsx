@@ -5,12 +5,14 @@ import {
   Container,
   FederatedPointerEvent,
   Graphics,
+  Matrix,
   Point,
   Rectangle,
   settings,
   Sprite,
   Text,
   Texture,
+  WRAP_MODES,
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
 import type {
@@ -67,6 +69,8 @@ const MAX_ZOOM = 4;
 const ZOOM_SENSITIVITY = 0.0014;
 const VIEWPORT_MARGIN = 100;
 const EDGE_HIT_WIDTH = 16;
+const CONNECTION_WIRE_SCREEN_WIDTH = 1;
+const CONNECTION_WIRE_ALPHA = 0.2;
 const MINIMAP_WIDTH = 220;
 const MINIMAP_HEIGHT = 140;
 const MINIMAP_PADDING = 8;
@@ -89,6 +93,15 @@ const SMOKE_MIN_DURATION_MS = 720;
 const SMOKE_MAX_DURATION_MS = 1320;
 const SMOKE_MAX_PARTICLES = 96;
 const PROJECTION_TRANSITION_DURATION_MS = 260;
+const NODE_CARD_BACKGROUND_ALPHA = 0.8;
+const NODE_CARD_BACKGROUND_BOTTOM_ALPHA = 0.2;
+const NODE_CARD_BORDER_WIDTH = 1.5;
+const NODE_CARD_BORDER_MAX_ALPHA = 0.5;
+const NODE_CARD_BORDER_PATTERN_WIDTH = 8;
+const NODE_CARD_BORDER_PATTERN_HEIGHT = 256;
+const NODE_CARD_CORNER_RADIUS = 20;
+const NODE_CARD_BACKGROUND_PATTERN_WIDTH = 8;
+const NODE_CARD_BACKGROUND_PATTERN_HEIGHT = 256;
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
 const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
 const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
@@ -322,6 +335,9 @@ interface ProjectionTransitionState {
   startAt: number;
   durationMs: number;
 }
+
+let nodeCardBorderTexture: Texture | null = null;
+let nodeCardBackgroundFadeTexture: Texture | null = null;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -694,6 +710,108 @@ function createCanvasBackgroundTexture(
   return Texture.from(canvas);
 }
 
+function getNodeCardBorderTexture(): Texture {
+  if (nodeCardBorderTexture) {
+    return nodeCardBorderTexture;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = NODE_CARD_BORDER_PATTERN_WIDTH;
+  canvas.height = NODE_CARD_BORDER_PATTERN_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return Texture.WHITE;
+  }
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, '#ffffff');
+  gradient.addColorStop(0.5, '#808080');
+  gradient.addColorStop(1, '#ffffff');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = Texture.from(canvas);
+  texture.baseTexture.wrapMode = WRAP_MODES.CLAMP;
+  nodeCardBorderTexture = texture;
+  return texture;
+}
+
+function getNodeCardBackgroundFadeTexture(): Texture {
+  if (nodeCardBackgroundFadeTexture) {
+    return nodeCardBackgroundFadeTexture;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = NODE_CARD_BACKGROUND_PATTERN_WIDTH;
+  canvas.height = NODE_CARD_BACKGROUND_PATTERN_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return Texture.WHITE;
+  }
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = Texture.from(canvas);
+  texture.baseTexture.wrapMode = WRAP_MODES.CLAMP;
+  nodeCardBackgroundFadeTexture = texture;
+  return texture;
+}
+
+function clampAlpha(alpha: number): number {
+  if (!Number.isFinite(alpha)) {
+    return 1;
+  }
+  return Math.max(0, Math.min(1, alpha));
+}
+
+function blendPixiColors(baseColor: number, targetColor: number, amount: number): number {
+  const clampedAmount = Math.max(0, Math.min(1, amount));
+  const baseR = (baseColor >> 16) & 0xff;
+  const baseG = (baseColor >> 8) & 0xff;
+  const baseB = baseColor & 0xff;
+  const targetR = (targetColor >> 16) & 0xff;
+  const targetG = (targetColor >> 8) & 0xff;
+  const targetB = targetColor & 0xff;
+  const blendedR = Math.round(baseR + ((targetR - baseR) * clampedAmount));
+  const blendedG = Math.round(baseG + ((targetG - baseG) * clampedAmount));
+  const blendedB = Math.round(baseB + ((targetB - baseB) * clampedAmount));
+
+  return (blendedR << 16) | (blendedG << 8) | blendedB;
+}
+
+function drawNodeCardPath(
+  graphics: Graphics,
+  width: number,
+  height: number,
+  squareBottomCorners: boolean,
+  inset = 0,
+  radius = NODE_CARD_CORNER_RADIUS
+): void {
+  const x = inset;
+  const y = inset;
+  const shapeWidth = Math.max(1, width - (inset * 2));
+  const shapeHeight = Math.max(1, height - (inset * 2));
+  const resolvedRadius = Math.min(radius, Math.floor(shapeWidth * 0.5), Math.floor(shapeHeight * 0.5));
+
+  if (!squareBottomCorners) {
+    graphics.drawRoundedRect(x, y, shapeWidth, shapeHeight, resolvedRadius);
+    return;
+  }
+
+  graphics.moveTo(x + resolvedRadius, y);
+  graphics.lineTo(x + shapeWidth - resolvedRadius, y);
+  graphics.quadraticCurveTo(x + shapeWidth, y, x + shapeWidth, y + resolvedRadius);
+  graphics.lineTo(x + shapeWidth, y + shapeHeight);
+  graphics.lineTo(x, y + shapeHeight);
+  graphics.lineTo(x, y + resolvedRadius);
+  graphics.quadraticCurveTo(x, y, x + resolvedRadius, y);
+  graphics.lineTo(x + resolvedRadius, y);
+}
+
 function drawNodeCardFrame(
   graphics: Graphics,
   width: number,
@@ -702,26 +820,69 @@ function drawNodeCardFrame(
   fillColor: number,
   squareBottomCorners: boolean,
   strokeAlpha = 1,
-  fillAlpha = 1
+  fillAlpha = 1,
+  useGlobalBackgroundOpacityCap = true
 ): void {
-  graphics.lineStyle(2, strokeColor, strokeAlpha);
-  graphics.beginFill(fillColor, fillAlpha);
+  const safeStrokeAlpha = clampAlpha(strokeAlpha);
+  const safeFillAlpha = useGlobalBackgroundOpacityCap
+    ? clampAlpha(Math.min(fillAlpha, NODE_CARD_BACKGROUND_ALPHA))
+    : clampAlpha(fillAlpha);
+  const strokeInset = NODE_CARD_BORDER_WIDTH * 0.5;
+  const fillBaseAlpha = clampAlpha(Math.min(safeFillAlpha, NODE_CARD_BACKGROUND_BOTTOM_ALPHA));
+  const fillOverlayAlpha = clampAlpha(safeFillAlpha - fillBaseAlpha);
+  const fillTextureMatrix = new Matrix(
+    1,
+    0,
+    0,
+    Math.max(1, height) / NODE_CARD_BACKGROUND_PATTERN_HEIGHT,
+    0,
+    0
+  );
+  const cardBackgroundFadeTexture = getNodeCardBackgroundFadeTexture();
+  const gradientSpanHeight = Math.max(1, height - (strokeInset * 2));
+  const borderTextureMatrix = new Matrix(
+    1,
+    0,
+    0,
+    gradientSpanHeight / NODE_CARD_BORDER_PATTERN_HEIGHT,
+    0,
+    strokeInset
+  );
+  const cardBorderTexture = getNodeCardBorderTexture();
+  const strokeTintColor = blendPixiColors(strokeColor, 0xffffff, 0.92);
+  const resolvedStrokeAlpha = clampAlpha(Math.min(safeStrokeAlpha, NODE_CARD_BORDER_MAX_ALPHA));
 
-  if (!squareBottomCorners) {
-    graphics.drawRoundedRect(0, 0, width, height, 10);
+  graphics.beginFill(fillColor, fillBaseAlpha);
+  drawNodeCardPath(graphics, width, height, squareBottomCorners, 0, NODE_CARD_CORNER_RADIUS);
+  graphics.endFill();
+  if (fillOverlayAlpha > 0) {
+    graphics.beginTextureFill({
+      texture: cardBackgroundFadeTexture,
+      color: fillColor,
+      alpha: fillOverlayAlpha,
+      matrix: fillTextureMatrix,
+    });
+    drawNodeCardPath(graphics, width, height, squareBottomCorners, 0, NODE_CARD_CORNER_RADIUS);
     graphics.endFill();
+  }
+
+  if (safeStrokeAlpha <= 0) {
     return;
   }
 
-  const radius = Math.min(10, Math.floor(width * 0.5), Math.floor(height * 0.5));
-  graphics.moveTo(radius, 0);
-  graphics.lineTo(width - radius, 0);
-  graphics.quadraticCurveTo(width, 0, width, radius);
-  graphics.lineTo(width, height);
-  graphics.lineTo(0, height);
-  graphics.lineTo(0, radius);
-  graphics.quadraticCurveTo(0, 0, radius, 0);
-  graphics.endFill();
+  if (width <= strokeInset * 2 || height <= strokeInset * 2) {
+    return;
+  }
+
+  graphics.lineTextureStyle({
+    width: NODE_CARD_BORDER_WIDTH,
+    texture: cardBorderTexture,
+    color: strokeTintColor,
+    alpha: resolvedStrokeAlpha,
+    alignment: 0.5,
+    matrix: borderTextureMatrix,
+  });
+  drawNodeCardPath(graphics, width, height, squareBottomCorners, strokeInset, NODE_CARD_CORNER_RADIUS);
 }
 
 function drawBezierConnection(
@@ -1644,6 +1805,8 @@ function Canvas() {
     edges.clear();
     connectionGeometriesRef.current.clear();
     if (!currentGraph) return;
+    const viewportScale = Math.max(viewportRef.current?.scale.x ?? 1, 0.1);
+    const connectionLineWidth = CONNECTION_WIRE_SCREEN_WIDTH / viewportScale;
 
     for (const connection of currentGraph.connections) {
       const sourceVisual = nodeVisualsRef.current.get(connection.sourceNodeId);
@@ -1667,7 +1830,7 @@ function Canvas() {
       const geometry = getBezierGeometry(connection.id, startX, startY, endX, endY);
       connectionGeometriesRef.current.set(connection.id, geometry);
       const isSelectedConnection = selectedConnectionIdRef.current === connection.id;
-      edges.lineStyle(isSelectedConnection ? 3 : 2, isSelectedConnection ? 0x1d4ed8 : 0x64748b, 0.95);
+      edges.lineStyle(connectionLineWidth, isSelectedConnection ? 0x1d4ed8 : 0x64748b, CONNECTION_WIRE_ALPHA);
       drawBezierConnection(edges, startX, startY, endX, endY);
     }
 
@@ -1692,7 +1855,7 @@ function Canvas() {
       }
     }
 
-    edges.lineStyle(2, 0x1d4ed8, 0.95);
+    edges.lineStyle(connectionLineWidth, 0x1d4ed8, CONNECTION_WIRE_ALPHA);
     drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
   }, [requestCanvasAnimationLoop]);
 
@@ -2567,7 +2730,8 @@ function Canvas() {
             : 0xf8fafc,
         hasProjectedGraphics,
         annotationBorder?.alpha ?? 1,
-        annotationBackground?.alpha ?? 1
+        annotationBackground?.alpha ?? 1,
+        !annotationConfig
       );
       frame.eventMode = 'static';
       frame.hitArea = new Rectangle(0, 0, width, height);
