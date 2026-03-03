@@ -86,6 +86,7 @@ Status: IN PROGRESS
 - Expose projection add/select operations via MCP, including clone-from-active creation behavior. (DONE)
 - Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
 - Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
+- Add MCP safe connection-management tools for filtered connection inspection and atomic per-input source replacement (`connections_list`, `connection_set`/`connection_replace`). (DONE)
 - Add automated MCP integration tests for graph edit operations and screenshot size/region assertions.
 
 ### B-009 Python Backend Runtime

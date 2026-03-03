@@ -84,6 +84,19 @@ const validate = <T extends z.ZodType>(schema: T) => {
   };
 };
 
+function isTruthyQueryFlag(value: unknown): boolean {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((candidate) => isTruthyQueryFlag(candidate));
+  }
+
+  return false;
+}
+
 function buildProjectionNodePositionMap(nodes: GraphNode[]): Record<string, { x: number; y: number }> {
   const map: Record<string, { x: number; y: number }> = {};
   for (const node of nodes) {
@@ -591,6 +604,7 @@ export function createApp(deps?: AppDependencies) {
       if (!existing) {
         return res.status(404).json({ error: 'Graph not found' });
       }
+      const noRecompute = isTruthyQueryFlag(req.query.noRecompute);
 
       const expectedUpdatedAt = req.body.ifMatchUpdatedAt;
       if (typeof expectedUpdatedAt === 'number' && expectedUpdatedAt !== existing.updatedAt) {
@@ -644,7 +658,9 @@ export function createApp(deps?: AppDependencies) {
       }
 
       await dataStore.storeGraph(graph);
-      recomputeManager.queueGraphUpdateRecompute(existing, graph);
+      if (!noRecompute) {
+        recomputeManager.queueGraphUpdateRecompute(existing, graph);
+      }
       res.json(graph);
     } catch (error: any) {
       res.status(500).json({ error: error.message });

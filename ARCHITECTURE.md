@@ -19,6 +19,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Computes impacted downstream chains and marks all queued descendants as pending before execution
 - Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
 - Exposes `/api/graphs/:id/recompute-status` state for frontend polling
+- Graph updates can bypass enqueueing update-driven recompute via `PUT /api/graphs/:id?noRecompute=true`
 
 #### DataStore (`packages/backend/src/core/DataStore.ts`)
 - Persists computation results in structured format (JSON)
@@ -46,6 +47,8 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Exposes graph-editing operations for agent clients over MCP stdio transport
 - Delegates graph mutations to existing backend REST API (`/api/graphs/*`)
 - Supports ordered `bulk_edit` graph mutations applied sequentially and persisted in a single graph update
+- Provides connection-inspection and deterministic per-input rewiring tools (`connections_list`, `connection_set`/`connection_replace`)
+- Uses connection-only graph update payloads for connection tools to avoid touching node position/card-size/projection fields
 - Provides internal Playwright-based screenshot rendering for agents
 - Uses an internal standalone render page (no app chrome/panels) for deterministic captures
 - Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions

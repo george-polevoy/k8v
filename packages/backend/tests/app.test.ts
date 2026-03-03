@@ -751,6 +751,217 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
   }
 });
 
+test('PUT /api/graphs supports noRecompute query flag for topology updates', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const rootNode = {
+      id: 'node-a',
+      type: 'inline_code',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'A',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'python_process',
+        code: 'import time\\ntime.sleep(0.25)\\noutputs.output = 2',
+        config: { autoRecompute: true },
+      },
+      version: 'a-v1',
+    };
+    const leafNode = {
+      id: 'node-b',
+      type: 'inline_code',
+      position: { x: 200, y: 0 },
+      metadata: {
+        name: 'B',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: { autoRecompute: true },
+      },
+      version: 'b-v1',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [rootNode, leafNode],
+      connections: [
+        {
+          id: 'ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+      ],
+      recomputeConcurrency: 1,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}?noRecompute=true`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        connections: [],
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+
+    let sawQueuedWork = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+      const nodeStates = status.nodeStates ?? {};
+
+      if (
+        status.queueLength > 0 ||
+        Object.values(nodeStates).some((state: any) => state?.isPending || state?.isComputing)
+      ) {
+        sawQueuedWork = true;
+        break;
+      }
+
+      await delay(20);
+    }
+
+    assert.equal(sawQueuedWork, false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs preserves node layout and projection metadata on connections-only updates', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceNode = {
+      id: 'node-a',
+      type: 'inline_code',
+      position: { x: 40, y: 80 },
+      metadata: {
+        name: 'A',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = 1;',
+        config: {
+          cardWidth: 260,
+          cardHeight: 160,
+        },
+      },
+      version: 'a-v1',
+    };
+    const targetNode = {
+      id: 'node-b',
+      type: 'inline_code',
+      position: { x: 340, y: 120 },
+      metadata: {
+        name: 'B',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: {
+          cardWidth: 320,
+          cardHeight: 210,
+        },
+      },
+      version: 'b-v1',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [sourceNode, targetNode],
+      connections: [],
+      projections: [
+        {
+          id: 'default',
+          name: 'Default',
+          nodePositions: {
+            'node-a': { x: 40, y: 80 },
+            'node-b': { x: 340, y: 120 },
+          },
+          nodeCardSizes: {
+            'node-a': { width: 260, height: 160 },
+            'node-b': { width: 320, height: 210 },
+          },
+          canvasBackground: {
+            mode: 'gradient',
+            baseColor: '#1d437e',
+          },
+        },
+        {
+          id: 'alt',
+          name: 'Alt',
+          nodePositions: {
+            'node-a': { x: 400, y: 200 },
+            'node-b': { x: 760, y: 320 },
+          },
+          nodeCardSizes: {
+            'node-a': { width: 280, height: 180 },
+            'node-b': { width: 340, height: 230 },
+          },
+          canvasBackground: {
+            mode: 'solid',
+            baseColor: '#204080',
+          },
+        },
+      ],
+      activeProjectionId: 'alt',
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        connections: [
+          {
+            id: 'ab',
+            sourceNodeId: 'node-a',
+            sourcePort: 'output',
+            targetNodeId: 'node-b',
+            targetPort: 'input',
+          },
+        ],
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+
+    const extractLayout = (graph: any) =>
+      graph.nodes
+        .map((node: any) => ({
+          id: node.id,
+          position: node.position,
+          cardWidth: node.config?.config?.cardWidth,
+          cardHeight: node.config?.config?.cardHeight,
+        }))
+        .sort((left: any, right: any) => String(left.id).localeCompare(String(right.id)));
+
+    assert.equal(updatedGraph.activeProjectionId, createdGraph.activeProjectionId);
+    assert.deepEqual(updatedGraph.projections, createdGraph.projections);
+    assert.deepEqual(extractLayout(updatedGraph), extractLayout(createdGraph));
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('PUT /api/graphs switches active projection and applies projected node coordinates', async () => {
   const ctx = await setupTestServer();
 
