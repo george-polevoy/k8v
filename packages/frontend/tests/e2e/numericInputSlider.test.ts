@@ -143,9 +143,9 @@ test(
 
       await page.mouse.down();
       await page.mouse.move(sliderEndX, sliderY, { steps: 24 });
-      assert.equal(await readCanvasCursor(page), 'ew-resize');
+      await waitForCursorAtPoint(page, sliderEndX - 8, sliderY, 'ew-resize');
       await page.mouse.up();
-      assert.equal(await readCanvasCursor(page), 'ew-resize');
+      await waitForCursorAtPoint(page, sliderEndX - 8, sliderY, 'ew-resize');
 
       const finalValue = await waitForNumericNodeValue(
         graphId,

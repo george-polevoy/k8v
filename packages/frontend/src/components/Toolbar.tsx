@@ -9,7 +9,11 @@ const DRAW_THICKNESSES: Array<{ id: 1 | 3 | 9; label: string }> = [
   { id: 9, label: '9 px' },
 ];
 
-function Toolbar() {
+interface ToolbarProps {
+  embedded?: boolean;
+}
+
+function Toolbar({ embedded = false }: ToolbarProps) {
   const computeGraph = useGraphStore((state) => state.computeGraph);
   const addNode = useGraphStore((state) => state.addNode);
   const requestCreateDrawing = useGraphStore((state) => state.requestCreateDrawing);
@@ -38,13 +42,15 @@ function Toolbar() {
     <>
       <div
         style={{
-          width: '60px',
-          background: '#f5f5f5',
-          borderRight: '1px solid #ddd',
+          width: embedded ? '100%' : '60px',
+          background: embedded ? 'transparent' : '#f5f5f5',
+          borderRight: embedded ? 'none' : '1px solid #ddd',
           display: 'flex',
           flexDirection: 'column',
           padding: '8px',
           gap: '8px',
+          height: '100%',
+          overflowY: 'auto',
         }}
       >
         <button

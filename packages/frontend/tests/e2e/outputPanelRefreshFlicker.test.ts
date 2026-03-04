@@ -29,7 +29,8 @@ async function openCanvasForGraphWithTimeout(
   }, graphId);
 
   await page.goto(E2E_FRONTEND_URL, {
-    waitUntil: 'networkidle',
+    // Recompute polling keeps network active; avoid networkidle startup flakiness.
+    waitUntil: 'domcontentloaded',
     timeout: 60_000,
   });
   await page.locator('canvas').first().waitFor({

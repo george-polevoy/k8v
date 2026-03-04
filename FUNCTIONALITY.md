@@ -71,6 +71,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
 - Drawing handles are selectable, draggable (move drawing), and deletable.
 - Drawing paths and handles are rendered in canvas and minimap.
+- Canvas fills the full viewport while UI chrome is rendered as floating overlays.
+- Toolbar and right-side panel stack are draggable floating windows, so layout remains stable during window resizing.
 - Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.
 - Selecting a node auto-expands the Node accordion panel.
 - Diagnostics panel shows backend failure state with a red header indicator and user-readable error message.

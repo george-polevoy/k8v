@@ -17,10 +17,18 @@ const REPO_ROOT = path.resolve(FRONTEND_DIR, '..', '..');
 const MAX_LOG_LINES = 160;
 const POLL_INTERVAL_MS = 250;
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
+const E2E_DEBUG = process.env.K8V_E2E_DEBUG === '1';
 
 let initialized = false;
 let backendProcess: ManagedProcess | null = null;
 let frontendProcess: ManagedProcess | null = null;
+
+function debugLog(message: string): void {
+  if (!E2E_DEBUG) {
+    return;
+  }
+  console.log(`[e2e-env] ${message}`);
+}
 
 function recordLog(logs: string[], line: string): void {
   logs.push(line);
@@ -83,9 +91,11 @@ async function isHttpReady(url: string): Promise<boolean> {
 }
 
 async function waitForUrl(url: string, timeoutMs: number, processInfo: ManagedProcess | null): Promise<void> {
+  debugLog(`Waiting for ${url} (timeout ${timeoutMs}ms)`);
   const startedAt = Date.now();
   while ((Date.now() - startedAt) < timeoutMs) {
     if (await isHttpReady(url)) {
+      debugLog(`Ready: ${url}`);
       return;
     }
 
@@ -117,12 +127,15 @@ function isDefaultLocalUrl(url: string, expectedPort: string): boolean {
 
 async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
   if (!processInfo) {
+    debugLog('stopProcess skipped (null process)');
     return;
   }
   if (processInfo.child.exitCode !== null) {
+    debugLog(`stopProcess skipped (${processInfo.name} already exited: ${processInfo.child.exitCode})`);
     return;
   }
 
+  debugLog(`Stopping process ${processInfo.name} with SIGTERM`);
   processInfo.child.kill('SIGTERM');
   const exited = await Promise.race([
     once(processInfo.child, 'exit').then(() => true),
@@ -130,17 +143,21 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
   ]);
 
   if (exited) {
+    debugLog(`Process ${processInfo.name} exited after SIGTERM`);
     return;
   }
 
+  debugLog(`Process ${processInfo.name} did not exit after SIGTERM; sending SIGKILL`);
   processInfo.child.kill('SIGKILL');
   await Promise.race([
     once(processInfo.child, 'exit').then(() => undefined),
     delay(2_000).then(() => undefined),
   ]);
+  debugLog(`Process ${processInfo.name} stop sequence completed`);
 }
 
 async function cleanupAutotestGraphs(): Promise<void> {
+  debugLog('cleanupAutotestGraphs: listing graphs');
   const listResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
     signal: AbortSignal.timeout(4_000),
   });
@@ -159,6 +176,8 @@ async function cleanupAutotestGraphs(): Promise<void> {
     )
     .map((graph) => graph.id);
 
+  debugLog(`cleanupAutotestGraphs: deleting ${targetGraphIds.length} graphs`);
+
   await Promise.all(targetGraphIds.map(async (graphId) => {
     const deleteResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
       method: 'DELETE',
@@ -168,10 +187,13 @@ async function cleanupAutotestGraphs(): Promise<void> {
       throw new Error(`Failed to cleanup graph ${graphId} (${deleteResponse.status})`);
     }
   }));
+  debugLog('cleanupAutotestGraphs: completed');
 }
 
 export async function ensureE2EEnvironment(): Promise<void> {
+  debugLog(`ensureE2EEnvironment start (initialized=${initialized})`);
   if (initialized) {
+    debugLog('ensureE2EEnvironment no-op (already initialized)');
     return;
   }
 
@@ -180,6 +202,7 @@ export async function ensureE2EEnvironment(): Promise<void> {
     const frontendHealthUrl = E2E_FRONTEND_URL;
 
     if (!(await isHttpReady(backendHealthUrl))) {
+      debugLog('Backend not reachable; starting managed backend');
       if (!isDefaultLocalUrl(E2E_BACKEND_URL, '3000')) {
         throw new Error(
           `Backend URL ${E2E_BACKEND_URL} is not reachable and cannot be auto-started. ` +
@@ -188,9 +211,12 @@ export async function ensureE2EEnvironment(): Promise<void> {
       }
       backendProcess = startProcess('backend', ['run', 'dev:backend'], { PORT: '3000' });
       await waitForUrl(backendHealthUrl, E2E_START_TIMEOUT_MS, backendProcess);
+    } else {
+      debugLog('Backend already reachable; reusing existing backend');
     }
 
     if (!(await isHttpReady(frontendHealthUrl))) {
+      debugLog('Frontend not reachable; starting managed frontend');
       if (!isDefaultLocalUrl(E2E_FRONTEND_URL, '5173')) {
         throw new Error(
           `Frontend URL ${E2E_FRONTEND_URL} is not reachable and cannot be auto-started. ` +
@@ -199,15 +225,19 @@ export async function ensureE2EEnvironment(): Promise<void> {
       }
       frontendProcess = startProcess(
         'frontend',
-        ['run', 'dev:frontend', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'],
+        ['--prefix', 'packages/frontend', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'],
         {}
       );
       await waitForUrl(frontendHealthUrl, E2E_START_TIMEOUT_MS, frontendProcess);
+    } else {
+      debugLog('Frontend already reachable; reusing existing frontend');
     }
 
     await cleanupAutotestGraphs();
     initialized = true;
+    debugLog('ensureE2EEnvironment completed');
   } catch (error) {
+    debugLog(`ensureE2EEnvironment failed: ${String(error)}`);
     await stopProcess(frontendProcess);
     await stopProcess(backendProcess);
     frontendProcess = null;
@@ -218,11 +248,16 @@ export async function ensureE2EEnvironment(): Promise<void> {
 }
 
 export async function shutdownE2EEnvironment(): Promise<void> {
+  debugLog('shutdownE2EEnvironment start');
   try {
     if (await isHttpReady(`${E2E_BACKEND_URL}/api/graphs`)) {
+      debugLog('shutdownE2EEnvironment backend reachable; cleaning autotest graphs');
       await cleanupAutotestGraphs();
+    } else {
+      debugLog('shutdownE2EEnvironment backend not reachable; skipping graph cleanup');
     }
   } catch {
+    debugLog('shutdownE2EEnvironment graph cleanup failed (best effort)');
     // Best-effort cleanup only.
   }
   await stopProcess(frontendProcess);
@@ -230,4 +265,5 @@ export async function shutdownE2EEnvironment(): Promise<void> {
   frontendProcess = null;
   backendProcess = null;
   initialized = false;
+  debugLog('shutdownE2EEnvironment completed');
 }

@@ -120,12 +120,12 @@ function RightSidebar() {
     <aside
       data-testid="right-sidebar"
       style={{
-        width: '420px',
+        width: '100%',
         background: '#f3f6fa',
-        borderLeft: '1px solid #cfd8e3',
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
+        minHeight: 0,
         overflow: 'hidden',
       }}
     >

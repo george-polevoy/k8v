@@ -18,7 +18,8 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Visual Programming**: Create library nodes using the graph as a visual programming language
 - **Node Panel Editing**: Edit card names and manage input ports (add, rename, reorder, delete)
 - **Graph Panel Management**: Select graph, create graph, rename current graph, and delete current graph from dedicated graph panel
-- **Accordion Sidebar Panels**: Graph, Node, and Output panels are collapsible as an accordion
+- **Floating Overlay Panels**: Toolbar and right-side panels are draggable overlay windows above the canvas
+- **Accordion Sidebar Panels**: Graph, Node, and Output panels remain collapsible as an accordion inside the right-side panel window
 - **Node Status Indicators**: Card-level indicator for compute status, stale downstream state, and errors
 - **Error-State Smoke Cue**: Error nodes emit subtle black smoke on the canvas
 - **Auto Recompute Toggle**: Opt-in downstream recompute when upstream nodes change

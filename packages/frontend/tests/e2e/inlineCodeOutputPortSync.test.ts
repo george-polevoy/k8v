@@ -13,6 +13,35 @@ interface CanvasBox {
   height: number;
 }
 
+interface ScreenRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function isPointInsideRegion(x: number, y: number, region: ScreenRegion): boolean {
+  return (
+    x >= region.x &&
+    x <= (region.x + region.width) &&
+    y >= region.y &&
+    y <= (region.y + region.height)
+  );
+}
+
+async function getFloatingWindowRegions(page: import('playwright').Page): Promise<ScreenRegion[]> {
+  const floatingWindows = page.locator('[data-testid^="floating-window-"]');
+  const count = await floatingWindows.count();
+  const regions: ScreenRegion[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const bounds = await floatingWindows.nth(index).boundingBox();
+    if (bounds) {
+      regions.push(bounds);
+    }
+  }
+  return regions;
+}
+
 async function ensureNodeSelected(
   page: import('playwright').Page,
   canvasBox: CanvasBox
@@ -24,8 +53,12 @@ async function ensureNodeSelected(
 
   const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    const blockedRegions = await getFloatingWindowRegions(page);
     for (let y = canvasBox.y + 40; y <= (canvasBox.y + canvasBox.height - 40); y += 70) {
       for (let x = canvasBox.x + 40; x <= (canvasBox.x + canvasBox.width - 40); x += 70) {
+        if (blockedRegions.some((region) => isPointInsideRegion(x, y, region))) {
+          continue;
+        }
         await page.mouse.click(x, y);
         await page.waitForTimeout(60);
         if (await nodeNameInput.isVisible()) {
