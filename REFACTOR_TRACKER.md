@@ -42,6 +42,15 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 0 | 143 | +143 |
 | **Net** | **2040** | **2192** | **+152** |
 
+### T-004 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/NodePanel.tsx` | 2049 | 2000 | -49 |
+| `packages/frontend/src/components/Canvas.tsx` | 4317 | 4267 | -50 |
+| `packages/frontend/src/utils/numericInput.ts` | 0 | 59 | +59 |
+| **Net** | **6366** | **6326** | **-40** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -65,9 +74,9 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4318 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
-| R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2079 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
-| R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1461 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4267 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
+| R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
 | R-005 | Node panel draft sync | `NodePanel.tsx` effects | Draft values can reset during unrelated graph updates. |
 | R-006 | MCP screenshot renderer parity | `packages/mcp-server/src/index.ts` (`RENDERER_HTML`) | Screenshot renderer is a separate canvas implementation and can drift from user-visible frontend canvas. |
@@ -166,7 +175,7 @@ Verification result:
 - `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-004 Extract numeric input config utilities
-Status: TODO
+Status: DONE
 
 Scope:
 - Move duplicated numeric config helpers into shared util.
@@ -178,6 +187,21 @@ Out of scope:
 Verification:
 - Existing numeric input tests pass
 - `npm run lint`
+
+Delivered:
+- Added `packages/frontend/src/utils/numericInput.ts` with shared helpers:
+  - `normalizeNumericInputConfig`
+  - `snapNumericInputValue`
+  - `formatNumericInputValue`
+- Refactored `NodePanel.tsx` to remove duplicated numeric config helper definitions and reuse shared normalization helper.
+- Refactored `Canvas.tsx` to remove duplicated numeric helper definitions/interfaces and reuse shared formatting/normalization/snap helpers.
+- Preserved existing behavior and kept `Canvas.tsx` local `toFiniteNumber` helper for unrelated card-size fallback logic.
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass (`174` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-005 Canvas split phase 1: pure helpers
 Status: TODO
@@ -283,4 +307,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-004 Extract numeric input config utilities`.
+Next task to execute: `T-005 Canvas split phase 1: pure helpers`.
