@@ -51,6 +51,15 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/src/utils/numericInput.ts` | 0 | 59 | +59 |
 | **Net** | **6366** | **6326** | **-40** |
 
+### T-005 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/Canvas.tsx` | 4267 | 4207 | -60 |
+| `packages/frontend/src/utils/canvasHelpers.ts` | 0 | 70 | +70 |
+| `packages/frontend/tests/canvasHelpers.test.ts` | 0 | 60 | +60 |
+| **Net** | **4267** | **4337** | **+70** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -74,7 +83,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4267 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4207 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
@@ -204,7 +213,7 @@ Verification result:
 - `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-005 Canvas split phase 1: pure helpers
-Status: TODO
+Status: DONE
 
 Scope:
 - Move pure helper functions from `Canvas.tsx` into focused utility modules.
@@ -216,6 +225,22 @@ Out of scope:
 Verification:
 - Frontend tests pass
 - Manual smoke test for canvas load/zoom/pan/connect
+
+Delivered:
+- Added `packages/frontend/src/utils/canvasHelpers.ts` with extracted pure helper functions:
+  - `clamp`
+  - `easeInOutCubic`
+  - `snapToPixel`
+  - `makePortKey` / `parsePortKey`
+  - `interpolateCanvasBackground`
+- Refactored `Canvas.tsx` to import these helpers and removed duplicated inline helper definitions.
+- Added unit coverage in `packages/frontend/tests/canvasHelpers.test.ts` for helper behavior (clamping, easing, pixel snapping, port-key round-trip/parsing, and background interpolation mode/color behavior).
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass (`180` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-006 Canvas split phase 2: interaction handlers
 Status: TODO
@@ -307,4 +332,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-005 Canvas split phase 1: pure helpers`.
+Next task to execute: `T-006 Canvas split phase 2: interaction handlers`.
