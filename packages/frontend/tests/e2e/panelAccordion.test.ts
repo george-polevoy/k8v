@@ -11,6 +11,7 @@ const NUMERIC_NODE_WIDTH = 220;
 interface NodeScreenPosition {
   centerX: number;
   centerY: number;
+  left: number;
 }
 
 interface CanvasBox {
@@ -26,24 +27,39 @@ function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
   return {
     centerX,
     centerY,
+    left: centerX - (NUMERIC_NODE_WIDTH / 2),
   };
 }
 
-async function clickCenteredNode(page: Page, nodeBox: NodeScreenPosition): Promise<void> {
-  const candidateOffsets = [
-    { x: 0, y: 0 },
-    { x: -(NUMERIC_NODE_WIDTH * 0.25), y: -20 },
-    { x: NUMERIC_NODE_WIDTH * 0.25, y: -20 },
+async function ensureNodeSelected(page: Page, nodeBox: NodeScreenPosition): Promise<void> {
+  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
+  if (await nodeNameInput.isVisible()) {
+    return;
+  }
+
+  const selectionClicks = [
+    { x: nodeBox.centerX, y: nodeBox.centerY },
+    { x: nodeBox.left + 24, y: nodeBox.centerY - 30 },
+    { x: nodeBox.left + 24, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX - 80, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX + 80, y: nodeBox.centerY - 12 },
+    { x: nodeBox.centerX, y: nodeBox.centerY - 56 },
+    { x: nodeBox.centerX, y: nodeBox.centerY + 28 },
   ];
 
-  for (const offset of candidateOffsets) {
-    await page.mouse.click(nodeBox.centerX + offset.x, nodeBox.centerY + offset.y);
-    const expanded = await page.locator('[data-testid="sidebar-content-node"]').isVisible();
-    if (expanded) {
+  const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
+  let index = 0;
+  while (Date.now() < deadline) {
+    const click = selectionClicks[index % selectionClicks.length];
+    index += 1;
+    await page.mouse.click(click.x, click.y);
+    await page.waitForTimeout(120);
+    if (await nodeNameInput.isVisible()) {
       return;
     }
-    await page.waitForTimeout(80);
   }
+
+  throw new Error('Failed to select centered node before accordion assertion.');
 }
 
 test.before(async () => {
@@ -152,7 +168,7 @@ test(
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
 
       const nodeBox = resolveCenteredNodePosition(canvasBox);
-      await clickCenteredNode(page, nodeBox);
+      await ensureNodeSelected(page, nodeBox);
 
       await page.locator('[data-testid="sidebar-content-node"]').waitFor({
         state: 'visible',

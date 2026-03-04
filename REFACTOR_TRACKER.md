@@ -69,6 +69,17 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/canvasInteractions.test.ts` | 0 | 193 | +193 |
 | **Net** | **4207** | **4569** | **+362** |
 
+### T-007 LOC Delta (partial, before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/Canvas.tsx` | 4192 | 4065 | -127 |
+| `packages/frontend/src/utils/canvasTextureCache.ts` | 0 | 191 | +191 |
+| `packages/frontend/tests/canvasTextureCache.test.ts` | 0 | 80 | +80 |
+| `packages/frontend/tests/e2e/panelAccordion.test.ts` | 174 | 190 | +16 |
+| `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 143 | 88 | -55 |
+| **Net** | **4509** | **4614** | **+105** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -92,7 +103,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4192 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4065 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
@@ -292,6 +303,24 @@ Out of scope:
 Verification:
 - Existing graphics/projection tests pass
 - Manual smoke for projections, graphics output, and minimap
+
+Progress (current slice):
+- Extracted node-graphics texture cache lifecycle logic from `Canvas.tsx` into `packages/frontend/src/utils/canvasTextureCache.ts`:
+  - cache retain/release
+  - pending texture refresh scheduling
+  - node texture binding promotion/rebinding
+  - unused/clear-all cleanup
+- Refactored `Canvas.tsx` to consume shared texture-cache helpers and reduced local lifecycle code.
+- Added unit coverage in `packages/frontend/tests/canvasTextureCache.test.ts` for texture destroy/cleanup behavior.
+- Hardened flaky e2e node-selection interactions in:
+  - `packages/frontend/tests/e2e/panelAccordion.test.ts`
+  - `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts`
+
+Verification result (current slice):
+- `npm run lint`: pass
+- `npm run test`: pass (`192` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`23` tests, `0` fail) after stabilizing node-selection test helpers
 
 ### T-008 MCP screenshot parity audit + regression tests
 Status: DONE

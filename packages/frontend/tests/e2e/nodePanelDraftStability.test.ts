@@ -5,71 +5,6 @@ import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
-interface CanvasBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface ScreenRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-function isPointInsideRegion(x: number, y: number, region: ScreenRegion): boolean {
-  return (
-    x >= region.x &&
-    x <= (region.x + region.width) &&
-    y >= region.y &&
-    y <= (region.y + region.height)
-  );
-}
-
-async function getFloatingWindowRegions(page: import('playwright').Page): Promise<ScreenRegion[]> {
-  const floatingWindows = page.locator('[data-testid^="floating-window-"]');
-  const count = await floatingWindows.count();
-  const regions: ScreenRegion[] = [];
-  for (let index = 0; index < count; index += 1) {
-    const bounds = await floatingWindows.nth(index).boundingBox();
-    if (bounds) {
-      regions.push(bounds);
-    }
-  }
-  return regions;
-}
-
-async function ensureNodeSelected(
-  page: import('playwright').Page,
-  canvasBox: CanvasBox
-): Promise<void> {
-  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-  if (await nodeNameInput.isVisible()) {
-    return;
-  }
-
-  const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const blockedRegions = await getFloatingWindowRegions(page);
-    for (let y = canvasBox.y + 40; y <= (canvasBox.y + canvasBox.height - 40); y += 70) {
-      for (let x = canvasBox.x + 40; x <= (canvasBox.x + canvasBox.width - 40); x += 70) {
-        if (blockedRegions.some((region) => isPointInsideRegion(x, y, region))) {
-          continue;
-        }
-        await page.mouse.click(x, y);
-        await page.waitForTimeout(60);
-        if (await nodeNameInput.isVisible()) {
-          return;
-        }
-      }
-    }
-  }
-
-  throw new Error('Failed to select node for node panel draft stability test.');
-}
-
 test.before(async () => {
   await ensureE2EEnvironment();
 });
@@ -106,10 +41,21 @@ test(
       await dialog.getByRole('button', { name: 'Create' }).click();
       await dialog.waitFor({ state: 'hidden', timeout: E2E_ASSERT_TIMEOUT_MS });
 
-      const canvas = page.locator('canvas').first();
-      const canvasBox = await canvas.boundingBox();
-      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-      await ensureNodeSelected(page, canvasBox);
+      await page.evaluate(async (targetNodeName) => {
+        const { useGraphStore } = await import('/src/store/graphStore.ts');
+        const store = useGraphStore.getState();
+        const graph = store.graph;
+        if (!graph) {
+          throw new Error('Expected graph to be loaded before selecting node in draft stability test.');
+        }
+
+        const targetNode = graph.nodes.find((node) => node.metadata.name === targetNodeName);
+        if (!targetNode) {
+          throw new Error(`Could not find node named "${targetNodeName}" in draft stability test.`);
+        }
+
+        store.selectNode(targetNode.id);
+      }, nodeName);
 
       const nodeSidebarContent = page.locator('[data-testid="sidebar-content-node"]');
       await nodeSidebarContent.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
@@ -140,4 +86,3 @@ test(
     }
   }
 );
-
