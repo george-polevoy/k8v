@@ -60,6 +60,15 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/canvasHelpers.test.ts` | 0 | 60 | +60 |
 | **Net** | **4267** | **4337** | **+70** |
 
+### T-006 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/Canvas.tsx` | 4207 | 4192 | -15 |
+| `packages/frontend/src/utils/canvasInteractions.ts` | 0 | 184 | +184 |
+| `packages/frontend/tests/canvasInteractions.test.ts` | 0 | 193 | +193 |
+| **Net** | **4207** | **4569** | **+362** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -83,7 +92,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4207 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~4192 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
@@ -243,7 +252,7 @@ Verification result:
 - `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-006 Canvas split phase 2: interaction handlers
-Status: TODO
+Status: DONE
 
 Scope:
 - Extract pointer/keyboard/wheel handlers into a dedicated module or hook.
@@ -254,6 +263,21 @@ Out of scope:
 
 Verification:
 - Relevant e2e tests pass (wheel navigation, slider drag, drag stability, etc.)
+
+Delivered:
+- Added `packages/frontend/src/utils/canvasInteractions.ts` with extracted interaction helpers for:
+  - pointer drag threshold + snapped drag/pan position computation
+  - node resize draft computation for pointer-driven card resizing
+  - wheel interaction planning (modifier pan, trackpad pan, zoom anchor/scale)
+  - keyboard delete-shortcut editable-target guard
+- Refactored `Canvas.tsx` interaction handlers (`pointermove`, `wheel`, `keydown`) to use shared interaction helpers while preserving existing behavior.
+- Added unit coverage in `packages/frontend/tests/canvasInteractions.test.ts` for drag threshold, drag/pan math, resize math, wheel planning, and keyboard shortcut-guard behavior.
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass (`189` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`23` tests, `0` fail) on rerun; first full-suite run had one transient timeout in `panelAccordion.test.ts`, then passed in isolation and on full-suite rerun
 
 ### T-007 Canvas split phase 3: rendering/effects lifecycle
 Status: TODO
@@ -332,4 +356,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-006 Canvas split phase 2: interaction handlers`.
+Next task to execute: `T-007 Canvas split phase 3: rendering/effects lifecycle`.

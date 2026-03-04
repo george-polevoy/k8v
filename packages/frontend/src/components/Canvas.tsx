@@ -39,6 +39,14 @@ import {
   parsePortKey,
   snapToPixel,
 } from '../utils/canvasHelpers';
+import {
+  computeNodeResizeDraft,
+  computeSnappedDragPosition,
+  computeSnappedPanPosition,
+  hasExceededDragThreshold,
+  isCanvasDeletionShortcutBlocked,
+  resolveWheelInteractionPlan,
+} from '../utils/canvasInteractions';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
@@ -3686,58 +3694,24 @@ function Canvas() {
         if (!currentViewport) {
           return;
         }
-
-        const scale = currentViewport.scale.x || 1;
-        const deltaX = (event.global.x - nodeResizeState.pointerX) / scale;
-        const deltaY = (event.global.y - nodeResizeState.pointerY) / scale;
-        const resizeHandle = nodeResizeState.handle;
-        const resizeFromWest = resizeHandle.includes('w');
-        const resizeFromEast = resizeHandle.includes('e');
-        const resizeFromNorth = resizeHandle.includes('n');
-        const resizeFromSouth = resizeHandle.includes('s');
-        let nextLeft = nodeResizeState.x;
-        let nextTop = nodeResizeState.y;
-        let nextRight = nodeResizeState.x + nodeResizeState.width;
-        let nextBottom = nodeResizeState.y + nodeResizeState.height;
-
-        if (resizeFromEast) {
-          nextRight = nodeResizeState.x + nodeResizeState.width + deltaX;
-        }
-        if (resizeFromWest) {
-          nextLeft = nodeResizeState.x + deltaX;
-        }
-        if (resizeFromSouth) {
-          nextBottom = nodeResizeState.y + nodeResizeState.height + deltaY;
-        }
-        if (resizeFromNorth) {
-          nextTop = nodeResizeState.y + deltaY;
-        }
-
-        if ((nextRight - nextLeft) < nodeResizeState.minWidth) {
-          if (resizeFromWest && !resizeFromEast) {
-            nextLeft = nextRight - nodeResizeState.minWidth;
-          } else {
-            nextRight = nextLeft + nodeResizeState.minWidth;
-          }
-        }
-        if ((nextBottom - nextTop) < nodeResizeState.minHeight) {
-          if (resizeFromNorth && !resizeFromSouth) {
-            nextTop = nextBottom - nodeResizeState.minHeight;
-          } else {
-            nextBottom = nextTop + nodeResizeState.minHeight;
-          }
-        }
-
-        const nextX = snapToPixel(nextLeft);
-        const nextY = snapToPixel(nextTop);
-        const nextWidth = Math.max(
-          nodeResizeState.minWidth,
-          snapToPixel(nextRight - nextLeft)
-        );
-        const nextHeight = Math.max(
-          nodeResizeState.minHeight,
-          snapToPixel(nextBottom - nextTop)
-        );
+        const resizeDraft = computeNodeResizeDraft({
+          x: nodeResizeState.x,
+          y: nodeResizeState.y,
+          width: nodeResizeState.width,
+          height: nodeResizeState.height,
+          minWidth: nodeResizeState.minWidth,
+          minHeight: nodeResizeState.minHeight,
+          handle: nodeResizeState.handle,
+          pointerX: event.global.x,
+          pointerY: event.global.y,
+          startPointerX: nodeResizeState.pointerX,
+          startPointerY: nodeResizeState.pointerY,
+          scale: currentViewport.scale.x || 1,
+        });
+        const nextX = resizeDraft.x;
+        const nextY = resizeDraft.y;
+        const nextWidth = resizeDraft.width;
+        const nextHeight = resizeDraft.height;
 
         if (
           nextX !== nodeResizeState.currentX ||
@@ -3835,7 +3809,7 @@ function Canvas() {
         const deltaY = event.global.y - activeDrawingDragState.pointerY;
         if (
           !activeDrawingDragState.moved &&
-          Math.hypot(deltaX, deltaY) < NODE_DRAG_START_THRESHOLD
+          !hasExceededDragThreshold(deltaX, deltaY, NODE_DRAG_START_THRESHOLD)
         ) {
           return;
         }
@@ -3846,11 +3820,15 @@ function Canvas() {
           return;
         }
 
-        const scale = currentViewport.scale.x || 1;
-        const nextPosition = {
-          x: snapToPixel(activeDrawingDragState.drawingX + deltaX / scale),
-          y: snapToPixel(activeDrawingDragState.drawingY + deltaY / scale),
-        };
+        const nextPosition = computeSnappedDragPosition({
+          originX: activeDrawingDragState.drawingX,
+          originY: activeDrawingDragState.drawingY,
+          pointerX: event.global.x,
+          pointerY: event.global.y,
+          startPointerX: activeDrawingDragState.pointerX,
+          startPointerY: activeDrawingDragState.pointerY,
+          scale: currentViewport.scale.x || 1,
+        });
         activeDrawingDragState.currentX = nextPosition.x;
         activeDrawingDragState.currentY = nextPosition.y;
         drawingPositionsRef.current.set(activeDrawingDragState.drawingId, nextPosition);
@@ -3871,16 +3849,20 @@ function Canvas() {
         const deltaY = event.global.y - dragState.pointerY;
         if (
           !dragState.moved &&
-          Math.hypot(deltaX, deltaY) < NODE_DRAG_START_THRESHOLD
+          !hasExceededDragThreshold(deltaX, deltaY, NODE_DRAG_START_THRESHOLD)
         ) {
           return;
         }
 
-        const scale = currentViewport.scale.x || 1;
-        const nextPosition = {
-          x: snapToPixel(dragState.nodeX + deltaX / scale),
-          y: snapToPixel(dragState.nodeY + deltaY / scale),
-        };
+        const nextPosition = computeSnappedDragPosition({
+          originX: dragState.nodeX,
+          originY: dragState.nodeY,
+          pointerX: event.global.x,
+          pointerY: event.global.y,
+          startPointerX: dragState.pointerX,
+          startPointerY: dragState.pointerY,
+          scale: currentViewport.scale.x || 1,
+        });
         dragState.currentX = nextPosition.x;
         dragState.currentY = nextPosition.y;
         nodePositionsRef.current.set(dragState.nodeId, nextPosition);
@@ -3896,10 +3878,15 @@ function Canvas() {
       if (!panState) return;
 
       requestCanvasAnimationLoop();
-      viewport.position.set(
-        snapToPixel(panState.viewportX + (event.global.x - panState.pointerX)),
-        snapToPixel(panState.viewportY + (event.global.y - panState.pointerY))
-      );
+      const nextPanPosition = computeSnappedPanPosition({
+        viewportX: panState.viewportX,
+        viewportY: panState.viewportY,
+        pointerX: event.global.x,
+        pointerY: event.global.y,
+        startPointerX: panState.pointerX,
+        startPointerY: panState.pointerY,
+      });
+      viewport.position.set(nextPanPosition.x, nextPanPosition.y);
       drawMinimap();
       requestViewportDrivenGraphRefresh();
     };
@@ -3917,40 +3904,45 @@ function Canvas() {
 
       // Modifier wheel scroll is explicit panning; default wheel keeps zoom semantics.
       const modifierScrollDelta = resolveModifierWheelScrollDelta(event);
-      if (modifierScrollDelta) {
-        currentViewport.position.set(
-          snapToPixel(currentViewport.position.x + modifierScrollDelta.x),
-          snapToPixel(currentViewport.position.y + modifierScrollDelta.y)
-        );
-        drawMinimap();
-        requestViewportDrivenGraphRefresh();
-        return;
+      const shouldPan = shouldWheelPanCanvas(event);
+      let pointerX = 0;
+      let pointerY = 0;
+      let worldBeforeX = 0;
+      let worldBeforeY = 0;
+      if (!modifierScrollDelta && !shouldPan) {
+        const rect = canvasElement.getBoundingClientRect();
+        const pointer = new Point(event.clientX - rect.left, event.clientY - rect.top);
+        const worldPointBefore = currentViewport.toLocal(pointer);
+        pointerX = pointer.x;
+        pointerY = pointer.y;
+        worldBeforeX = worldPointBefore.x;
+        worldBeforeY = worldPointBefore.y;
       }
 
-      if (shouldWheelPanCanvas(event)) {
-        currentViewport.position.set(
-          snapToPixel(currentViewport.position.x - event.deltaX),
-          snapToPixel(currentViewport.position.y - event.deltaY)
-        );
-        drawMinimap();
-        requestViewportDrivenGraphRefresh();
-        return;
+      const wheelPlan = resolveWheelInteractionPlan({
+        currentX: currentViewport.position.x,
+        currentY: currentViewport.position.y,
+        currentScale: currentViewport.scale.x,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        modifierScrollDelta,
+        shouldPan,
+        pointerX,
+        pointerY,
+        worldBeforeX,
+        worldBeforeY,
+        zoomSensitivity: ZOOM_SENSITIVITY * resolveWheelZoomSensitivityMultiplier(event),
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+      });
+
+      if (wheelPlan.kind === 'zoom') {
+        currentViewport.scale.set(wheelPlan.scale);
+        updateTextResolutionForScale(wheelPlan.scale);
+        drawFreehandStrokes();
       }
 
-      const rect = canvasElement.getBoundingClientRect();
-      const pointer = new Point(event.clientX - rect.left, event.clientY - rect.top);
-      const worldPointBefore = currentViewport.toLocal(pointer);
-      const zoomSensitivity = ZOOM_SENSITIVITY * resolveWheelZoomSensitivityMultiplier(event);
-      const scaleFactor = Math.exp(-event.deltaY * zoomSensitivity);
-      const nextScale = clamp(currentViewport.scale.x * scaleFactor, MIN_ZOOM, MAX_ZOOM);
-
-      currentViewport.scale.set(nextScale);
-      updateTextResolutionForScale(nextScale);
-      drawFreehandStrokes();
-      currentViewport.position.set(
-        snapToPixel(pointer.x - worldPointBefore.x * nextScale),
-        snapToPixel(pointer.y - worldPointBefore.y * nextScale)
-      );
+      currentViewport.position.set(wheelPlan.x, wheelPlan.y);
       drawMinimap();
       requestViewportDrivenGraphRefresh();
     };
@@ -3970,14 +3962,7 @@ function Canvas() {
       }
 
       const activeElement = document.activeElement as HTMLElement | null;
-      const isEditableActiveElement = Boolean(
-        activeElement &&
-        activeElement !== canvasElement &&
-        (activeElement.tagName.toLowerCase() === 'input' ||
-          activeElement.tagName.toLowerCase() === 'textarea' ||
-          activeElement.isContentEditable)
-      );
-      if (isEditableActiveElement) {
+      if (isCanvasDeletionShortcutBlocked(activeElement, canvasElement)) {
         return;
       }
 
