@@ -525,6 +525,10 @@ const DEFAULT_GRAPH_QUERY_CONNECTION_FIELDS: GraphQueryConnectionField[] = [
   'sourcePort',
   'targetPort',
 ];
+const REQUIRED_GRAPH_QUERY_CONNECTION_FIELDS: GraphQueryConnectionField[] = [
+  'sourceNodeId',
+  'targetNodeId',
+];
 
 function resolveGraphNodeQueryFields(
   requested: GraphQueryNodeField[] | undefined
@@ -545,7 +549,10 @@ function resolveGraphNodeQueryFields(
 function resolveGraphConnectionQueryFields(
   requested: GraphQueryConnectionField[] | undefined
 ): GraphQueryConnectionField[] {
-  const ordered = requested ?? DEFAULT_GRAPH_QUERY_CONNECTION_FIELDS;
+  const ordered = [
+    ...REQUIRED_GRAPH_QUERY_CONNECTION_FIELDS,
+    ...(requested ?? DEFAULT_GRAPH_QUERY_CONNECTION_FIELDS),
+  ];
   const seen = new Set<GraphQueryConnectionField>();
   const unique: GraphQueryConnectionField[] = [];
   for (const field of ordered) {

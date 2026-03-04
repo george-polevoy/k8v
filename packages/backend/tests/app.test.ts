@@ -416,13 +416,79 @@ test('POST /api/graphs/:id/query returns lightweight overview fields by default'
 
     assert.equal(query.operation, 'overview');
     assert.deepEqual(query.nodeFields, ['id', 'name']);
-    assert.deepEqual(query.connectionFields, ['sourcePort', 'targetPort']);
+    assert.deepEqual(query.connectionFields, [
+      'sourceNodeId',
+      'targetNodeId',
+      'sourcePort',
+      'targetPort',
+    ]);
     assert.deepEqual(query.nodes, [
       { id: 'node-a', name: 'Source A' },
       { id: 'node-b', name: 'Target B' },
     ]);
     assert.deepEqual(query.connections, [
-      { sourcePort: 'output', targetPort: 'input' },
+      {
+        sourceNodeId: 'node-a',
+        targetNodeId: 'node-b',
+        sourcePort: 'output',
+        targetPort: 'input',
+      },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/query always includes connection source/target node ids', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceNode = createValidInlineNode();
+    sourceNode.id = 'node-a';
+    sourceNode.metadata.name = 'Source A';
+
+    const targetNode = createPassThroughNode('node-b');
+    targetNode.metadata.name = 'Target B';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [sourceNode, targetNode],
+      connections: [
+        {
+          id: 'conn-ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'overview',
+        connectionFields: ['sourcePort', 'targetPort'],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.deepEqual(query.connectionFields, [
+      'sourceNodeId',
+      'targetNodeId',
+      'sourcePort',
+      'targetPort',
+    ]);
+    assert.deepEqual(query.connections, [
+      {
+        sourceNodeId: 'node-a',
+        targetNodeId: 'node-b',
+        sourcePort: 'output',
+        targetPort: 'input',
+      },
     ]);
   } finally {
     await ctx.close();

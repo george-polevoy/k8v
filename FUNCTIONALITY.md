@@ -15,7 +15,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph update API preserves existing node layout/projection metadata when updates only provide `connections`.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
-- Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges).
+- Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel backend recompute worker setting: edit per-graph `recomputeConcurrency` (`1-32`).
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.

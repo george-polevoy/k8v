@@ -115,11 +115,12 @@ Last reviewed: March 4, 2026.
 - `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `PUT /api/graphs/:id` updates preserve node positions/card sizes and projection metadata.
 - `A-BE-57` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph-level connection stroke settings.
 - `A-BE-58` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` persists graph-level connection stroke updates while normalizing 2x width ratio and brightness separation.
-- `A-BE-59` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `overview` returns lightweight default field projections (`id`/`name` for nodes and `sourcePort`/`targetPort` for connections).
+- `A-BE-59` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `overview` returns lightweight default field projections (`id`/`name` for nodes and mandatory `sourceNodeId`/`targetNodeId` plus port names for connections).
 - `A-BE-60` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_bfs` supports depth-limited downstream traversal and returns only requested fields.
 - `A-BE-61` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_dfs` enforces max-node-limited downstream traversal and returns only requested fields.
 - `A-BE-62` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `starting_vertices` returns only nodes without downstream/outgoing connections.
 - `A-BE-63` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` rejects traversal requests whose `startNodeIds` are missing from the graph.
+- `A-BE-64` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` always includes `sourceNodeId`/`targetNodeId` in connections even when `connectionFields` omits them.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -214,7 +215,7 @@ Last reviewed: March 4, 2026.
 | Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02`, `A-BE-37` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
 | Graph update conflict detection/reload (`ifMatchUpdatedAt` + `409`) | `A-BE-44`, `A-FE-24`, `A-E2E-08` | Automated |
-| Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63` | Automated |
+| Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery (connections always include source/target node ids) | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63`, `A-BE-64` | Automated |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
