@@ -69,7 +69,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/canvasInteractions.test.ts` | 0 | 193 | +193 |
 | **Net** | **4207** | **4569** | **+362** |
 
-### T-007 LOC Delta (partial, before vs current)
+### T-007 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
@@ -299,7 +299,7 @@ Verification result:
 - `npm run test:e2e`: pass (`23` tests, `0` fail) on rerun; first full-suite run had one transient timeout in `panelAccordion.test.ts`, then passed in isolation and on full-suite rerun
 
 ### T-007 Canvas split phase 3: rendering/effects lifecycle
-Status: TODO
+Status: DONE
 
 Scope:
 - Separate graph render pass, effect pass, and texture cache lifecycle.
@@ -428,4 +428,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-007 Canvas split phase 3: rendering/effects lifecycle`.
+Refactor queue complete (`T-001` through `T-009` are done). Next work should be selected from `BACKLOG.md` follow-up items.
