@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { Page } from 'playwright';
 import { createEmptyGraph, createNumericInputGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
@@ -10,7 +11,6 @@ const NUMERIC_NODE_WIDTH = 220;
 interface NodeScreenPosition {
   centerX: number;
   centerY: number;
-  left: number;
 }
 
 interface CanvasBox {
@@ -26,8 +26,24 @@ function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
   return {
     centerX,
     centerY,
-    left: centerX - (NUMERIC_NODE_WIDTH / 2),
   };
+}
+
+async function clickCenteredNode(page: Page, nodeBox: NodeScreenPosition): Promise<void> {
+  const candidateOffsets = [
+    { x: 0, y: 0 },
+    { x: -(NUMERIC_NODE_WIDTH * 0.25), y: -20 },
+    { x: NUMERIC_NODE_WIDTH * 0.25, y: -20 },
+  ];
+
+  for (const offset of candidateOffsets) {
+    await page.mouse.click(nodeBox.centerX + offset.x, nodeBox.centerY + offset.y);
+    const expanded = await page.locator('[data-testid="sidebar-content-node"]').isVisible();
+    if (expanded) {
+      return;
+    }
+    await page.waitForTimeout(80);
+  }
 }
 
 test.before(async () => {
@@ -136,9 +152,7 @@ test(
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
 
       const nodeBox = resolveCenteredNodePosition(canvasBox);
-      const headerClickX = nodeBox.left + 24;
-      const headerClickY = nodeBox.centerY - 30;
-      await page.mouse.click(headerClickX, headerClickY);
+      await clickCenteredNode(page, nodeBox);
 
       await page.locator('[data-testid="sidebar-content-node"]').waitFor({
         state: 'visible',

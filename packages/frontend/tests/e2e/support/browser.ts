@@ -15,7 +15,8 @@ export async function openCanvasForGraph(page: Page, graphId: string): Promise<v
   }, graphId);
 
   await page.goto(E2E_FRONTEND_URL, {
-    waitUntil: 'networkidle',
+    // App-level status polling can keep the network active; avoid networkidle flakiness.
+    waitUntil: 'domcontentloaded',
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
   await page.locator('canvas').first().waitFor({

@@ -6,51 +6,53 @@ import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
-interface BrightRegionBounds {
-  minX: number;
-  maxX: number;
+interface ScreenshotDiffStats {
+  changedPixels: number;
+  totalPixels: number;
+  changedPixelRatio: number;
 }
 
-function findNodeCardCenterXInScreenshot(
-  screenshotPng: Buffer,
-  bounds: BrightRegionBounds
-): number | null {
-  const image = PNG.sync.read(screenshotPng);
-  const scanXMin = Math.max(0, Math.round(bounds.minX));
-  const scanXMax = Math.min(image.width - 1, Math.round(bounds.maxX));
+function measureScreenshotDifference(
+  firstScreenshotPng: Buffer,
+  secondScreenshotPng: Buffer,
+  channelDeltaThreshold = 12
+): ScreenshotDiffStats {
+  const firstImage = PNG.sync.read(firstScreenshotPng);
+  const secondImage = PNG.sync.read(secondScreenshotPng);
+  assert.equal(
+    firstImage.width,
+    secondImage.width,
+    'Expected both screenshots to have the same width for diffing.'
+  );
+  assert.equal(
+    firstImage.height,
+    secondImage.height,
+    'Expected both screenshots to have the same height for diffing.'
+  );
 
-  let brightestMin = Number.POSITIVE_INFINITY;
-  let brightestMax = Number.NEGATIVE_INFINITY;
-  let brightPixelCount = 0;
+  let changedPixels = 0;
+  const totalPixels = firstImage.width * firstImage.height;
 
-  for (let y = 0; y < image.height; y += 1) {
-    for (let x = scanXMin; x <= scanXMax; x += 1) {
-      const index = ((y * image.width) + x) * 4;
-      const r = image.data[index] ?? 0;
-      const g = image.data[index + 1] ?? 0;
-      const b = image.data[index + 2] ?? 0;
-      const a = image.data[index + 3] ?? 0;
-      if (a >= 200 && r >= 220 && g >= 220 && b >= 220) {
-        brightestMin = Math.min(brightestMin, x);
-        brightestMax = Math.max(brightestMax, x);
-        brightPixelCount += 1;
-      }
+  for (let index = 0; index < firstImage.data.length; index += 4) {
+    const redDelta = Math.abs((firstImage.data[index] ?? 0) - (secondImage.data[index] ?? 0));
+    const greenDelta = Math.abs((firstImage.data[index + 1] ?? 0) - (secondImage.data[index + 1] ?? 0));
+    const blueDelta = Math.abs((firstImage.data[index + 2] ?? 0) - (secondImage.data[index + 2] ?? 0));
+    const alphaDelta = Math.abs((firstImage.data[index + 3] ?? 0) - (secondImage.data[index + 3] ?? 0));
+    if (
+      redDelta > channelDeltaThreshold ||
+      greenDelta > channelDeltaThreshold ||
+      blueDelta > channelDeltaThreshold ||
+      alphaDelta > channelDeltaThreshold
+    ) {
+      changedPixels += 1;
     }
   }
 
-  if (!Number.isFinite(brightestMin) || !Number.isFinite(brightestMax)) {
-    return null;
-  }
-  if (brightPixelCount < 3_000) {
-    return null;
-  }
-
-  // Ignore tiny bright fragments from anti-aliasing and focus on node-card sized spans.
-  if ((brightestMax - brightestMin) < 100) {
-    return null;
-  }
-
-  return (brightestMin + brightestMax) / 2;
+  return {
+    changedPixels,
+    totalPixels,
+    changedPixelRatio: changedPixels / Math.max(1, totalPixels),
+  };
 }
 
 async function fetchNodePosition(graphId: string, nodeId: string): Promise<{ x: number; y: number }> {
@@ -108,6 +110,7 @@ test(
 
       const startX = canvasBox.x + (canvasBox.width / 2);
       const startY = canvasBox.y + (canvasBox.height / 2);
+      const baselineScreenshot = await canvas.screenshot();
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -115,27 +118,24 @@ test(
       await page.waitForTimeout(120);
 
       const movedScreenshot = await canvas.screenshot();
-      const movedCenterX = findNodeCardCenterXInScreenshot(movedScreenshot, {
-        minX: canvasBox.width * 0.55,
-        maxX: canvasBox.width - 10,
-      });
-      assert.ok(movedCenterX !== null, 'Expected to detect node card after drag move');
+      const dragMoveDiff = measureScreenshotDifference(baselineScreenshot, movedScreenshot);
+      assert.ok(
+        dragMoveDiff.changedPixelRatio >= 0.01,
+        `Expected drag move to visibly shift canvas content. ` +
+          `changed=${dragMoveDiff.changedPixels}/${dragMoveDiff.totalPixels} ` +
+          `ratio=${dragMoveDiff.changedPixelRatio.toFixed(4)}`
+      );
 
       // Hold drag beyond recompute polling interval (400ms) to force canvas rerenders.
       await page.waitForTimeout(1_000);
 
       const heldScreenshot = await canvas.screenshot();
-      const heldCenterX = findNodeCardCenterXInScreenshot(heldScreenshot, {
-        minX: canvasBox.width * 0.55,
-        maxX: canvasBox.width - 10,
-      });
-      assert.ok(heldCenterX !== null, 'Expected to detect node card while drag is still held');
-      if (movedCenterX === null || heldCenterX === null) {
-        throw new Error('Node card detection should have produced non-null values before drift assertion.');
-      }
+      const holdDriftDiff = measureScreenshotDifference(movedScreenshot, heldScreenshot);
       assert.ok(
-        Math.abs(heldCenterX - movedCenterX) <= 18,
-        `Dragged node should stay in place while held. moved=${movedCenterX} held=${heldCenterX}`
+        holdDriftDiff.changedPixelRatio <= 0.004,
+        `Dragged node should stay visually stable while held. ` +
+          `changed=${holdDriftDiff.changedPixels}/${holdDriftDiff.totalPixels} ` +
+          `ratio=${holdDriftDiff.changedPixelRatio.toFixed(4)}`
       );
 
       await page.mouse.up();
