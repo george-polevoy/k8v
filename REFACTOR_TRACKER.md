@@ -34,6 +34,14 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/panelPythonEnvHelpers.test.ts` | 0 | 105 | +105 |
 | **Net** | **3540** | **3688** | **+148** |
 
+### T-003 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/NodePanel.tsx` | 2040 | 2049 | +9 |
+| `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 0 | 143 | +143 |
+| **Net** | **2040** | **2192** | **+152** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -131,7 +139,7 @@ Verification result:
 - `npm run test:e2e`: pass (`22` tests, `0` fail)
 
 ### T-003 Stabilize NodePanel drafts (prevent unintended resets)
-Status: TODO
+Status: DONE
 
 Scope:
 - Narrow effect dependencies so node draft fields do not reset on unrelated graph updates.
@@ -143,6 +151,19 @@ Out of scope:
 Verification:
 - Add/extend frontend test(s) for draft persistence
 - Run targeted e2e/manual check for node panel editing
+
+Delivered:
+- Updated `NodePanel.tsx` draft hydration effect to gate resets by selected-node identity/version changes, preventing local draft resets on unrelated graph updates.
+- Added e2e regression coverage in `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts`:
+  - keeps a node-name draft in-progress
+  - triggers an unrelated graph update in the background
+  - verifies the draft value is preserved
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass (`174` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`23` tests, `0` fail)
 
 ### T-004 Extract numeric input config utilities
 Status: TODO
@@ -262,4 +283,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-003 Stabilize NodePanel drafts (prevent unintended resets)`.
+Next task to execute: `T-004 Extract numeric input config utilities`.

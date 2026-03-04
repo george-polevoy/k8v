@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
@@ -216,6 +216,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const [isGraphActionInFlight, setIsGraphActionInFlight] = useState(false);
   const [isDeleteGraphConfirming, setIsDeleteGraphConfirming] = useState(false);
   const [isGraphicsDebugExpanded, setIsGraphicsDebugExpanded] = useState(false);
+  const hydratedNodeDraftSourceRef = useRef<string>('__init__');
 
   useEffect(() => {
     if (!showGraphSection) {
@@ -225,6 +226,14 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   }, [refreshGraphSummaries, showGraphSection]);
 
   useEffect(() => {
+    const draftSourceKey = selectedNode
+      ? `${selectedNode.id}:${selectedNode.version}`
+      : 'none';
+    if (hydratedNodeDraftSourceRef.current === draftSourceKey) {
+      return;
+    }
+    hydratedNodeDraftSourceRef.current = draftSourceKey;
+
     if (selectedNode?.config.code !== undefined) {
       setCodeValue(selectedNode.config.code);
     } else {
@@ -265,7 +274,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     }
 
     setInputValidationError(null);
-  }, [selectedNode, graph]);
+  }, [selectedNode]);
 
   useEffect(() => {
     if (selectedDrawing) {
