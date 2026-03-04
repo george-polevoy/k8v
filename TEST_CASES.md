@@ -114,10 +114,16 @@ Last reviewed: March 3, 2026.
 - `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `PUT /api/graphs/:id` updates preserve node positions/card sizes and projection metadata.
 - `A-BE-57` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph-level connection stroke settings.
 - `A-BE-58` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` persists graph-level connection stroke updates while normalizing 2x width ratio and brightness separation.
+- `A-BE-59` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `overview` returns lightweight default field projections (`id`/`name` for nodes and `sourcePort`/`targetPort` for connections).
+- `A-BE-60` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_bfs` supports depth-limited downstream traversal and returns only requested fields.
+- `A-BE-61` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_dfs` enforces max-node-limited downstream traversal and returns only requested fields.
+- `A-BE-62` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `starting_vertices` returns only nodes without downstream/outgoing connections.
+- `A-BE-63` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` rejects traversal requests whose `startNodeIds` are missing from the graph.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
 - `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
+- `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests and enforces required `maxNodes` for DFS requests.
 
 ## Manual Regression Test Cases
 
@@ -207,6 +213,7 @@ Last reviewed: March 3, 2026.
 | Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02`, `A-BE-37` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
 | Graph update conflict detection/reload (`ifMatchUpdatedAt` + `409`) | `A-BE-44`, `A-FE-24`, `A-E2E-08` | Automated |
+| Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63` | Automated |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
@@ -302,6 +309,7 @@ Last reviewed: March 3, 2026.
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
+| MCP graph-query tool validation coverage | `A-MCP-05` | Automated |
 | MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |

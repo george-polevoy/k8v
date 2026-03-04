@@ -380,6 +380,301 @@ test('PUT /api/graphs persists graph execution timeout and allows large values',
   }
 });
 
+test('POST /api/graphs/:id/query returns lightweight overview fields by default', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceNode = createValidInlineNode();
+    sourceNode.id = 'node-a';
+    sourceNode.metadata.name = 'Source A';
+
+    const targetNode = createPassThroughNode('node-b');
+    targetNode.metadata.name = 'Target B';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [sourceNode, targetNode],
+      connections: [
+        {
+          id: 'conn-ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'overview' }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.equal(query.operation, 'overview');
+    assert.deepEqual(query.nodeFields, ['id', 'name']);
+    assert.deepEqual(query.connectionFields, ['sourcePort', 'targetPort']);
+    assert.deepEqual(query.nodes, [
+      { id: 'node-a', name: 'Source A' },
+      { id: 'node-b', name: 'Target B' },
+    ]);
+    assert.deepEqual(query.connections, [
+      { sourcePort: 'output', targetPort: 'input' },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/query supports BFS traversal with optional depth', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createValidInlineNode();
+    nodeA.id = 'node-a';
+    nodeA.metadata.name = 'A';
+
+    const nodeB = createPassThroughNode('node-b');
+    nodeB.metadata.name = 'B';
+    const nodeC = createPassThroughNode('node-c');
+    nodeC.metadata.name = 'C';
+    const nodeD = createPassThroughNode('node-d');
+    nodeD.metadata.name = 'D';
+    const nodeE = createPassThroughNode('node-e');
+    nodeE.metadata.name = 'E';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [nodeA, nodeB, nodeC, nodeD, nodeE],
+      connections: [
+        {
+          id: 'conn-ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-ac',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-c',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-bd',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-d',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-ce',
+          sourceNodeId: 'node-c',
+          sourcePort: 'output',
+          targetNodeId: 'node-e',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'traverse_bfs',
+        startNodeIds: ['node-a'],
+        depth: 1,
+        nodeFields: ['id'],
+        connectionFields: ['sourceNodeId', 'targetNodeId'],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.equal(query.operation, 'traverse_bfs');
+    assert.deepEqual(query.startNodeIds, ['node-a']);
+    assert.equal(query.depth, 1);
+    assert.deepEqual(
+      query.nodes.map((node: { id: string }) => node.id),
+      ['node-a', 'node-b', 'node-c']
+    );
+    assert.deepEqual(query.connections, [
+      { sourceNodeId: 'node-a', targetNodeId: 'node-b' },
+      { sourceNodeId: 'node-a', targetNodeId: 'node-c' },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/query supports DFS traversal with max node limit', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createValidInlineNode();
+    nodeA.id = 'node-a';
+    nodeA.metadata.name = 'A';
+
+    const nodeB = createPassThroughNode('node-b');
+    nodeB.metadata.name = 'B';
+    const nodeC = createPassThroughNode('node-c');
+    nodeC.metadata.name = 'C';
+    const nodeD = createPassThroughNode('node-d');
+    nodeD.metadata.name = 'D';
+    const nodeE = createPassThroughNode('node-e');
+    nodeE.metadata.name = 'E';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [nodeA, nodeB, nodeC, nodeD, nodeE],
+      connections: [
+        {
+          id: 'conn-ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-bd',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-d',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-ac',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-c',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-ce',
+          sourceNodeId: 'node-c',
+          sourcePort: 'output',
+          targetNodeId: 'node-e',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'traverse_dfs',
+        startNodeIds: ['node-a'],
+        maxNodes: 3,
+        nodeFields: ['id'],
+        connectionFields: ['sourceNodeId', 'targetNodeId'],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.equal(query.operation, 'traverse_dfs');
+    assert.equal(query.maxNodes, 3);
+    assert.deepEqual(
+      query.nodes.map((node: { id: string }) => node.id),
+      ['node-a', 'node-b', 'node-d']
+    );
+    assert.deepEqual(query.connections, [
+      { sourceNodeId: 'node-a', targetNodeId: 'node-b' },
+      { sourceNodeId: 'node-b', targetNodeId: 'node-d' },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/query returns starting vertices with no downstream connections', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const nodeA = createValidInlineNode();
+    nodeA.id = 'node-a';
+    nodeA.metadata.name = 'A';
+    const nodeB = createPassThroughNode('node-b');
+    nodeB.metadata.name = 'B';
+    const nodeC = createPassThroughNode('node-c');
+    nodeC.metadata.name = 'C';
+    const nodeD = createPassThroughNode('node-d');
+    nodeD.metadata.name = 'D';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [nodeA, nodeB, nodeC, nodeD],
+      connections: [
+        {
+          id: 'conn-ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-bd',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-d',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'starting_vertices',
+        nodeFields: ['id'],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.equal(query.operation, 'starting_vertices');
+    assert.deepEqual(query.nodes, [{ id: 'node-c' }, { id: 'node-d' }]);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/query rejects missing traversal start nodes', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+      connections: [],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'traverse_bfs',
+        startNodeIds: ['missing-node'],
+      }),
+    });
+    assert.equal(queryResponse.status, 400);
+    const body = await queryResponse.json();
+    assert.match(String(body.error ?? ''), /missing-node/);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs applies default canvas background settings', async () => {
   const ctx = await setupTestServer();
 

@@ -729,6 +729,59 @@ function resolveBackendUrl(explicitUrl?: string): string {
   return sanitizeBaseUrl(explicitUrl ?? DEFAULT_BACKEND_URL);
 }
 
+const GRAPH_QUERY_NODE_FIELD_VALUES = [
+  'id',
+  'name',
+  'type',
+  'version',
+  'inputNames',
+  'outputNames',
+] as const;
+const GRAPH_QUERY_CONNECTION_FIELD_VALUES = [
+  'id',
+  'sourceNodeId',
+  'sourcePort',
+  'targetNodeId',
+  'targetPort',
+] as const;
+const GRAPH_QUERY_OPERATION_VALUES = [
+  'overview',
+  'starting_vertices',
+  'traverse_bfs',
+  'traverse_dfs',
+] as const;
+
+const GRAPH_QUERY_NODE_FIELD_SCHEMA = z.enum(GRAPH_QUERY_NODE_FIELD_VALUES);
+const GRAPH_QUERY_CONNECTION_FIELD_SCHEMA = z.enum(GRAPH_QUERY_CONNECTION_FIELD_VALUES);
+
+export const GRAPH_QUERY_OPERATION_SCHEMA = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('overview'),
+    nodeFields: z.array(GRAPH_QUERY_NODE_FIELD_SCHEMA).optional(),
+    connectionFields: z.array(GRAPH_QUERY_CONNECTION_FIELD_SCHEMA).optional(),
+  }),
+  z.object({
+    operation: z.literal('starting_vertices'),
+    nodeFields: z.array(GRAPH_QUERY_NODE_FIELD_SCHEMA).optional(),
+    connectionFields: z.array(GRAPH_QUERY_CONNECTION_FIELD_SCHEMA).optional(),
+  }),
+  z.object({
+    operation: z.literal('traverse_bfs'),
+    startNodeIds: z.array(z.string().trim().min(1)).min(1),
+    depth: z.number().int().nonnegative().optional(),
+    nodeFields: z.array(GRAPH_QUERY_NODE_FIELD_SCHEMA).optional(),
+    connectionFields: z.array(GRAPH_QUERY_CONNECTION_FIELD_SCHEMA).optional(),
+  }),
+  z.object({
+    operation: z.literal('traverse_dfs'),
+    startNodeIds: z.array(z.string().trim().min(1)).min(1),
+    maxNodes: z.number().int().positive(),
+    nodeFields: z.array(GRAPH_QUERY_NODE_FIELD_SCHEMA).optional(),
+    connectionFields: z.array(GRAPH_QUERY_CONNECTION_FIELD_SCHEMA).optional(),
+  }),
+]);
+type GraphQueryOperation = z.infer<typeof GRAPH_QUERY_OPERATION_SCHEMA>;
+
 function clonePosition(position: { x: number; y: number }): { x: number; y: number } {
   return {
     x: position.x,
@@ -2560,6 +2613,55 @@ server.registerTool(
       : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
 
     return textResult(graph);
+  }
+);
+
+server.registerTool(
+  'graph_query',
+  {
+    description:
+      'Run lightweight graph queries (overview, BFS/DFS traversal, starting vertices) and return only requested fields.',
+    inputSchema: {
+      graphId: z.string(),
+      operation: z.enum(GRAPH_QUERY_OPERATION_VALUES),
+      startNodeIds: z.array(z.string()).optional(),
+      depth: z.number().int().nonnegative().optional(),
+      maxNodes: z.number().int().positive().optional(),
+      nodeFields: z.array(GRAPH_QUERY_NODE_FIELD_SCHEMA).optional(),
+      connectionFields: z.array(GRAPH_QUERY_CONNECTION_FIELD_SCHEMA).optional(),
+      backendUrl: z.string().optional(),
+    },
+  },
+  async ({
+    graphId,
+    operation,
+    startNodeIds,
+    depth,
+    maxNodes,
+    nodeFields,
+    connectionFields,
+    backendUrl,
+  }) => {
+    const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const parsedQuery: GraphQueryOperation = GRAPH_QUERY_OPERATION_SCHEMA.parse({
+      operation,
+      startNodeIds,
+      depth,
+      maxNodes,
+      nodeFields,
+      connectionFields,
+    });
+
+    const result = await requestJson<unknown>(
+      resolvedBackendUrl,
+      `/api/graphs/${encodeURIComponent(graphId)}/query`,
+      {
+        method: 'POST',
+        body: JSON.stringify(parsedQuery),
+      }
+    );
+
+    return textResult(result);
   }
 );
 

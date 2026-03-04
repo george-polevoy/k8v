@@ -15,6 +15,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph update API preserves existing node layout/projection metadata when updates only provide `connections`.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
+- Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges).
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel backend recompute worker setting: edit per-graph `recomputeConcurrency` (`1-32`).
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.
@@ -163,6 +164,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`), moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, deterministic per-input rewiring (`connection_set` / `connection_replace`), delete, and compute.
 - MCP `node_set_code` and bulk-edit `node_set_code` infer inline output ports from updated code and retain currently connected legacy outputs for connection-safe edits; optional `outputNames` allows explicit output-port schema updates for delegated helper-style code.
 - MCP `connections_list` tool lists edges for a graph with optional `nodeId`/`targetPort` filters.
+- MCP `graph_query` tool delegates to backend graph-query operations (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) and returns only requested node/connection fields.
 - MCP connection mutation tools (`connection_add`, `connection_delete`, `connection_set`, `connection_replace`) accept optional `noRecompute` to avoid backend auto-recompute enqueue.
 - MCP graph-edit tools for projections: add a projection (cloned from current active coordinates/card sizes/background by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).

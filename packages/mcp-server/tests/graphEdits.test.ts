@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BULK_EDIT_OPERATION_SCHEMA, applyBulkEditOperation, filterConnections } from '../src/index.ts';
+import {
+  BULK_EDIT_OPERATION_SCHEMA,
+  GRAPH_QUERY_OPERATION_SCHEMA,
+  applyBulkEditOperation,
+  filterConnections,
+} from '../src/index.ts';
 
 function createEmptyGraph() {
   const now = Date.now();
@@ -50,6 +55,30 @@ test('bulk_edit schema accepts node_add_numeric_input operations', () => {
   });
 
   assert.equal(parsed.op, 'node_add_numeric_input');
+});
+
+test('graph_query schema accepts BFS traversal request with optional depth', () => {
+  const parsed = GRAPH_QUERY_OPERATION_SCHEMA.parse({
+    operation: 'traverse_bfs',
+    startNodeIds: ['source'],
+    depth: 2,
+    nodeFields: ['id', 'name'],
+    connectionFields: ['sourcePort', 'targetPort'],
+  });
+
+  assert.equal(parsed.operation, 'traverse_bfs');
+  assert.equal(parsed.depth, 2);
+});
+
+test('graph_query schema requires maxNodes for DFS traversal requests', () => {
+  assert.throws(
+    () =>
+      GRAPH_QUERY_OPERATION_SCHEMA.parse({
+        operation: 'traverse_dfs',
+        startNodeIds: ['source'],
+      }),
+    /maxNodes/i
+  );
 });
 
 test('bulk_edit schema accepts connection_set operations', () => {

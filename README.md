@@ -82,6 +82,7 @@ npm run dev:mcp
 
 The MCP server exposes:
 - graph CRUD-style editing operations (nodes/connections, graph Python env add/edit/delete, drawing objects, compute), including connection inspection (`connections_list`) and atomic per-input source replacement (`connection_set` / `connection_replace`)
+- lightweight graph navigation queries via `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) with field-level projection for compact responses
 - bulk graph editing via `bulk_edit` (ordered operation arrays applied sequentially)
 - internal screenshot tool `graph_screenshot_region`:
   - renders only graph content on an internal page
