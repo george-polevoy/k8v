@@ -24,6 +24,16 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/src/utils/panelGraphHelpers.ts` | 0 | 16 | +16 |
 | **Net** | **3568** | **3556** | **-12** |
 
+### T-002 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/NodePanel.tsx` | 2079 | 2040 | -39 |
+| `packages/frontend/src/components/GraphPanel.tsx` | 1461 | 1422 | -39 |
+| `packages/frontend/src/utils/panelPythonEnvHelpers.ts` | 0 | 121 | +121 |
+| `packages/frontend/tests/panelPythonEnvHelpers.test.ts` | 0 | 105 | +105 |
+| **Net** | **3540** | **3688** | **+148** |
+
 ### T-008 LOC Delta (before vs current)
 
 | File | Before LOC | Current LOC | Delta |
@@ -90,7 +100,7 @@ Verification result:
 - `npm run test:e2e`: pass (`22` tests, `0` fail)
 
 ### T-002 Extract shared Python env draft logic
-Status: TODO
+Status: DONE
 
 Scope:
 - Extract Python env draft edit/validate/save logic used in both panels.
@@ -102,6 +112,23 @@ Out of scope:
 Verification:
 - Existing frontend tests pass
 - Manual check of Python env add/edit/delete/save in Graph panel
+
+Delivered:
+- Added shared Python env draft helpers in `packages/frontend/src/utils/panelPythonEnvHelpers.ts`:
+  - draft field update/add/delete
+  - draft normalization + validation with existing validation messages
+  - save-plan construction that trims env data and clears invalid node `pythonEnv` references
+- Refactored `NodePanel.tsx` and `GraphPanel.tsx` to reuse shared Python env draft/edit/commit helpers.
+- Added unit coverage in `packages/frontend/tests/panelPythonEnvHelpers.test.ts` for:
+  - draft update/add/delete behavior
+  - trim + validation behavior
+  - invalid node `pythonEnv` reference cleanup during save planning
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass (`174` tests, `0` fail)
+- `npm run build`: pass
+- `npm run test:e2e`: pass (`22` tests, `0` fail)
 
 ### T-003 Stabilize NodePanel drafts (prevent unintended resets)
 Status: TODO
@@ -235,4 +262,4 @@ Verification result:
 
 ## Current Focus
 
-Next task to execute: `T-002 Extract shared Python env draft logic`.
+Next task to execute: `T-003 Stabilize NodePanel drafts (prevent unintended resets)`.

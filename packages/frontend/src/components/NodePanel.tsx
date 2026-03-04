@@ -4,7 +4,14 @@ import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types
 import { createInlineCodeNode } from '../utils/nodeFactory';
 import { inferInlineOutputPortNames } from '../utils/inlinePortInference';
 import { normalizeColorString } from '../utils/color';
-import { formatGraphOptionLabel, getNextPythonEnvName } from '../utils/panelGraphHelpers';
+import { formatGraphOptionLabel } from '../utils/panelGraphHelpers';
+import {
+  addPythonEnvDraft as addPythonEnvDraftEntry,
+  buildPythonEnvCommitPlan,
+  deletePythonEnvDraft as deletePythonEnvDraftEntry,
+  PythonEnvDraftField,
+  updatePythonEnvDraftField as updatePythonEnvDraftFieldValue,
+} from '../utils/panelPythonEnvHelpers';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import {
   DEFAULT_ANNOTATION_BACKGROUND_COLOR,
@@ -782,36 +789,20 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
 
   const updatePythonEnvDraftField = useCallback((
     index: number,
-    field: keyof PythonEnvironment,
+    field: PythonEnvDraftField,
     value: string
   ) => {
-    setPythonEnvDrafts((current) =>
-      current.map((env, envIndex) =>
-        envIndex === index
-          ? {
-              ...env,
-              [field]: value,
-            }
-          : env
-      )
-    );
+    setPythonEnvDrafts((current) => updatePythonEnvDraftFieldValue(current, index, field, value));
     setPythonEnvValidationError(null);
   }, []);
 
   const addPythonEnvDraft = useCallback(() => {
-    setPythonEnvDrafts((current) => [
-      ...current,
-      {
-        name: getNextPythonEnvName(current),
-        pythonPath: '',
-        cwd: '',
-      },
-    ]);
+    setPythonEnvDrafts((current) => addPythonEnvDraftEntry(current));
     setPythonEnvValidationError(null);
   }, []);
 
   const deletePythonEnvDraft = useCallback((index: number) => {
-    setPythonEnvDrafts((current) => current.filter((_, envIndex) => envIndex !== index));
+    setPythonEnvDrafts((current) => deletePythonEnvDraftEntry(current, index));
     setPythonEnvValidationError(null);
   }, []);
 
@@ -820,47 +811,17 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
       return;
     }
 
-    const normalizedEnvs = pythonEnvDrafts.map((env) => ({
-      name: env.name.trim(),
-      pythonPath: env.pythonPath.trim(),
-      cwd: env.cwd.trim(),
-    }));
-
-    for (const env of normalizedEnvs) {
-      if (!env.name || !env.pythonPath || !env.cwd) {
-        setPythonEnvValidationError('Each Python env requires name, python path, and working directory.');
-        return;
-      }
-    }
-
-    const uniqueNames = new Set(normalizedEnvs.map((env) => env.name));
-    if (uniqueNames.size !== normalizedEnvs.length) {
-      setPythonEnvValidationError('Python env names must be unique within a graph.');
+    const resolution = buildPythonEnvCommitPlan(graph, pythonEnvDrafts);
+    if (!resolution.ok) {
+      setPythonEnvValidationError(resolution.error);
       return;
     }
-
-    const envNames = new Set(normalizedEnvs.map((env) => env.name));
-    const nextNodes = graph.nodes.map((node) => {
-      if (!node.config.pythonEnv || envNames.has(node.config.pythonEnv)) {
-        return node;
-      }
-
-      const configWithoutPythonEnv = {
-        ...node.config,
-        pythonEnv: undefined,
-      };
-      return {
-        ...node,
-        config: configWithoutPythonEnv,
-        version: `${Date.now()}-${node.id}`,
-      };
-    });
 
     setIsGraphActionInFlight(true);
     try {
       await updateGraph({
-        nodes: nextNodes,
-        pythonEnvs: normalizedEnvs,
+        nodes: resolution.nextNodes,
+        pythonEnvs: resolution.normalizedEnvs,
         updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
