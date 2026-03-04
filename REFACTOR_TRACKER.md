@@ -73,14 +73,16 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/frontend/src/components/Canvas.tsx` | 4192 | 3855 | -337 |
+| `packages/frontend/src/components/Canvas.tsx` | 4192 | 3830 | -362 |
 | `packages/frontend/src/utils/canvasTextureCache.ts` | 0 | 191 | +191 |
 | `packages/frontend/src/utils/canvasEffects.ts` | 0 | 370 | +370 |
+| `packages/frontend/src/utils/canvasRenderLifecycle.ts` | 0 | 79 | +79 |
 | `packages/frontend/tests/canvasTextureCache.test.ts` | 0 | 80 | +80 |
 | `packages/frontend/tests/canvasEffects.test.ts` | 0 | 176 | +176 |
+| `packages/frontend/tests/canvasRenderLifecycle.test.ts` | 0 | 97 | +97 |
 | `packages/frontend/tests/e2e/panelAccordion.test.ts` | 174 | 190 | +16 |
 | `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 143 | 88 | -55 |
-| **Net** | **4509** | **4950** | **+441** |
+| **Net** | **4509** | **5101** | **+592** |
 
 ### T-008 LOC Delta (before vs current)
 
@@ -105,7 +107,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~3855 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~3830 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
@@ -326,10 +328,19 @@ Progress (completed slices):
   - lightning/shock dedup queueing behavior
   - smoke emission + stale timestamp cleanup
   - smoke particle cap trimming behavior
+- Extracted graph render lifecycle helpers into `packages/frontend/src/utils/canvasRenderLifecycle.ts`:
+  - projection-transition frame resolution/expiration
+  - render-layer child cleanup/destruction
+  - stale node draft map pruning
+- Refactored `Canvas.tsx` render pass to consume `clearRenderLayerChildren`, `resolveProjectionTransitionFrame`, and `pruneNodeDraftMaps` in place of inline lifecycle logic.
+- Added unit coverage in `packages/frontend/tests/canvasRenderLifecycle.test.ts` for:
+  - layer cleanup destroy semantics
+  - projection transition frame resolution for mismatch/in-progress/completed states
+  - stale node draft map pruning
 
 Verification result (latest):
 - `npm run lint`: pass
-- `npm run test`: pass (`196` tests, `0` fail)
+- `npm run test`: pass (`201` tests, `0` fail)
 - `npm run build`: pass
 - `npm run test:e2e`: pass (`23` tests, `0` fail)
 

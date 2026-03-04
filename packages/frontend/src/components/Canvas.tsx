@@ -33,7 +33,6 @@ import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } fr
 import { deriveGradientStops, normalizeCanvasBackground, resolveGraphCanvasBackground } from '../utils/canvasBackground';
 import {
   clamp,
-  easeInOutCubic,
   interpolateCanvasBackground,
   makePortKey,
   parsePortKey,
@@ -63,6 +62,11 @@ import {
   type NodeShock,
   type SmokePuff,
 } from '../utils/canvasEffects';
+import {
+  clearRenderLayerChildren,
+  pruneNodeDraftMaps,
+  resolveProjectionTransitionFrame,
+} from '../utils/canvasRenderLifecycle';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
@@ -1999,28 +2003,14 @@ function Canvas() {
       annotationOverlayTransformRef.current = nextAnnotationOverlayTransform;
       setAnnotationOverlayTransform(nextAnnotationOverlayTransform);
     }
-    const now = performance.now();
-    let activeProjectionTransition = projectionTransitionRef.current;
-    let projectionTransitionProgress = 1;
-    let projectionTransitionEasedProgress = 1;
-
-    if (activeProjectionTransition) {
-      if (!currentGraph || activeProjectionTransition.graphId !== currentGraph.id) {
-        projectionTransitionRef.current = null;
-        activeProjectionTransition = null;
-      } else {
-        projectionTransitionProgress = clamp(
-          (now - activeProjectionTransition.startAt) / activeProjectionTransition.durationMs,
-          0,
-          1
-        );
-        projectionTransitionEasedProgress = easeInOutCubic(projectionTransitionProgress);
-        if (projectionTransitionProgress >= 1) {
-          projectionTransitionRef.current = null;
-          activeProjectionTransition = null;
-        }
-      }
-    }
+    const projectionTransitionFrame = resolveProjectionTransitionFrame(
+      projectionTransitionRef.current,
+      currentGraph?.id ?? null,
+      performance.now()
+    );
+    projectionTransitionRef.current = projectionTransitionFrame.transition;
+    const activeProjectionTransition = projectionTransitionFrame.transition;
+    const projectionTransitionEasedProgress = projectionTransitionFrame.easedProgress;
     const isProjectionTransitionActive = Boolean(activeProjectionTransition);
     const resolvedCanvasBackground = currentGraph
       ? (
@@ -2038,14 +2028,8 @@ function Canvas() {
 
     requestCanvasAnimationLoop();
     refreshCanvasBackgroundTexture(resolvedCanvasBackground);
-    const staleNodeObjects = nodesLayer.removeChildren();
-    for (const displayObject of staleNodeObjects) {
-      displayObject.destroy({ children: true });
-    }
-    const staleDrawingObjects = drawingHandleLayer.removeChildren();
-    for (const displayObject of staleDrawingObjects) {
-      displayObject.destroy({ children: true });
-    }
+    clearRenderLayerChildren(nodesLayer);
+    clearRenderLayerChildren(drawingHandleLayer);
     nodeVisualsRef.current.clear();
     drawingVisualsRef.current.clear();
     numericSliderVisualsRef.current.clear();
@@ -2098,16 +2082,7 @@ function Canvas() {
     }
 
     const currentNodeIds = new Set(currentGraph.nodes.map((node) => node.id));
-    for (const nodeId of nodeCardDraftSizesRef.current.keys()) {
-      if (!currentNodeIds.has(nodeId)) {
-        nodeCardDraftSizesRef.current.delete(nodeId);
-      }
-    }
-    for (const nodeId of nodeCardDraftPositionsRef.current.keys()) {
-      if (!currentNodeIds.has(nodeId)) {
-        nodeCardDraftPositionsRef.current.delete(nodeId);
-      }
-    }
+    pruneNodeDraftMaps(currentNodeIds, nodeCardDraftSizesRef.current, nodeCardDraftPositionsRef.current);
 
     const activeNodeGraphicsTextureIds = new Set<string>();
     let selectedNodeGraphicsDebugNext: NodeGraphicsComputationDebug | null = null;
