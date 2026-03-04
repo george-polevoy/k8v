@@ -4,6 +4,7 @@ import { GraphNode, NodeType, PortDefinition, PythonEnvironment } from '../types
 import { createInlineCodeNode } from '../utils/nodeFactory';
 import { inferInlineOutputPortNames } from '../utils/inlinePortInference';
 import { normalizeColorString } from '../utils/color';
+import { formatGraphOptionLabel, getNextPythonEnvName } from '../utils/panelGraphHelpers';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import {
   DEFAULT_ANNOTATION_BACKGROUND_COLOR,
@@ -79,21 +80,6 @@ function reconcileInlineOutputPorts(
       schema: { type: 'object' },
     };
   });
-}
-
-function formatGraphOptionLabel(name: string, id: string): string {
-  return `${name} (${id.slice(0, 8)})`;
-}
-
-function getNextPythonEnvName(envs: PythonEnvironment[]): string {
-  const existing = new Set(envs.map((env) => env.name));
-  let index = 1;
-  let candidate = `python_env_${index}`;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `python_env_${index}`;
-  }
-  return candidate;
 }
 
 interface NumericInputConfig {

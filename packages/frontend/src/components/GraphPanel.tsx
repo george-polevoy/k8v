@@ -18,6 +18,7 @@ import {
   normalizeGraphProjectionState,
   withCanvasBackgroundInProjection,
 } from '../utils/projections';
+import { formatGraphOptionLabel, getNextPythonEnvName } from '../utils/panelGraphHelpers';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -26,26 +27,11 @@ const MAX_RECOMPUTE_CONCURRENCY = 32;
 const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS = DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS / 1000;
 
-function formatGraphOptionLabel(name: string, id: string): string {
-  return `${name} (${id.slice(0, 8)})`;
-}
-
 function formatProjectionOptionLabel(name: string, id: string): string {
   if (id === DEFAULT_GRAPH_PROJECTION_ID) {
     return `${name} (${id})`;
   }
   return `${name} (${id.slice(0, 8)})`;
-}
-
-function getNextPythonEnvName(envs: PythonEnvironment[]): string {
-  const existing = new Set(envs.map((env) => env.name));
-  let index = 1;
-  let candidate = `python_env_${index}`;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `python_env_${index}`;
-  }
-  return candidate;
 }
 
 function getNextProjectionName(existingNames: string[]): string {

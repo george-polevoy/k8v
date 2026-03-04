@@ -7,23 +7,32 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { chromium } from 'playwright';
 import { z } from 'zod';
+import {
+  DEFAULT_CANVAS_BACKGROUND,
+  deriveGradientStops,
+  normalizeCanvasBackground as normalizeSharedCanvasBackground,
+} from '../../shared/src/canvasBackground.js';
+import {
+  DEFAULT_GRAPH_CONNECTION_STROKE,
+  normalizeGraphConnectionStroke,
+} from '../../shared/src/connectionStroke.js';
+import {
+  HEADER_HEIGHT,
+  MIN_NODE_HEIGHT,
+  NODE_BODY_PADDING,
+  NODE_MIN_WIDTH,
+  NODE_WIDTH,
+  NUMERIC_INPUT_NODE_MIN_HEIGHT,
+  PORT_SPACING,
+  resolveStandardNodeCardSize,
+  resolveStandardNodeMinHeight,
+} from '../../shared/src/nodeCardGeometry.js';
 
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const DEFAULT_GRAPH_PROJECTION_ID = 'default';
 const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
-const DEFAULT_CANVAS_BACKGROUND: CanvasBackground = {
-  mode: 'gradient',
-  baseColor: '#1d437e',
-};
-const NODE_WIDTH = 220;
-const NODE_MIN_WIDTH = 180;
-const MIN_NODE_HEIGHT = 68;
-const HEADER_HEIGHT = 36;
-const NODE_BODY_PADDING = 6;
-const PORT_SPACING = 18;
-const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 
 function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
   const fallbackColor = HEX_COLOR_PATTERN.test(String(fallback)) ? String(fallback).toLowerCase() : '#ffffff';
@@ -130,6 +139,13 @@ interface CanvasBackground {
   baseColor: string;
 }
 
+interface GraphConnectionStrokeSettings {
+  foregroundColor: string;
+  backgroundColor: string;
+  foregroundWidth: number;
+  backgroundWidth: number;
+}
+
 interface GraphProjection {
   id: string;
   name: string;
@@ -144,6 +160,7 @@ interface Graph {
   nodes: GraphNode[];
   connections: Connection[];
   canvasBackground?: CanvasBackground;
+  connectionStroke?: GraphConnectionStrokeSettings;
   projections?: GraphProjection[];
   activeProjectionId?: string;
   pythonEnvs?: PythonEnvironment[];
@@ -193,6 +210,18 @@ function getStableNodeNumbers(graph: Graph): Record<string, number> {
   );
 }
 
+const RENDERER_NODE_GEOMETRY = {
+  width: NODE_WIDTH,
+  minWidth: NODE_MIN_WIDTH,
+  minHeight: MIN_NODE_HEIGHT,
+  headerHeight: HEADER_HEIGHT,
+  bodyPadding: NODE_BODY_PADDING,
+  portSpacing: PORT_SPACING,
+  numericInputMinHeight: NUMERIC_INPUT_NODE_MIN_HEIGHT,
+};
+
+const RENDERER_DEFAULT_BACKGROUND_STOPS = deriveGradientStops(DEFAULT_CANVAS_BACKGROUND.baseColor);
+
 const RENDERER_HTML = String.raw`<!doctype html>
 <html>
   <head>
@@ -218,28 +247,46 @@ const RENDERER_HTML = String.raw`<!doctype html>
     <canvas id="graph-canvas"></canvas>
     <script>
       (function () {
-        const NODE_WIDTH = 220;
-        const MIN_NODE_HEIGHT = 96;
-        const HEADER_HEIGHT = 44;
-        const NODE_BODY_PADDING = 14;
-        const PORT_SPACING = 22;
+        const DEFAULT_CANVAS_BACKGROUND = ${JSON.stringify(DEFAULT_CANVAS_BACKGROUND)};
+        const DEFAULT_CANVAS_BACKGROUND_STOPS = ${JSON.stringify(RENDERER_DEFAULT_BACKGROUND_STOPS)};
+        const NODE_CARD_GEOMETRY = ${JSON.stringify(RENDERER_NODE_GEOMETRY)};
+        const NODE_WIDTH = NODE_CARD_GEOMETRY.width;
+        const NODE_MIN_WIDTH = NODE_CARD_GEOMETRY.minWidth;
+        const MIN_NODE_HEIGHT = NODE_CARD_GEOMETRY.minHeight;
+        const HEADER_HEIGHT = NODE_CARD_GEOMETRY.headerHeight;
+        const NODE_BODY_PADDING = NODE_CARD_GEOMETRY.bodyPadding;
+        const PORT_SPACING = NODE_CARD_GEOMETRY.portSpacing;
         const PORT_RADIUS = 4;
-        const NUMERIC_INPUT_NODE_MIN_HEIGHT = 108;
-        const NUMERIC_SLIDER_LEFT_PADDING = 14;
-        const NUMERIC_SLIDER_RIGHT_PADDING = 58;
-        const NUMERIC_SLIDER_Y_OFFSET = 22;
+        const NUMERIC_INPUT_NODE_MIN_HEIGHT = NODE_CARD_GEOMETRY.numericInputMinHeight;
+        const NUMERIC_SLIDER_LEFT_PADDING = 12;
+        const NUMERIC_SLIDER_RIGHT_PADDING = 34;
+        const NUMERIC_SLIDER_Y_OFFSET = 15;
+        const DEFAULT_GRAPH_CONNECTION_STROKE = ${JSON.stringify(DEFAULT_GRAPH_CONNECTION_STROKE)};
 
         function clamp(value, min, max) {
           return Math.min(Math.max(value, min), max);
         }
 
-        function getNodeHeight(node) {
+        function getNodeMinHeight(node) {
           const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
           const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
           if (node.type === 'numeric_input') {
             return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
           }
           return baseHeight;
+        }
+
+        function getNodeWidth(node) {
+          const config = node && node.config && node.config.config;
+          const rawWidth = toFiniteNumber(config && config.cardWidth, NODE_WIDTH);
+          return Math.max(NODE_MIN_WIDTH, rawWidth);
+        }
+
+        function getNodeHeight(node) {
+          const minHeight = getNodeMinHeight(node);
+          const config = node && node.config && node.config.config;
+          const rawHeight = toFiniteNumber(config && config.cardHeight, minHeight);
+          return Math.max(minHeight, rawHeight);
         }
 
         function toFiniteNumber(value, fallback) {
@@ -332,7 +379,33 @@ const RENDERER_HTML = String.raw`<!doctype html>
           ctx.closePath();
         }
 
-        function drawGradientBackground(ctx, bitmap) {
+        function normalizeHexColor(value, fallback) {
+          const normalizedFallback = typeof fallback === 'string' && /^#[0-9a-f]{6}$/i.test(fallback)
+            ? fallback.toLowerCase()
+            : '#000000';
+          if (typeof value !== 'string') {
+            return normalizedFallback;
+          }
+          const lowered = value.trim().toLowerCase();
+          return /^#[0-9a-f]{6}$/i.test(lowered) ? lowered : normalizedFallback;
+        }
+
+        function drawBackground(ctx, graph, bitmap) {
+          const canvasBackground = graph && graph.canvasBackground
+            ? graph.canvasBackground
+            : DEFAULT_CANVAS_BACKGROUND;
+          const mode = canvasBackground && canvasBackground.mode === 'solid' ? 'solid' : 'gradient';
+          const baseColor = normalizeHexColor(
+            canvasBackground && canvasBackground.baseColor,
+            DEFAULT_CANVAS_BACKGROUND.baseColor
+          );
+
+          if (mode === 'solid') {
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(0, 0, bitmap.width, bitmap.height);
+            return;
+          }
+
           const gradient = ctx.createRadialGradient(
             bitmap.width * 0.12,
             bitmap.height * 0.08,
@@ -341,19 +414,46 @@ const RENDERER_HTML = String.raw`<!doctype html>
             bitmap.height * 0.56,
             Math.max(bitmap.width, bitmap.height) * 0.9
           );
-          gradient.addColorStop(0, '#325da3');
-          gradient.addColorStop(0.35, '#1d437e');
-          gradient.addColorStop(0.7, '#112d58');
-          gradient.addColorStop(1, '#08172f');
+          const stopsCandidate = Array.isArray(graph && graph.backgroundGradientStops)
+            ? graph.backgroundGradientStops
+            : DEFAULT_CANVAS_BACKGROUND_STOPS;
+          const stops = stopsCandidate.length === 4
+            ? stopsCandidate
+            : DEFAULT_CANVAS_BACKGROUND_STOPS;
+          gradient.addColorStop(0, stops[0]);
+          gradient.addColorStop(0.35, stops[1]);
+          gradient.addColorStop(0.7, stops[2]);
+          gradient.addColorStop(1, stops[3]);
           ctx.fillStyle = gradient;
           ctx.fillRect(0, 0, bitmap.width, bitmap.height);
         }
 
+        function resolveConnectionStroke(graph) {
+          const stroke = graph && graph.connectionStroke ? graph.connectionStroke : DEFAULT_GRAPH_CONNECTION_STROKE;
+          const foregroundColor = normalizeHexColor(stroke.foregroundColor, DEFAULT_GRAPH_CONNECTION_STROKE.foregroundColor);
+          const backgroundColor = normalizeHexColor(stroke.backgroundColor, DEFAULT_GRAPH_CONNECTION_STROKE.backgroundColor);
+          const rawForegroundWidth = typeof stroke.foregroundWidth === 'number' && Number.isFinite(stroke.foregroundWidth)
+            ? stroke.foregroundWidth
+            : DEFAULT_GRAPH_CONNECTION_STROKE.foregroundWidth;
+          const rawBackgroundWidth = typeof stroke.backgroundWidth === 'number' && Number.isFinite(stroke.backgroundWidth)
+            ? stroke.backgroundWidth
+            : DEFAULT_GRAPH_CONNECTION_STROKE.backgroundWidth;
+          const foregroundWidth = Math.max(0.001, rawForegroundWidth);
+          const backgroundWidth = Math.max(foregroundWidth * 2, Math.max(0.001, rawBackgroundWidth));
+
+          return {
+            foregroundColor,
+            backgroundColor,
+            foregroundWidth,
+            backgroundWidth,
+          };
+        }
+
         function drawConnections(ctx, graph, nodeMap, region, bitmap) {
           const scaleRef = bitmap.width / Math.max(region.width, 1);
-          const lineWidth = Math.max(1, 2 * scaleRef);
-          ctx.strokeStyle = '#64748b';
-          ctx.lineWidth = lineWidth;
+          const stroke = resolveConnectionStroke(graph);
+          const foregroundLineWidth = Math.max(0.8, stroke.foregroundWidth * scaleRef);
+          const backgroundLineWidth = Math.max(foregroundLineWidth * 2, stroke.backgroundWidth * scaleRef);
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
 
@@ -364,7 +464,7 @@ const RENDERER_HTML = String.raw`<!doctype html>
               continue;
             }
 
-            const sourceX = sourceNode.position.x + NODE_WIDTH;
+            const sourceX = sourceNode.position.x + getNodeWidth(sourceNode);
             const sourceY = sourceNode.position.y + getOutputPortOffsetY(sourceNode, connection.sourcePort);
             const targetX = targetNode.position.x;
             const targetY = targetNode.position.y + getInputPortOffsetY(targetNode, connection.targetPort);
@@ -373,6 +473,22 @@ const RENDERER_HTML = String.raw`<!doctype html>
             const mappedEnd = mapPoint(targetX, targetY, region, bitmap);
             const controlOffset = Math.max(Math.abs(mappedEnd.x - mappedStart.x) * 0.4, 60 * scaleRef);
 
+            ctx.strokeStyle = stroke.backgroundColor;
+            ctx.lineWidth = backgroundLineWidth;
+            ctx.beginPath();
+            ctx.moveTo(mappedStart.x, mappedStart.y);
+            ctx.bezierCurveTo(
+              mappedStart.x + controlOffset,
+              mappedStart.y,
+              mappedEnd.x - controlOffset,
+              mappedEnd.y,
+              mappedEnd.x,
+              mappedEnd.y
+            );
+            ctx.stroke();
+
+            ctx.strokeStyle = stroke.foregroundColor;
+            ctx.lineWidth = foregroundLineWidth;
             ctx.beginPath();
             ctx.moveTo(mappedStart.x, mappedStart.y);
             ctx.bezierCurveTo(
@@ -474,9 +590,10 @@ const RENDERER_HTML = String.raw`<!doctype html>
           const portFont = Math.max(7, Math.round(10 * scaleRef));
 
           for (const node of graph.nodes) {
+            const nodeWidth = getNodeWidth(node);
             const nodeHeight = getNodeHeight(node);
             const mappedTopLeft = mapPoint(node.position.x, node.position.y, region, bitmap);
-            const width = NODE_WIDTH * scaleX;
+            const width = nodeWidth * scaleX;
             const height = nodeHeight * scaleY;
             const borderRadius = 10 * scaleRef;
 
@@ -631,7 +748,7 @@ const RENDERER_HTML = String.raw`<!doctype html>
 
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.clearRect(0, 0, payload.bitmap.width, payload.bitmap.height);
-          drawGradientBackground(ctx, payload.bitmap);
+          drawBackground(ctx, payload.graph, payload.bitmap);
 
           const nodeMap = new Map(payload.graph.nodes.map((node) => [node.id, node]));
           drawConnections(ctx, payload.graph, nodeMap, payload.region, payload.bitmap);
@@ -794,39 +911,28 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function normalizeCanvasBackground(background: CanvasBackground | undefined): CanvasBackground {
-  const mode = background?.mode === 'solid' || background?.mode === 'gradient'
-    ? background.mode
-    : DEFAULT_CANVAS_BACKGROUND.mode;
-  const baseColor = typeof background?.baseColor === 'string' && HEX_COLOR_PATTERN.test(background.baseColor)
-    ? background.baseColor.toLowerCase()
-    : DEFAULT_CANVAS_BACKGROUND.baseColor;
-  return {
-    mode,
-    baseColor,
-  };
+  return normalizeSharedCanvasBackground(background);
 }
 
 function getNodeMinHeight(node: GraphNode): number {
-  const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
-  const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
-  if (node.type === 'numeric_input') {
-    return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
-  }
-  return baseHeight;
+  return resolveStandardNodeMinHeight(
+    node.metadata.inputs.length,
+    node.metadata.outputs.length,
+    node.type === 'numeric_input'
+  );
 }
 
 function resolveNodeCardSizeForNode(node: GraphNode): { width: number; height: number } {
-  const minHeight = getNodeMinHeight(node);
-  const config = node.config.config as Record<string, unknown> | undefined;
-  const rawWidth = typeof config?.cardWidth === 'number' && Number.isFinite(config.cardWidth)
-    ? config.cardWidth
-    : NODE_WIDTH;
-  const rawHeight = typeof config?.cardHeight === 'number' && Number.isFinite(config.cardHeight)
-    ? config.cardHeight
-    : minHeight;
+  const config = node.config.config as { cardWidth?: unknown; cardHeight?: unknown } | undefined;
+  const resolved = resolveStandardNodeCardSize(
+    config,
+    node.metadata.inputs.length,
+    node.metadata.outputs.length,
+    node.type === 'numeric_input'
+  );
   return {
-    width: Math.max(NODE_MIN_WIDTH, Math.round(rawWidth)),
-    height: Math.max(minHeight, Math.round(rawHeight)),
+    width: resolved.width,
+    height: resolved.height,
   };
 }
 
@@ -1043,6 +1149,7 @@ function normalizeGraph(graph: Graph): Graph {
     ...graph,
     nodes: projectedNodes,
     canvasBackground: activeProjectionBackground,
+    connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     drawings: drawings.map((drawing) => ({
@@ -2507,7 +2614,39 @@ function resolveOutputPath(explicitPath?: string): string {
   );
 }
 
-async function renderGraphRegionScreenshot(params: {
+interface RendererGraph extends Graph {
+  backgroundGradientStops: [string, string, string, string];
+}
+
+function normalizeGraphForRenderer(graph: Graph): RendererGraph {
+  const canvasBackground = normalizeCanvasBackground(graph.canvasBackground);
+  const connectionStroke = normalizeGraphConnectionStroke(graph.connectionStroke);
+  const nodes = graph.nodes.map((node) => {
+    const resolvedNodeCardSize = resolveNodeCardSizeForNode(node);
+    const nodeConfig = node.config.config as Record<string, unknown> | undefined;
+    return {
+      ...node,
+      config: {
+        ...node.config,
+        config: {
+          ...nodeConfig,
+          cardWidth: resolvedNodeCardSize.width,
+          cardHeight: resolvedNodeCardSize.height,
+        },
+      },
+    };
+  });
+
+  return {
+    ...graph,
+    nodes,
+    canvasBackground,
+    connectionStroke,
+    backgroundGradientStops: deriveGradientStops(canvasBackground.baseColor),
+  };
+}
+
+export async function renderGraphRegionScreenshot(params: {
   graph: Graph;
   nodeNumbers: Record<string, number>;
   region: RenderRegion;
@@ -2515,6 +2654,7 @@ async function renderGraphRegionScreenshot(params: {
   outputPath?: string;
   includeBase64?: boolean;
 }): Promise<{ outputPath: string; bytes: number; base64?: string }> {
+  const rendererGraph = normalizeGraphForRenderer(params.graph);
   const browser = await chromium.launch({
     headless: true,
     args: ['--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
@@ -2538,7 +2678,7 @@ async function renderGraphRegionScreenshot(params: {
         (window as any).renderGraphRegion(payload);
       },
       {
-        graph: params.graph,
+        graph: rendererGraph,
         nodeNumbers: params.nodeNumbers,
         region: params.region,
         bitmap: params.bitmap,

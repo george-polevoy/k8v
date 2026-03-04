@@ -126,6 +126,9 @@ Last reviewed: March 4, 2026.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
 - `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
 - `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests and enforces required `maxNodes` for DFS requests.
+- `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer honors graph solid canvas background base color.
+- `A-MCP-07` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer applies graph-level connection stroke foreground/background colors and layered widths.
+- `A-MCP-08` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer respects persisted node card width (`cardWidth`).
 
 ## Manual Regression Test Cases
 

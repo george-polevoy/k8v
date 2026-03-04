@@ -50,19 +50,20 @@ import {
   withNodeCardSizeInProjection,
   withNodePositionInProjection,
 } from '../utils/projections';
+import {
+  HEADER_HEIGHT,
+  NODE_BODY_PADDING,
+  NODE_MIN_WIDTH,
+  NODE_WIDTH,
+  resolveStandardNodeMinHeight,
+} from '../../../shared/src/nodeCardGeometry.js';
 import { v4 as uuidv4 } from 'uuid';
 import AnnotationMarkdown from './AnnotationMarkdown';
 import { normalizeAnnotationConfig } from '../utils/annotation';
 
-const NODE_WIDTH = 220;
-const NODE_MIN_WIDTH = 180;
-const MIN_NODE_HEIGHT = 68;
-const HEADER_HEIGHT = 36;
-const NODE_BODY_PADDING = 6;
 const ANNOTATION_TEXT_INSET_X = 8;
 const ANNOTATION_TEXT_INSET_Y = 8;
 const ANNOTATION_TEXT_INSET_BOTTOM = 8;
-const PORT_SPACING = 18;
 const PORT_RADIUS = 4;
 const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
 const MIN_ZOOM = 0.1;
@@ -82,7 +83,6 @@ const NODE_DRAG_START_THRESHOLD = 2;
 const LIGHTNING_DURATION_MS = 900;
 const NODE_SHOCK_DURATION_MS = 1200;
 const DRAW_SMOOTHING_STEP = 1;
-const NUMERIC_INPUT_NODE_MIN_HEIGHT = 80;
 const NUMERIC_SLIDER_LEFT_PADDING = 12;
 const NUMERIC_SLIDER_RIGHT_PADDING = 34;
 const NUMERIC_SLIDER_Y_OFFSET = 15;
@@ -547,12 +547,11 @@ function getNodeMinHeight(node: GraphNode): number {
   if (node.type === NodeType.ANNOTATION) {
     return ANNOTATION_NODE_MIN_HEIGHT;
   }
-  const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
-  const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
-  if (node.type === NodeType.NUMERIC_INPUT) {
-    return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
-  }
-  return baseHeight;
+  return resolveStandardNodeMinHeight(
+    node.metadata.inputs.length,
+    node.metadata.outputs.length,
+    node.type === NodeType.NUMERIC_INPUT
+  );
 }
 
 function resolveNodeCardDimensions(
