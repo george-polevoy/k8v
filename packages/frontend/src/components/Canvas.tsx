@@ -73,6 +73,10 @@ import {
   resolveNodeRenderTargetPosition,
   type WorldBounds,
 } from '../utils/canvasNodeRender';
+import {
+  resolveGraphWorldBounds,
+  resolveViewportFitTransform,
+} from '../utils/canvasViewportFit';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
@@ -1724,72 +1728,55 @@ function Canvas() {
     const currentGraph = graphRef.current;
 
     if (!app || !viewport) return;
+    const resetViewport = () => {
+      viewport.scale.set(1);
+      viewport.position.set(app.screen.width / 2, app.screen.height / 2);
+      updateTextResolutionForScale(1);
+      drawMinimap();
+      requestViewportDrivenGraphRefresh();
+    };
 
     if (!currentGraph || (currentGraph.nodes.length === 0 && (currentGraph.drawings?.length ?? 0) === 0)) {
-      viewport.scale.set(1);
-      viewport.position.set(app.screen.width / 2, app.screen.height / 2);
-      updateTextResolutionForScale(1);
-      drawMinimap();
-      requestViewportDrivenGraphRefresh();
+      resetViewport();
       return;
     }
 
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-
-    for (const node of currentGraph.nodes) {
+    const nodeBounds = currentGraph.nodes.flatMap((node) => {
       const visual = nodeVisualsRef.current.get(node.id);
       const position = nodePositionsRef.current.get(node.id);
-      if (!visual || !position) continue;
-
-      minX = Math.min(minX, position.x);
-      minY = Math.min(minY, position.y);
-      maxX = Math.max(maxX, position.x + visual.width);
-      maxY = Math.max(maxY, position.y + visual.height + visual.projectedGraphicsHeight);
-    }
-
-    for (const drawing of currentGraph.drawings ?? []) {
-      const position = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
-      minX = Math.min(minX, position.x);
-      minY = Math.min(minY, position.y);
-      maxX = Math.max(maxX, position.x + 160);
-      maxY = Math.max(maxY, position.y + 30);
-
-      for (const path of drawing.paths) {
-        for (const point of path.points) {
-          const worldX = position.x + point.x;
-          const worldY = position.y + point.y;
-          minX = Math.min(minX, worldX);
-          minY = Math.min(minY, worldY);
-          maxX = Math.max(maxX, worldX);
-          maxY = Math.max(maxY, worldY);
-        }
+      if (!visual || !position) {
+        return [];
       }
-    }
 
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
-      viewport.scale.set(1);
-      viewport.position.set(app.screen.width / 2, app.screen.height / 2);
-      updateTextResolutionForScale(1);
-      drawMinimap();
-      requestViewportDrivenGraphRefresh();
+      return [{
+        x: position.x,
+        y: position.y,
+        width: visual.width,
+        height: visual.height,
+        projectedGraphicsHeight: visual.projectedGraphicsHeight,
+      }];
+    });
+    const drawingBounds = (currentGraph.drawings ?? []).map((drawing) => ({
+      position: drawingPositionsRef.current.get(drawing.id) ?? drawing.position,
+      paths: drawing.paths,
+    }));
+    const graphBounds = resolveGraphWorldBounds(nodeBounds, drawingBounds);
+    if (!graphBounds) {
+      resetViewport();
       return;
     }
 
-    const graphWidth = Math.max(maxX - minX, 1);
-    const graphHeight = Math.max(maxY - minY, 1);
-    const fitScaleX = (app.screen.width - VIEWPORT_MARGIN * 2) / graphWidth;
-    const fitScaleY = (app.screen.height - VIEWPORT_MARGIN * 2) / graphHeight;
-    const nextScale = clamp(Math.min(fitScaleX, fitScaleY, 1), MIN_ZOOM, MAX_ZOOM);
-
-    viewport.scale.set(nextScale);
-    viewport.position.set(
-      snapToPixel(app.screen.width / 2 - ((minX + maxX) / 2) * nextScale),
-      snapToPixel(app.screen.height / 2 - ((minY + maxY) / 2) * nextScale)
-    );
-    updateTextResolutionForScale(nextScale);
+    const nextTransform = resolveViewportFitTransform({
+      bounds: graphBounds,
+      screenWidth: app.screen.width,
+      screenHeight: app.screen.height,
+      margin: VIEWPORT_MARGIN,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+    });
+    viewport.scale.set(nextTransform.scale);
+    viewport.position.set(nextTransform.x, nextTransform.y);
+    updateTextResolutionForScale(nextTransform.scale);
     drawMinimap();
     requestViewportDrivenGraphRefresh();
   }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);

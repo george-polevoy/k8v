@@ -73,18 +73,20 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/frontend/src/components/Canvas.tsx` | 4192 | 3742 | -450 |
+| `packages/frontend/src/components/Canvas.tsx` | 4192 | 3729 | -463 |
 | `packages/frontend/src/utils/canvasTextureCache.ts` | 0 | 191 | +191 |
 | `packages/frontend/src/utils/canvasEffects.ts` | 0 | 370 | +370 |
 | `packages/frontend/src/utils/canvasRenderLifecycle.ts` | 0 | 79 | +79 |
 | `packages/frontend/src/utils/canvasNodeRender.ts` | 0 | 232 | +232 |
+| `packages/frontend/src/utils/canvasViewportFit.ts` | 0 | 95 | +95 |
 | `packages/frontend/tests/canvasTextureCache.test.ts` | 0 | 80 | +80 |
 | `packages/frontend/tests/canvasEffects.test.ts` | 0 | 176 | +176 |
 | `packages/frontend/tests/canvasRenderLifecycle.test.ts` | 0 | 97 | +97 |
 | `packages/frontend/tests/canvasNodeRender.test.ts` | 0 | 185 | +185 |
+| `packages/frontend/tests/canvasViewportFit.test.ts` | 0 | 84 | +84 |
 | `packages/frontend/tests/e2e/panelAccordion.test.ts` | 174 | 190 | +16 |
 | `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 143 | 88 | -55 |
-| **Net** | **4509** | **5430** | **+921** |
+| **Net** | **4509** | **5596** | **+1087** |
 
 ### T-008 LOC Delta (before vs current)
 
@@ -109,7 +111,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | ID | Area | Current State | Why Refactor |
 | --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~3742 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~3729 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
 | R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
@@ -348,10 +350,18 @@ Progress (completed slices):
   - render target fallback precedence and drag override behavior
   - transition interpolation/clamping behavior
   - projected graphics mip/debug planning + transition-load gating behavior
+- Extracted viewport fit world-bounds/transform planning into `packages/frontend/src/utils/canvasViewportFit.ts`:
+  - graph world-bounds aggregation for node boxes + projected graphics + drawing paths
+  - viewport fit transform resolution (scale clamp + centered position)
+- Refactored `Canvas.tsx` `fitViewportToGraph` to consume `resolveGraphWorldBounds` and `resolveViewportFitTransform` instead of inline bounds/fit math.
+- Added unit coverage in `packages/frontend/tests/canvasViewportFit.test.ts` for:
+  - empty-graph bounds handling
+  - node+drawing bounds aggregation behavior
+  - viewport-fit centering and scale capping behavior
 
 Verification result (latest):
 - `npm run lint`: pass
-- `npm run test`: pass (`207` tests, `0` fail)
+- `npm run test`: pass (`211` tests, `0` fail)
 - `npm run build`: pass
 - `npm run test:e2e`: pass (`23` tests, `0` fail)
 
