@@ -67,13 +67,17 @@ import {
   pruneNodeDraftMaps,
   resolveProjectionTransitionFrame,
 } from '../utils/canvasRenderLifecycle';
+import {
+  resolveGraphicsProjectionPlan,
+  resolveNodeRenderFrame,
+  resolveNodeRenderTargetPosition,
+  type WorldBounds,
+} from '../utils/canvasNodeRender';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
   buildGraphicsImageUrl,
-  estimateProjectedPixelBudget,
   isRenderableGraphicsArtifact,
-  resolveStableGraphicsRequestMaxPixels,
 } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
 import {
@@ -173,13 +177,6 @@ interface NodeVisual {
   projectedGraphicsHeight: number;
   inputPortOffsets: Map<string, number>;
   outputPortOffsets: Map<string, number>;
-}
-
-interface WorldBounds {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
 }
 
 interface PanState {
@@ -491,24 +488,6 @@ function areAnnotationOverlaysEqual(
   return true;
 }
 
-function resolveNodeRenderTargetPosition(
-  node: GraphNode,
-  dragState: NodeDragState | null,
-  draftPosition?: Position
-): Position {
-  if (!dragState || dragState.nodeId !== node.id) {
-    if (draftPosition) {
-      return { ...draftPosition };
-    }
-    return { ...node.position };
-  }
-
-  return {
-    x: dragState.currentX,
-    y: dragState.currentY,
-  };
-}
-
 function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
   const width = texture.orig.width || texture.width || 0;
   const height = texture.orig.height || texture.height || 0;
@@ -527,19 +506,6 @@ function getViewportWorldBounds(app: Application, viewport: Container): WorldBou
     maxX: minX + app.screen.width / scaleX,
     maxY: minY + app.screen.height / scaleY,
   };
-}
-
-function worldBoundsIntersect(a: WorldBounds, b: WorldBounds): boolean {
-  return !(a.maxX <= b.minX || a.minX >= b.maxX || a.maxY <= b.minY || a.minY >= b.maxY);
-}
-
-function resolveGraphicsAspectRatio(graphics: GraphicsArtifact): number {
-  const baseLevel = graphics.levels[0];
-  if (!baseLevel || baseLevel.width <= 0 || baseLevel.height <= 0) {
-    return NODE_GRAPHICS_FALLBACK_ASPECT_RATIO;
-  }
-
-  return Math.max(baseLevel.height / baseLevel.width, 0.01);
 }
 
 function getCanvasBackgroundSignature(
@@ -2096,85 +2062,51 @@ function Canvas() {
         activeNodeDragState && activeNodeDragState.nodeId === node.id
           ? activeNodeDragState
           : null;
-      const targetPosition = resolveNodeRenderTargetPosition(
+      const position = resolveNodeRenderTargetPosition(
         node,
         dragStateForNode,
         nodeCardDraftPositionsRef.current.get(node.id)
       );
-      const targetWidth = dimensions.width;
-      const targetHeight = dimensions.height;
-      const fromTransitionState = activeProjectionTransition?.fromNodes.get(node.id);
-      const toTransitionState = activeProjectionTransition?.toNodes.get(node.id);
-      const startTransitionState = dragStateForNode
-        ? null
-        : fromTransitionState ?? toTransitionState;
-      const endTransitionState = toTransitionState ?? {
-        position: targetPosition,
-        width: targetWidth,
-        height: targetHeight,
-      };
-      const interpolatedPosition = startTransitionState
-        ? {
-          x: startTransitionState.position.x +
-            (endTransitionState.position.x - startTransitionState.position.x) * projectionTransitionEasedProgress,
-          y: startTransitionState.position.y +
-            (endTransitionState.position.y - startTransitionState.position.y) * projectionTransitionEasedProgress,
-        }
-        : targetPosition;
-      const width = startTransitionState
-        ? Math.max(
-          dimensions.minWidth,
-          snapToPixel(
-            startTransitionState.width +
-              (endTransitionState.width - startTransitionState.width) * projectionTransitionEasedProgress
-          )
-        )
-        : targetWidth;
-      const height = startTransitionState
-        ? Math.max(
-          dimensions.minHeight,
-          snapToPixel(
-            startTransitionState.height +
-              (endTransitionState.height - startTransitionState.height) * projectionTransitionEasedProgress
-          )
-        )
-        : targetHeight;
+      const nodeFrame = resolveNodeRenderFrame({
+        node,
+        dragState: dragStateForNode,
+        draftPosition: position,
+        targetWidth: dimensions.width,
+        targetHeight: dimensions.height,
+        minWidth: dimensions.minWidth,
+        minHeight: dimensions.minHeight,
+        fromTransitionState: activeProjectionTransition?.fromNodes.get(node.id) ?? null,
+        toTransitionState: activeProjectionTransition?.toNodes.get(node.id) ?? null,
+        transitionEasedProgress: projectionTransitionEasedProgress,
+      });
+      const width = nodeFrame.width;
+      const height = nodeFrame.height;
+      const renderedPosition = nodeFrame.position;
       const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
       const hasGraphicsOutput = Boolean(graphicsOutput);
       const shouldProjectGraphics = isRenderablePythonGraphicsOutput(node, graphicsOutput);
-      let projectedWidthOnScreen: number | null = null;
-      let estimatedMaxPixels: number | null = null;
-      let stableMaxPixels: number | null = null;
-      let selectedLevel: number | null = null;
-      let selectedLevelPixels: number | null = null;
-      if (shouldProjectGraphics && graphicsOutput) {
-        projectedWidthOnScreen = width * viewportScale;
-        estimatedMaxPixels = estimateProjectedPixelBudget(
-          graphicsOutput,
-          projectedWidthOnScreen,
-          PIXEL_RATIO
-        );
-        stableMaxPixels = resolveStableGraphicsRequestMaxPixels(
-          graphicsOutput,
-          estimatedMaxPixels
-        );
-
-        const matchedLevel = graphicsOutput.levels.find(
-          (level) => level.pixelCount === stableMaxPixels
-        );
-        if (matchedLevel) {
-          selectedLevel = matchedLevel.level;
-          selectedLevelPixels = matchedLevel.pixelCount;
-        }
-      }
-      const expectedProjectedGraphicsHeight =
-        shouldProjectGraphics && graphicsOutput
-          ? Math.max(1, width * resolveGraphicsAspectRatio(graphicsOutput))
-          : 0;
-      const position = {
-        x: snapToPixel(interpolatedPosition.x),
-        y: snapToPixel(interpolatedPosition.y),
-      };
+      const graphicsProjectionPlan = resolveGraphicsProjectionPlan({
+        graphicsOutput,
+        shouldProjectGraphics,
+        nodePosition: renderedPosition,
+        nodeWidth: width,
+        nodeHeight: height,
+        viewportScale,
+        pixelRatio: PIXEL_RATIO,
+        canEvaluateViewportGraphics,
+        viewportWorldBounds,
+        canReloadProjectedGraphics: !isProjectionTransitionActive,
+        fallbackAspectRatio: NODE_GRAPHICS_FALLBACK_ASPECT_RATIO,
+      });
+      const projectedWidthOnScreen = graphicsProjectionPlan.projectedWidthOnScreen;
+      const estimatedMaxPixels = graphicsProjectionPlan.estimatedMaxPixels;
+      const stableMaxPixels = graphicsProjectionPlan.stableMaxPixels;
+      const selectedLevel = graphicsProjectionPlan.selectedLevel;
+      const selectedLevelPixels = graphicsProjectionPlan.selectedLevelPixels;
+      const expectedProjectedGraphicsHeight = graphicsProjectionPlan.expectedProjectedGraphicsHeight;
+      const shouldLoadProjectedGraphicsByViewport = graphicsProjectionPlan.shouldLoadProjectedGraphicsByViewport;
+      const canReloadProjectedGraphics = graphicsProjectionPlan.canReloadProjectedGraphics;
+      const shouldLoadProjectedGraphics = graphicsProjectionPlan.shouldLoadProjectedGraphics;
       if (node.type === NodeType.ANNOTATION) {
         const annotationConfig = normalizeAnnotationConfig(
           node.config.config as Record<string, unknown> | undefined
@@ -2182,8 +2114,8 @@ function Canvas() {
         if (annotationConfig.text.length > 0) {
           nextAnnotationOverlays.push({
             nodeId: node.id,
-            x: position.x + ANNOTATION_TEXT_INSET_X,
-            y: position.y + ANNOTATION_TEXT_INSET_Y,
+            x: renderedPosition.x + ANNOTATION_TEXT_INSET_X,
+            y: renderedPosition.y + ANNOTATION_TEXT_INSET_Y,
             width: Math.max(32, width - (ANNOTATION_TEXT_INSET_X * 2)),
             height: Math.max(24, height - ANNOTATION_TEXT_INSET_Y - ANNOTATION_TEXT_INSET_BOTTOM),
             text: annotationConfig.text,
@@ -2193,31 +2125,11 @@ function Canvas() {
           });
         }
       }
-      const graphicsBounds: WorldBounds | null =
-        shouldProjectGraphics && expectedProjectedGraphicsHeight > 0
-          ? {
-            minX: position.x,
-            minY: position.y + height,
-              maxX: position.x + width,
-              maxY: position.y + height + expectedProjectedGraphicsHeight,
-            }
-          : null;
-      const shouldLoadProjectedGraphicsByViewport =
-        Boolean(
-          shouldProjectGraphics &&
-            graphicsOutput &&
-            canEvaluateViewportGraphics &&
-            viewportWorldBounds &&
-            graphicsBounds &&
-            worldBoundsIntersect(viewportWorldBounds, graphicsBounds)
-        );
-      const canReloadProjectedGraphics = !isProjectionTransitionActive;
-      const shouldLoadProjectedGraphics = shouldLoadProjectedGraphicsByViewport && canReloadProjectedGraphics;
       let requestUrl: string | null = null;
       const container = new Container();
       const isSelected = selectedNodeId === node.id;
 
-      container.position.set(snapToPixel(position.x), snapToPixel(position.y));
+      container.position.set(snapToPixel(renderedPosition.x), snapToPixel(renderedPosition.y));
       container.eventMode = 'static';
       container.cursor = 'pointer';
       // Keep the card body selectable even when fill alpha is 0 (fully transparent).
@@ -2422,8 +2334,8 @@ function Canvas() {
         container.addChild(marker);
         inputPortMarkersRef.current.set(portKey, marker);
         inputPortPositionsRef.current.set(portKey, {
-          x: position.x,
-          y: position.y + y,
+          x: renderedPosition.x,
+          y: renderedPosition.y + y,
         });
 
         const label = new Text(port.name, {
@@ -2501,8 +2413,8 @@ function Canvas() {
         container.addChild(marker);
         outputPortMarkersRef.current.set(portKey, marker);
         outputPortPositionsRef.current.set(portKey, {
-          x: position.x + width,
-          y: position.y + y,
+          x: renderedPosition.x + width,
+          y: renderedPosition.y + y,
         });
 
         if (!isNumericInputNode) {
