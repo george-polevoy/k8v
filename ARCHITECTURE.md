@@ -50,9 +50,9 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Provides connection-inspection and deterministic per-input rewiring tools (`connections_list`, `connection_set`/`connection_replace`)
 - Uses connection-only graph update payloads for connection tools to avoid touching node position/card-size/projection fields
 - Provides internal Playwright-based screenshot rendering for agents
-- Uses an internal standalone render page (no app chrome/panels) for deterministic captures
+- Uses the frontend app in a `canvasOnly` mode (floating tool windows hidden) so screenshots use the same Pixi canvas rendering path as users
 - Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions
-- Adds stable per-graph concise node-number overlays to improve OCR/agent node targeting
+- Returns stable per-graph concise node-number mappings in screenshot metadata for agent node targeting
 
 ### Frontend
 

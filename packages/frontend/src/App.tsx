@@ -5,9 +5,17 @@ import RightSidebar from './components/RightSidebar';
 import FloatingWindow from './components/FloatingWindow';
 import { useGraphStore } from './store/graphStore';
 
+function isCanvasOnlyMode(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return new URLSearchParams(window.location.search).get('canvasOnly') === '1';
+}
+
 function App() {
   const initializeGraph = useGraphStore((state) => state.initializeGraph);
   const error = useGraphStore((state) => state.error);
+  const canvasOnlyMode = isCanvasOnlyMode();
 
   useEffect(() => {
     // Load existing graph or create a new one
@@ -33,30 +41,32 @@ function App() {
       }}
     >
       <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-        <Canvas />
+        <Canvas enableMcpScreenshotBridge={canvasOnlyMode} />
       </div>
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 30 }}>
-        <FloatingWindow
-          id="toolbar"
-          title="Tools"
-          initialPosition={{ x: 12, y: 12 }}
-          width={92}
-          height={430}
-          zIndex={31}
-        >
-          <Toolbar embedded />
-        </FloatingWindow>
-        <FloatingWindow
-          id="right-sidebar"
-          title="Panels"
-          initialPosition={{ x: 1020, y: 12 }}
-          width={420}
-          height={820}
-          zIndex={32}
-        >
-          <RightSidebar />
-        </FloatingWindow>
-      </div>
+      {!canvasOnlyMode && (
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 30 }}>
+          <FloatingWindow
+            id="toolbar"
+            title="Tools"
+            initialPosition={{ x: 12, y: 12 }}
+            width={92}
+            height={430}
+            zIndex={31}
+          >
+            <Toolbar embedded />
+          </FloatingWindow>
+          <FloatingWindow
+            id="right-sidebar"
+            title="Panels"
+            initialPosition={{ x: 1020, y: 12 }}
+            width={420}
+            height={820}
+            zIndex={32}
+          >
+            <RightSidebar />
+          </FloatingWindow>
+        </div>
+      )}
     </div>
   );
 }

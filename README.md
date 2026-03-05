@@ -86,9 +86,9 @@ The MCP server exposes:
 - lightweight graph navigation queries via `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) with field-level projection for compact responses
 - bulk graph editing via `bulk_edit` (ordered operation arrays applied sequentially)
 - internal screenshot tool `graph_screenshot_region`:
-  - renders only graph content on an internal page
+  - renders the frontend canvas in `canvasOnly` mode on an internal page
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)
-  - overlays stable concise node numbers to aid OCR/agent coordination
+  - hides floating toolbar/sidebar windows while preserving the canvas rendering stack
 
 ## Project Structure
 

@@ -172,7 +172,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
 - MCP `bulk_edit` tool accepts an ordered array of graph-edit operations (including `node_add_numeric_input`) and applies them sequentially in one persisted graph update.
-- Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders graph content on a dedicated hidden page.
+- Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders through the frontend canvas in `canvasOnly` mode on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
-- Screenshot render overlays stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.
+- Screenshot metadata returns stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.
 - Screenshot render includes persisted drawing paths and drawing handles.

@@ -943,7 +943,35 @@ function areNodeGraphicsDebugValuesEqual(
   return true;
 }
 
-function Canvas() {
+interface ScreenshotRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface ScreenshotBitmap {
+  width: number;
+  height: number;
+}
+
+interface McpScreenshotBridge {
+  isCanvasReady: () => boolean;
+  isGraphReady: () => boolean;
+  setViewportRegion: (region: ScreenshotRegion, bitmap: ScreenshotBitmap) => boolean;
+}
+
+declare global {
+  interface Window {
+    __k8vMcpScreenshotBridge?: McpScreenshotBridge;
+  }
+}
+
+interface CanvasProps {
+  enableMcpScreenshotBridge?: boolean;
+}
+
+function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const graph = useGraphStore((state) => state.graph);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
@@ -1779,6 +1807,35 @@ function Canvas() {
     updateTextResolutionForScale(nextTransform.scale);
     drawMinimap();
     requestViewportDrivenGraphRefresh();
+  }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);
+
+  const setViewportRegionForScreenshot = useCallback((
+    region: ScreenshotRegion,
+    bitmap: ScreenshotBitmap
+  ): boolean => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return false;
+    }
+
+    const safeRegionWidth = Math.max(0.0001, Math.abs(region.width));
+    const safeRegionHeight = Math.max(0.0001, Math.abs(region.height));
+    const safeBitmapWidth = Math.max(1, Math.round(bitmap.width));
+    const safeBitmapHeight = Math.max(1, Math.round(bitmap.height));
+    const scaleX = safeBitmapWidth / safeRegionWidth;
+    const scaleY = safeBitmapHeight / safeRegionHeight;
+
+    viewport.scale.set(scaleX, scaleY);
+    viewport.position.set(
+      snapToPixel(-region.x * scaleX),
+      snapToPixel(-region.y * scaleY)
+    );
+    viewportInitializedRef.current = true;
+    updateTextResolutionForScale(scaleX);
+    drawMinimap();
+    requestViewportDrivenGraphRefresh();
+    renderGraphRef.current();
+    return true;
   }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);
 
   const buildProjectionTargetNodeVisualMap = useCallback((targetGraph: typeof graph): Map<string, ProjectionNodeVisualState> => {
@@ -2867,6 +2924,25 @@ function Canvas() {
   }, [renderGraph]);
 
   useEffect(() => {
+    if (!enableMcpScreenshotBridge || typeof window === 'undefined') {
+      return;
+    }
+
+    const bridge: McpScreenshotBridge = {
+      isCanvasReady: () => Boolean(appRef.current),
+      isGraphReady: () => Boolean(graphRef.current),
+      setViewportRegion: (region, bitmap) => setViewportRegionForScreenshot(region, bitmap),
+    };
+    window.__k8vMcpScreenshotBridge = bridge;
+
+    return () => {
+      if (window.__k8vMcpScreenshotBridge === bridge) {
+        delete window.__k8vMcpScreenshotBridge;
+      }
+    };
+  }, [enableMcpScreenshotBridge, setViewportRegionForScreenshot]);
+
+  useEffect(() => {
     const previousGraph = graphRef.current;
     const shouldAnimateProjectionSwitch = Boolean(
       previousGraph &&
@@ -3635,7 +3711,10 @@ function Canvas() {
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+    <div
+      data-testid="canvas-root"
+      style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}
+    >
       <div
         ref={canvasHostRef}
         style={{ width: '100%', height: '100%', overflow: 'hidden' }}

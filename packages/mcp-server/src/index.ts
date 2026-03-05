@@ -29,6 +29,7 @@ import {
 } from '../../shared/src/nodeCardGeometry.js';
 
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
+const DEFAULT_FRONTEND_URL = process.env.K8V_FRONTEND_URL ?? 'http://127.0.0.1:5173';
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const DEFAULT_GRAPH_PROJECTION_ID = 'default';
@@ -844,6 +845,10 @@ async function requestBinary(
 
 function resolveBackendUrl(explicitUrl?: string): string {
   return sanitizeBaseUrl(explicitUrl ?? DEFAULT_BACKEND_URL);
+}
+
+function resolveFrontendUrl(explicitUrl?: string): string {
+  return sanitizeBaseUrl(explicitUrl ?? DEFAULT_FRONTEND_URL);
 }
 
 const GRAPH_QUERY_NODE_FIELD_VALUES = [
@@ -2714,6 +2719,172 @@ export async function renderGraphRegionScreenshot(params: {
   }
 }
 
+export async function renderGraphRegionScreenshotFromFrontend(params: {
+  frontendUrl: string;
+  graph: Graph;
+  region: RenderRegion;
+  bitmap: RenderBitmap;
+  outputPath?: string;
+  includeBase64?: boolean;
+}): Promise<{ outputPath: string; bytes: number; base64?: string }> {
+  const graphData = normalizeGraph(params.graph);
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
+  });
+
+  try {
+    const context = await browser.newContext({
+      viewport: {
+        width: Math.max(1, Math.round(params.bitmap.width)),
+        height: Math.max(1, Math.round(params.bitmap.height)),
+      },
+      deviceScaleFactor: 1,
+    });
+
+    await context.route(/\/api\/.*/, async (route) => {
+      const request = route.request();
+      const requestUrl = new URL(request.url());
+      const method = request.method().toUpperCase();
+
+      if (method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(graphData),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname === '/api/graphs') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            graphs: [
+              {
+                id: graphData.id,
+                name: graphData.name,
+                updatedAt: graphData.updatedAt,
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (
+        method === 'GET' &&
+        requestUrl.pathname.startsWith('/api/nodes/') &&
+        requestUrl.pathname.endsWith('/result')
+      ) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Not found' }),
+        });
+        return;
+      }
+
+      if (
+        method === 'GET' &&
+        requestUrl.pathname.startsWith('/api/graphs/') &&
+        requestUrl.pathname.endsWith('/recompute-status')
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            graphId: graphData.id,
+            statusVersion: graphData.updatedAt,
+            nodeStates: {},
+          }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(graphData),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '{}',
+      });
+    });
+
+    const page = await context.newPage();
+    const targetUrl = new URL(params.frontendUrl);
+    targetUrl.searchParams.set('canvasOnly', '1');
+    targetUrl.searchParams.set('mcpScreenshot', '1');
+    await page.goto(targetUrl.toString(), { waitUntil: 'networkidle' });
+
+    await page.waitForFunction(() => {
+      const bridge = (window as any).__k8vMcpScreenshotBridge;
+      return Boolean(
+        bridge &&
+          typeof bridge.isCanvasReady === 'function' &&
+          typeof bridge.isGraphReady === 'function' &&
+          typeof bridge.setViewportRegion === 'function' &&
+          bridge.isCanvasReady() &&
+          bridge.isGraphReady()
+      );
+    });
+
+    const applied = await page.evaluate((payload) => {
+      const bridge = (window as any).__k8vMcpScreenshotBridge;
+      if (!bridge || typeof bridge.setViewportRegion !== 'function') {
+        return false;
+      }
+      return Boolean(bridge.setViewportRegion(payload.region, payload.bitmap));
+    }, {
+      region: params.region,
+      bitmap: params.bitmap,
+    });
+
+    if (!applied) {
+      throw new Error('Frontend canvas screenshot bridge could not apply requested region.');
+    }
+
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+    });
+
+    const outputPath = resolveOutputPath(params.outputPath);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+
+    const canvasRoot = page.locator('[data-testid="canvas-root"]');
+    const imageBuffer = await canvasRoot.screenshot({
+      path: outputPath,
+      type: 'png',
+    });
+
+    await context.close();
+
+    return {
+      outputPath,
+      bytes: imageBuffer.byteLength,
+      ...(params.includeBase64
+        ? {
+            base64: imageBuffer.toString('base64'),
+          }
+        : {}),
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
 const server: any = new McpServer({
   name: 'k8v-mcp-server',
   version: '0.1.0',
@@ -4175,11 +4346,12 @@ server.registerTool(
   'graph_screenshot_region',
   {
     description:
-      'Render only graph content in an internal Playwright page and capture a fixed-size bitmap for a world-coordinate rectangle.',
+      'Render the frontend canvas-only view in Playwright and capture a fixed-size bitmap for a world-coordinate rectangle.',
     inputSchema: {
       graphId: z.string().optional(),
       graph: z.unknown().optional(),
       backendUrl: z.string().optional(),
+      frontendUrl: z.string().optional(),
       regionX: z.number(),
       regionY: z.number(),
       regionWidth: z.number().positive(),
@@ -4194,6 +4366,7 @@ server.registerTool(
     graphId,
     graph,
     backendUrl,
+    frontendUrl,
     regionX,
     regionY,
     regionWidth,
@@ -4204,6 +4377,7 @@ server.registerTool(
     includeBase64,
   }) => {
     const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+    const resolvedFrontendUrl = resolveFrontendUrl(frontendUrl);
     const graphData = graph
       ? normalizeGraph(graph as Graph)
       : graphId
@@ -4211,9 +4385,9 @@ server.registerTool(
         : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
     const nodeNumbers = getStableNodeNumbers(graphData);
 
-    const result = await renderGraphRegionScreenshot({
+    const result = await renderGraphRegionScreenshotFromFrontend({
+      frontendUrl: resolvedFrontendUrl,
       graph: graphData,
-      nodeNumbers,
       region: {
         x: regionX,
         y: regionY,
@@ -4249,6 +4423,7 @@ server.registerTool(
               width: bitmapWidth,
               height: bitmapHeight,
             },
+            frontendUrl: resolvedFrontendUrl,
             nodeNumbers,
             outputPath: result.outputPath,
             bytes: result.bytes,
