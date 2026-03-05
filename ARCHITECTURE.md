@@ -52,7 +52,6 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Provides internal Playwright-based screenshot rendering for agents
 - Uses the frontend app in a `canvasOnly` mode (floating tool windows hidden) so screenshots use the same Pixi canvas rendering path as users
 - Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions
-- Returns stable per-graph concise node-number mappings in screenshot metadata for agent node targeting
 
 ### Frontend
 

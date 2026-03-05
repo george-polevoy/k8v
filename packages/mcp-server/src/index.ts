@@ -8,24 +8,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { chromium } from 'playwright';
 import { z } from 'zod';
 import {
-  DEFAULT_CANVAS_BACKGROUND,
-  deriveGradientStops,
   normalizeCanvasBackground as normalizeSharedCanvasBackground,
 } from '../../shared/src/canvasBackground.js';
 import {
-  DEFAULT_GRAPH_CONNECTION_STROKE,
   normalizeGraphConnectionStroke,
 } from '../../shared/src/connectionStroke.js';
 import {
-  HEADER_HEIGHT,
-  MIN_NODE_HEIGHT,
-  NODE_BODY_PADDING,
-  NODE_MIN_WIDTH,
-  NODE_WIDTH,
-  NUMERIC_INPUT_NODE_MIN_HEIGHT,
-  PORT_SPACING,
   resolveStandardNodeCardSize,
-  resolveStandardNodeMinHeight,
 } from '../../shared/src/nodeCardGeometry.js';
 
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
@@ -182,587 +171,6 @@ interface RenderBitmap {
   height: number;
 }
 
-interface GraphNodeNumberState {
-  nextNumber: number;
-  byNodeId: Map<string, number>;
-}
-
-const graphNodeNumbers = new Map<string, GraphNodeNumberState>();
-
-function getStableNodeNumbers(graph: Graph): Record<string, number> {
-  let state = graphNodeNumbers.get(graph.id);
-  if (!state) {
-    state = {
-      nextNumber: 1,
-      byNodeId: new Map<string, number>(),
-    };
-    graphNodeNumbers.set(graph.id, state);
-  }
-
-  for (const node of graph.nodes) {
-    if (!state.byNodeId.has(node.id)) {
-      state.byNodeId.set(node.id, state.nextNumber);
-      state.nextNumber += 1;
-    }
-  }
-
-  return Object.fromEntries(
-    graph.nodes.map((node) => [node.id, state.byNodeId.get(node.id) ?? -1])
-  );
-}
-
-const RENDERER_NODE_GEOMETRY = {
-  width: NODE_WIDTH,
-  minWidth: NODE_MIN_WIDTH,
-  minHeight: MIN_NODE_HEIGHT,
-  headerHeight: HEADER_HEIGHT,
-  bodyPadding: NODE_BODY_PADDING,
-  portSpacing: PORT_SPACING,
-  numericInputMinHeight: NUMERIC_INPUT_NODE_MIN_HEIGHT,
-};
-
-const RENDERER_DEFAULT_BACKGROUND_STOPS = deriveGradientStops(DEFAULT_CANVAS_BACKGROUND.baseColor);
-
-const RENDERER_HTML = String.raw`<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        background: transparent;
-      }
-      #graph-canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
-  </head>
-  <body>
-    <canvas id="graph-canvas"></canvas>
-    <script>
-      (function () {
-        const DEFAULT_CANVAS_BACKGROUND = ${JSON.stringify(DEFAULT_CANVAS_BACKGROUND)};
-        const DEFAULT_CANVAS_BACKGROUND_STOPS = ${JSON.stringify(RENDERER_DEFAULT_BACKGROUND_STOPS)};
-        const NODE_CARD_GEOMETRY = ${JSON.stringify(RENDERER_NODE_GEOMETRY)};
-        const NODE_WIDTH = NODE_CARD_GEOMETRY.width;
-        const NODE_MIN_WIDTH = NODE_CARD_GEOMETRY.minWidth;
-        const MIN_NODE_HEIGHT = NODE_CARD_GEOMETRY.minHeight;
-        const HEADER_HEIGHT = NODE_CARD_GEOMETRY.headerHeight;
-        const NODE_BODY_PADDING = NODE_CARD_GEOMETRY.bodyPadding;
-        const PORT_SPACING = NODE_CARD_GEOMETRY.portSpacing;
-        const PORT_RADIUS = 4;
-        const NUMERIC_INPUT_NODE_MIN_HEIGHT = NODE_CARD_GEOMETRY.numericInputMinHeight;
-        const NUMERIC_SLIDER_LEFT_PADDING = 12;
-        const NUMERIC_SLIDER_RIGHT_PADDING = 34;
-        const NUMERIC_SLIDER_Y_OFFSET = 15;
-        const DEFAULT_GRAPH_CONNECTION_STROKE = ${JSON.stringify(DEFAULT_GRAPH_CONNECTION_STROKE)};
-
-        function clamp(value, min, max) {
-          return Math.min(Math.max(value, min), max);
-        }
-
-        function getNodeMinHeight(node) {
-          const maxPorts = Math.max(node.metadata.inputs.length, node.metadata.outputs.length, 1);
-          const baseHeight = Math.max(MIN_NODE_HEIGHT, HEADER_HEIGHT + NODE_BODY_PADDING + (maxPorts * PORT_SPACING));
-          if (node.type === 'numeric_input') {
-            return Math.max(baseHeight, NUMERIC_INPUT_NODE_MIN_HEIGHT);
-          }
-          return baseHeight;
-        }
-
-        function getNodeWidth(node) {
-          const config = node && node.config && node.config.config;
-          const rawWidth = toFiniteNumber(config && config.cardWidth, NODE_WIDTH);
-          return Math.max(NODE_MIN_WIDTH, rawWidth);
-        }
-
-        function getNodeHeight(node) {
-          const minHeight = getNodeMinHeight(node);
-          const config = node && node.config && node.config.config;
-          const rawHeight = toFiniteNumber(config && config.cardHeight, minHeight);
-          return Math.max(minHeight, rawHeight);
-        }
-
-        function toFiniteNumber(value, fallback) {
-          return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-        }
-
-        function countStepDecimals(step) {
-          const text = String(step).toLowerCase();
-          if (text.includes('e-')) {
-            const exponent = Number.parseInt(text.split('e-')[1] || '0', 10);
-            return Number.isFinite(exponent) ? exponent : 0;
-          }
-          const decimalIndex = text.indexOf('.');
-          if (decimalIndex === -1) {
-            return 0;
-          }
-          return text.length - decimalIndex - 1;
-        }
-
-        function snapNumericInputValue(value, min, max, step) {
-          if (max <= min) {
-            return min;
-          }
-          const clamped = clamp(value, min, max);
-          const steps = Math.round((clamped - min) / step);
-          const snapped = min + (steps * step);
-          const decimals = countStepDecimals(step);
-          const rounded = Number(snapped.toFixed(decimals));
-          return clamp(rounded, min, max);
-        }
-
-        function normalizeNumericInputConfig(config) {
-          const min = toFiniteNumber(config && config.min, 0);
-          const maxCandidate = toFiniteNumber(config && config.max, 100);
-          const max = maxCandidate >= min ? maxCandidate : min;
-          const stepCandidate = toFiniteNumber(config && config.step, 1);
-          const step = stepCandidate > 0 ? stepCandidate : 1;
-          const valueCandidate = toFiniteNumber(config && config.value, min);
-          const value = snapNumericInputValue(valueCandidate, min, max, step);
-          return { value, min, max, step };
-        }
-
-        function formatNumericInputValue(value, step) {
-          const decimals = Math.min(countStepDecimals(step), 8);
-          if (decimals <= 0) {
-            return String(Math.round(value));
-          }
-          return Number(value).toFixed(decimals).replace(/\.?0+$/, '');
-        }
-
-        function getInputPortOffsetY(node, portName) {
-          const height = getNodeHeight(node);
-          const bodyHeight = height - HEADER_HEIGHT - NODE_BODY_PADDING;
-          const slots = Math.max(node.metadata.inputs.length, 1);
-          const index = Math.max(0, node.metadata.inputs.findIndex((port) => port.name === portName));
-          return HEADER_HEIGHT + ((index + 1) * bodyHeight) / (slots + 1);
-        }
-
-        function getOutputPortOffsetY(node, portName) {
-          const height = getNodeHeight(node);
-          const bodyHeight = height - HEADER_HEIGHT - NODE_BODY_PADDING;
-          const slots = Math.max(node.metadata.outputs.length, 1);
-          const index = Math.max(0, node.metadata.outputs.findIndex((port) => port.name === portName));
-          return HEADER_HEIGHT + ((index + 1) * bodyHeight) / (slots + 1);
-        }
-
-        function mapPoint(x, y, region, bitmap) {
-          const scaleX = bitmap.width / Math.max(region.width, 1);
-          const scaleY = bitmap.height / Math.max(region.height, 1);
-          return {
-            x: (x - region.x) * scaleX,
-            y: (y - region.y) * scaleY,
-            scaleX,
-            scaleY,
-          };
-        }
-
-        function drawRoundedRect(ctx, x, y, width, height, radius) {
-          const r = clamp(radius, 0, Math.min(width, height) * 0.5);
-          ctx.beginPath();
-          ctx.moveTo(x + r, y);
-          ctx.lineTo(x + width - r, y);
-          ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-          ctx.lineTo(x + width, y + height - r);
-          ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-          ctx.lineTo(x + r, y + height);
-          ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-          ctx.lineTo(x, y + r);
-          ctx.quadraticCurveTo(x, y, x + r, y);
-          ctx.closePath();
-        }
-
-        function normalizeHexColor(value, fallback) {
-          const normalizedFallback = typeof fallback === 'string' && /^#[0-9a-f]{6}$/i.test(fallback)
-            ? fallback.toLowerCase()
-            : '#000000';
-          if (typeof value !== 'string') {
-            return normalizedFallback;
-          }
-          const lowered = value.trim().toLowerCase();
-          return /^#[0-9a-f]{6}$/i.test(lowered) ? lowered : normalizedFallback;
-        }
-
-        function drawBackground(ctx, graph, bitmap) {
-          const canvasBackground = graph && graph.canvasBackground
-            ? graph.canvasBackground
-            : DEFAULT_CANVAS_BACKGROUND;
-          const mode = canvasBackground && canvasBackground.mode === 'solid' ? 'solid' : 'gradient';
-          const baseColor = normalizeHexColor(
-            canvasBackground && canvasBackground.baseColor,
-            DEFAULT_CANVAS_BACKGROUND.baseColor
-          );
-
-          if (mode === 'solid') {
-            ctx.fillStyle = baseColor;
-            ctx.fillRect(0, 0, bitmap.width, bitmap.height);
-            return;
-          }
-
-          const gradient = ctx.createRadialGradient(
-            bitmap.width * 0.12,
-            bitmap.height * 0.08,
-            bitmap.width * 0.05,
-            bitmap.width * 0.52,
-            bitmap.height * 0.56,
-            Math.max(bitmap.width, bitmap.height) * 0.9
-          );
-          const stopsCandidate = Array.isArray(graph && graph.backgroundGradientStops)
-            ? graph.backgroundGradientStops
-            : DEFAULT_CANVAS_BACKGROUND_STOPS;
-          const stops = stopsCandidate.length === 4
-            ? stopsCandidate
-            : DEFAULT_CANVAS_BACKGROUND_STOPS;
-          gradient.addColorStop(0, stops[0]);
-          gradient.addColorStop(0.35, stops[1]);
-          gradient.addColorStop(0.7, stops[2]);
-          gradient.addColorStop(1, stops[3]);
-          ctx.fillStyle = gradient;
-          ctx.fillRect(0, 0, bitmap.width, bitmap.height);
-        }
-
-        function resolveConnectionStroke(graph) {
-          const stroke = graph && graph.connectionStroke ? graph.connectionStroke : DEFAULT_GRAPH_CONNECTION_STROKE;
-          const foregroundColor = normalizeHexColor(stroke.foregroundColor, DEFAULT_GRAPH_CONNECTION_STROKE.foregroundColor);
-          const backgroundColor = normalizeHexColor(stroke.backgroundColor, DEFAULT_GRAPH_CONNECTION_STROKE.backgroundColor);
-          const rawForegroundWidth = typeof stroke.foregroundWidth === 'number' && Number.isFinite(stroke.foregroundWidth)
-            ? stroke.foregroundWidth
-            : DEFAULT_GRAPH_CONNECTION_STROKE.foregroundWidth;
-          const rawBackgroundWidth = typeof stroke.backgroundWidth === 'number' && Number.isFinite(stroke.backgroundWidth)
-            ? stroke.backgroundWidth
-            : DEFAULT_GRAPH_CONNECTION_STROKE.backgroundWidth;
-          const foregroundWidth = Math.max(0.001, rawForegroundWidth);
-          const backgroundWidth = Math.max(foregroundWidth * 2, Math.max(0.001, rawBackgroundWidth));
-
-          return {
-            foregroundColor,
-            backgroundColor,
-            foregroundWidth,
-            backgroundWidth,
-          };
-        }
-
-        function drawConnections(ctx, graph, nodeMap, region, bitmap) {
-          const scaleRef = bitmap.width / Math.max(region.width, 1);
-          const stroke = resolveConnectionStroke(graph);
-          const foregroundLineWidth = Math.max(0.8, stroke.foregroundWidth * scaleRef);
-          const backgroundLineWidth = Math.max(foregroundLineWidth * 2, stroke.backgroundWidth * scaleRef);
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-
-          for (const connection of graph.connections) {
-            const sourceNode = nodeMap.get(connection.sourceNodeId);
-            const targetNode = nodeMap.get(connection.targetNodeId);
-            if (!sourceNode || !targetNode) {
-              continue;
-            }
-
-            const sourceX = sourceNode.position.x + getNodeWidth(sourceNode);
-            const sourceY = sourceNode.position.y + getOutputPortOffsetY(sourceNode, connection.sourcePort);
-            const targetX = targetNode.position.x;
-            const targetY = targetNode.position.y + getInputPortOffsetY(targetNode, connection.targetPort);
-
-            const mappedStart = mapPoint(sourceX, sourceY, region, bitmap);
-            const mappedEnd = mapPoint(targetX, targetY, region, bitmap);
-            const controlOffset = Math.max(Math.abs(mappedEnd.x - mappedStart.x) * 0.4, 60 * scaleRef);
-
-            ctx.strokeStyle = stroke.backgroundColor;
-            ctx.lineWidth = backgroundLineWidth;
-            ctx.beginPath();
-            ctx.moveTo(mappedStart.x, mappedStart.y);
-            ctx.bezierCurveTo(
-              mappedStart.x + controlOffset,
-              mappedStart.y,
-              mappedEnd.x - controlOffset,
-              mappedEnd.y,
-              mappedEnd.x,
-              mappedEnd.y
-            );
-            ctx.stroke();
-
-            ctx.strokeStyle = stroke.foregroundColor;
-            ctx.lineWidth = foregroundLineWidth;
-            ctx.beginPath();
-            ctx.moveTo(mappedStart.x, mappedStart.y);
-            ctx.bezierCurveTo(
-              mappedStart.x + controlOffset,
-              mappedStart.y,
-              mappedEnd.x - controlOffset,
-              mappedEnd.y,
-              mappedEnd.x,
-              mappedEnd.y
-            );
-            ctx.stroke();
-          }
-        }
-
-        function resolveDrawingColor(color) {
-          if (typeof color !== 'string') return '#ffffff';
-          const lowered = color.trim().toLowerCase();
-          if (lowered === 'green') return '#22c55e';
-          if (lowered === 'red') return '#ef4444';
-          if (lowered === 'white') return '#ffffff';
-          if (/^#[0-9a-f]{6}$/i.test(lowered)) return lowered;
-          return '#ffffff';
-        }
-
-        function drawDrawings(ctx, graph, region, bitmap) {
-          const scaleX = bitmap.width / Math.max(region.width, 1);
-          const scaleY = bitmap.height / Math.max(region.height, 1);
-          const scaleRef = Math.min(scaleX, scaleY);
-          const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
-
-          for (const drawing of drawings) {
-            const drawingOrigin = drawing.position || { x: 0, y: 0 };
-
-            for (const path of drawing.paths || []) {
-              const points = Array.isArray(path.points) ? path.points : [];
-              if (points.length === 0) {
-                continue;
-              }
-
-              const lineWidth = Math.max(0.5, (path.thickness || 1) * scaleRef);
-              ctx.strokeStyle = resolveDrawingColor(path.color);
-              ctx.fillStyle = resolveDrawingColor(path.color);
-              ctx.lineWidth = lineWidth;
-              ctx.lineCap = 'round';
-              ctx.lineJoin = 'round';
-
-              const first = mapPoint(
-                drawingOrigin.x + points[0].x,
-                drawingOrigin.y + points[0].y,
-                region,
-                bitmap
-              );
-
-              if (points.length === 1) {
-                ctx.beginPath();
-                ctx.arc(first.x, first.y, Math.max(lineWidth * 0.5, 1.25), 0, Math.PI * 2);
-                ctx.fill();
-                continue;
-              }
-
-              ctx.beginPath();
-              ctx.moveTo(first.x, first.y);
-              for (let i = 1; i < points.length; i += 1) {
-                const mapped = mapPoint(
-                  drawingOrigin.x + points[i].x,
-                  drawingOrigin.y + points[i].y,
-                  region,
-                  bitmap
-                );
-                ctx.lineTo(mapped.x, mapped.y);
-              }
-              ctx.stroke();
-            }
-
-            const handlePoint = mapPoint(drawingOrigin.x, drawingOrigin.y, region, bitmap);
-            const handleWidth = Math.max(56 * scaleX, (String(drawing.name || '').length + 2) * 8 * scaleRef);
-            const handleHeight = Math.max(20 * scaleY, 16 * scaleRef);
-            drawRoundedRect(ctx, handlePoint.x, handlePoint.y, handleWidth, handleHeight, 6 * scaleRef);
-            ctx.fillStyle = '#e2e8f0';
-            ctx.fill();
-            ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = Math.max(1, 1.2 * scaleRef);
-            ctx.stroke();
-
-            ctx.fillStyle = '#0f172a';
-            ctx.font = '700 ' + Math.max(7, Math.round(10 * scaleRef)) + 'px Arial';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(String(drawing.name || 'Drawing'), handlePoint.x + (8 * scaleX), handlePoint.y + handleHeight / 2);
-          }
-        }
-
-        function drawNodes(ctx, graph, region, bitmap, nodeNumbers) {
-          const scaleX = bitmap.width / Math.max(region.width, 1);
-          const scaleY = bitmap.height / Math.max(region.height, 1);
-          const scaleRef = Math.min(scaleX, scaleY);
-          const titleFont = Math.max(8, Math.round(14 * scaleRef));
-          const subtitleFont = Math.max(7, Math.round(11 * scaleRef));
-          const portFont = Math.max(7, Math.round(10 * scaleRef));
-
-          for (const node of graph.nodes) {
-            const nodeWidth = getNodeWidth(node);
-            const nodeHeight = getNodeHeight(node);
-            const mappedTopLeft = mapPoint(node.position.x, node.position.y, region, bitmap);
-            const width = nodeWidth * scaleX;
-            const height = nodeHeight * scaleY;
-            const borderRadius = 10 * scaleRef;
-
-            drawRoundedRect(ctx, mappedTopLeft.x, mappedTopLeft.y, width, height, borderRadius);
-            ctx.fillStyle = '#f8fafc';
-            ctx.fill();
-            ctx.strokeStyle = '#334155';
-            ctx.lineWidth = Math.max(1, 2 * scaleRef);
-            ctx.stroke();
-
-            const statusColor = node.config?.config?.autoRecompute ? '#22c55e' : '#94a3b8';
-            const statusX = mappedTopLeft.x + width - (14 * scaleX);
-            const statusY = mappedTopLeft.y + (14 * scaleY);
-            const statusRadius = Math.max(2, 5 * scaleRef);
-            ctx.beginPath();
-            ctx.arc(statusX, statusY, statusRadius, 0, Math.PI * 2);
-            ctx.fillStyle = statusColor;
-            ctx.fill();
-
-            const nodeNumber = nodeNumbers ? nodeNumbers[node.id] : undefined;
-            if (Number.isFinite(nodeNumber)) {
-              const badgeX = mappedTopLeft.x + (8 * scaleX);
-              const badgeY = mappedTopLeft.y + (7 * scaleY);
-              const badgeWidth = Math.max(26 * scaleX, (String(nodeNumber).length + 1.3) * 11 * scaleRef);
-              const badgeHeight = Math.max(18 * scaleY, 18 * scaleRef);
-              drawRoundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 6 * scaleRef);
-              ctx.fillStyle = '#dbeafe';
-              ctx.fill();
-              ctx.strokeStyle = '#1d4ed8';
-              ctx.lineWidth = Math.max(1, 1.2 * scaleRef);
-              ctx.stroke();
-              ctx.fillStyle = '#1e3a8a';
-              ctx.font = '700 ' + Math.max(8, Math.round(11 * scaleRef)) + 'px Arial';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(String(nodeNumber), badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
-            }
-
-            const titleX = mappedTopLeft.x + (nodeNumber ? 42 * scaleX : 12 * scaleX);
-
-            ctx.fillStyle = '#0f172a';
-            ctx.font = '700 ' + titleFont + 'px Arial';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(node.metadata.name, titleX, mappedTopLeft.y + (10 * scaleY));
-
-            if (node.type !== 'numeric_input') {
-              ctx.fillStyle = '#475569';
-              ctx.font = '400 ' + subtitleFont + 'px Arial';
-              ctx.fillText(String(node.type).replace(/_/g, ' '), titleX, mappedTopLeft.y + (28 * scaleY));
-            }
-
-            if (node.type === 'numeric_input') {
-              const numericConfig = normalizeNumericInputConfig(node.config && node.config.config);
-              const trackX = mappedTopLeft.x + (NUMERIC_SLIDER_LEFT_PADDING * scaleX);
-              const trackWidth = Math.max(
-                30 * scaleX,
-                width - ((NUMERIC_SLIDER_LEFT_PADDING + NUMERIC_SLIDER_RIGHT_PADDING) * scaleX)
-              );
-              const trackY = mappedTopLeft.y + height - (NUMERIC_SLIDER_Y_OFFSET * scaleY);
-              const ratio = numericConfig.max > numericConfig.min
-                ? clamp((numericConfig.value - numericConfig.min) / (numericConfig.max - numericConfig.min), 0, 1)
-                : 0;
-              const knobX = trackX + (trackWidth * ratio);
-
-              ctx.strokeStyle = '#cbd5e1';
-              ctx.lineWidth = Math.max(1.5, 4 * scaleRef);
-              ctx.lineCap = 'round';
-              ctx.beginPath();
-              ctx.moveTo(trackX, trackY);
-              ctx.lineTo(trackX + trackWidth, trackY);
-              ctx.stroke();
-
-              ctx.strokeStyle = '#2563eb';
-              ctx.beginPath();
-              ctx.moveTo(trackX, trackY);
-              ctx.lineTo(knobX, trackY);
-              ctx.stroke();
-
-              ctx.beginPath();
-              ctx.arc(knobX, trackY, Math.max(2.5, 7 * scaleRef), 0, Math.PI * 2);
-              ctx.fillStyle = '#ffffff';
-              ctx.fill();
-              ctx.strokeStyle = '#1d4ed8';
-              ctx.lineWidth = Math.max(1, 1.2 * scaleRef);
-              ctx.stroke();
-
-              ctx.fillStyle = '#1e3a8a';
-              ctx.font = '700 ' + Math.max(7, Math.round(11 * scaleRef)) + 'px Arial';
-              ctx.textAlign = 'left';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(
-                formatNumericInputValue(numericConfig.value, numericConfig.step),
-                trackX + trackWidth + (8 * scaleX),
-                trackY
-              );
-            }
-
-            const bodyHeight = nodeHeight - HEADER_HEIGHT - NODE_BODY_PADDING;
-            const inputSlots = Math.max(node.metadata.inputs.length, 1);
-            const outputSlots = Math.max(node.metadata.outputs.length, 1);
-
-            ctx.font = '400 ' + portFont + 'px Arial';
-
-            for (let i = 0; i < node.metadata.inputs.length; i += 1) {
-              const port = node.metadata.inputs[i];
-              const offsetY = HEADER_HEIGHT + ((i + 1) * bodyHeight) / (inputSlots + 1);
-              const portY = mappedTopLeft.y + offsetY * scaleY;
-              const portX = mappedTopLeft.x;
-
-              ctx.beginPath();
-              ctx.arc(portX, portY, Math.max(2, PORT_RADIUS * scaleRef), 0, Math.PI * 2);
-              ctx.fillStyle = '#1d4ed8';
-              ctx.fill();
-
-              ctx.fillStyle = '#1e293b';
-              ctx.textAlign = 'left';
-              ctx.fillText(port.name, mappedTopLeft.x + (10 * scaleX), portY - (7 * scaleY));
-            }
-
-            for (let i = 0; i < node.metadata.outputs.length; i += 1) {
-              const port = node.metadata.outputs[i];
-              const offsetY = HEADER_HEIGHT + ((i + 1) * bodyHeight) / (outputSlots + 1);
-              const portY = mappedTopLeft.y + offsetY * scaleY;
-              const portX = mappedTopLeft.x + width;
-
-              ctx.beginPath();
-              ctx.arc(portX, portY, Math.max(2, PORT_RADIUS * scaleRef), 0, Math.PI * 2);
-              ctx.fillStyle = '#16a34a';
-              ctx.fill();
-
-              ctx.fillStyle = '#1e293b';
-              ctx.textAlign = 'right';
-              ctx.fillText(port.name, mappedTopLeft.x + width - (10 * scaleX), portY - (7 * scaleY));
-            }
-          }
-        }
-
-        window.renderGraphRegion = function (payload) {
-          const canvas = document.getElementById('graph-canvas');
-          if (!canvas) {
-            throw new Error('Missing #graph-canvas');
-          }
-
-          canvas.width = payload.bitmap.width;
-          canvas.height = payload.bitmap.height;
-
-          const ctx = canvas.getContext('2d', { alpha: true, desynchronized: false });
-          if (!ctx) {
-            throw new Error('Could not create 2d context');
-          }
-
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.clearRect(0, 0, payload.bitmap.width, payload.bitmap.height);
-          drawBackground(ctx, payload.graph, payload.bitmap);
-
-          const nodeMap = new Map(payload.graph.nodes.map((node) => [node.id, node]));
-          drawConnections(ctx, payload.graph, nodeMap, payload.region, payload.bitmap);
-          drawDrawings(ctx, payload.graph, payload.region, payload.bitmap);
-          drawNodes(ctx, payload.graph, payload.region, payload.bitmap, payload.nodeNumbers);
-
-          window.__graphRenderReady = true;
-        };
-      })();
-    </script>
-  </body>
-</html>`;
-
 function textResult(payload: unknown) {
   return {
     content: [
@@ -917,14 +325,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function normalizeCanvasBackground(background: CanvasBackground | undefined): CanvasBackground {
   return normalizeSharedCanvasBackground(background);
-}
-
-function getNodeMinHeight(node: GraphNode): number {
-  return resolveStandardNodeMinHeight(
-    node.metadata.inputs.length,
-    node.metadata.outputs.length,
-    node.type === 'numeric_input'
-  );
 }
 
 function resolveNodeCardSizeForNode(node: GraphNode): { width: number; height: number } {
@@ -2619,115 +2019,17 @@ function resolveOutputPath(explicitPath?: string): string {
   );
 }
 
-interface RendererGraph extends Graph {
-  backgroundGradientStops: [string, string, string, string];
-}
-
-function normalizeGraphForRenderer(graph: Graph): RendererGraph {
-  const canvasBackground = normalizeCanvasBackground(graph.canvasBackground);
-  const connectionStroke = normalizeGraphConnectionStroke(graph.connectionStroke);
-  const nodes = graph.nodes.map((node) => {
-    const resolvedNodeCardSize = resolveNodeCardSizeForNode(node);
-    const nodeConfig = node.config.config as Record<string, unknown> | undefined;
-    return {
-      ...node,
-      config: {
-        ...node.config,
-        config: {
-          ...nodeConfig,
-          cardWidth: resolvedNodeCardSize.width,
-          cardHeight: resolvedNodeCardSize.height,
-        },
-      },
-    };
-  });
-
-  return {
-    ...graph,
-    nodes,
-    canvasBackground,
-    connectionStroke,
-    backgroundGradientStops: deriveGradientStops(canvasBackground.baseColor),
-  };
-}
-
-export async function renderGraphRegionScreenshot(params: {
-  graph: Graph;
-  nodeNumbers: Record<string, number>;
-  region: RenderRegion;
-  bitmap: RenderBitmap;
-  outputPath?: string;
-  includeBase64?: boolean;
-}): Promise<{ outputPath: string; bytes: number; base64?: string }> {
-  const rendererGraph = normalizeGraphForRenderer(params.graph);
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
-  });
-
-  try {
-    const context = await browser.newContext({
-      viewport: {
-        width: Math.round(params.bitmap.width),
-        height: Math.round(params.bitmap.height),
-      },
-      deviceScaleFactor: 1,
-    });
-
-    const page = await context.newPage();
-    await page.setContent(RENDERER_HTML, { waitUntil: 'load' });
-
-    await page.evaluate(
-      (payload) => {
-        (window as any).__graphRenderReady = false;
-        (window as any).renderGraphRegion(payload);
-      },
-      {
-        graph: rendererGraph,
-        nodeNumbers: params.nodeNumbers,
-        region: params.region,
-        bitmap: params.bitmap,
-      }
-    );
-
-    await page.waitForFunction(() => {
-      return Boolean((window as any).__graphRenderReady);
-    });
-
-    const outputPath = resolveOutputPath(params.outputPath);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-
-    const canvas = page.locator('#graph-canvas');
-    const imageBuffer = await canvas.screenshot({
-      path: outputPath,
-      type: 'png',
-    });
-
-    await context.close();
-
-    return {
-      outputPath,
-      bytes: imageBuffer.byteLength,
-      ...(params.includeBase64
-        ? {
-            base64: imageBuffer.toString('base64'),
-          }
-        : {}),
-    };
-  } finally {
-    await browser.close();
-  }
-}
-
 export async function renderGraphRegionScreenshotFromFrontend(params: {
   frontendUrl: string;
-  graph: Graph;
+  backendUrl: string;
+  graphId: string;
+  graphOverride?: Graph;
   region: RenderRegion;
   bitmap: RenderBitmap;
   outputPath?: string;
   includeBase64?: boolean;
 }): Promise<{ outputPath: string; bytes: number; base64?: string }> {
-  const graphData = normalizeGraph(params.graph);
+  const graphData = params.graphOverride ? normalizeGraph(params.graphOverride) : null;
   const browser = await chromium.launch({
     headless: true,
     args: ['--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
@@ -2742,88 +2044,81 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
       deviceScaleFactor: 1,
     });
 
-    await context.route(/\/api\/.*/, async (route) => {
-      const request = route.request();
-      const requestUrl = new URL(request.url());
-      const method = request.method().toUpperCase();
+    if (graphData) {
+      await context.route(/\/api\/.*/, async (route) => {
+        const request = route.request();
+        const requestUrl = new URL(request.url());
+        const method = request.method().toUpperCase();
+        const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
 
-      if (method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(graphData),
+        if (method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(graphData),
+          });
+          return;
+        }
+
+        if (method === 'GET' && requestUrl.pathname === '/api/graphs') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              graphs: [
+                {
+                  id: graphData.id,
+                  name: graphData.name,
+                  updatedAt: graphData.updatedAt,
+                },
+              ],
+            }),
+          });
+          return;
+        }
+
+        if (method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(graphData),
+          });
+          return;
+        }
+
+        const requestHeaders = request.headers();
+        const proxyHeaders = Object.fromEntries(
+          Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
+        );
+        const requestBody = method === 'GET' || method === 'HEAD'
+          ? undefined
+          : request.postData() ?? undefined;
+        const proxyResponse = await fetch(proxyUrl, {
+          method,
+          headers: proxyHeaders,
+          body: requestBody,
         });
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname === '/api/graphs') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphs: [
-              {
-                id: graphData.id,
-                name: graphData.name,
-                updatedAt: graphData.updatedAt,
-              },
-            ],
-          }),
+        const buffer = Buffer.from(await proxyResponse.arrayBuffer());
+        const responseHeaders: Record<string, string> = {};
+        proxyResponse.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
         });
-        return;
-      }
-
-      if (
-        method === 'GET' &&
-        requestUrl.pathname.startsWith('/api/nodes/') &&
-        requestUrl.pathname.endsWith('/result')
-      ) {
         await route.fulfill({
-          status: 404,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: 'Not found' }),
+          status: proxyResponse.status,
+          headers: responseHeaders,
+          body: buffer,
         });
-        return;
-      }
-
-      if (
-        method === 'GET' &&
-        requestUrl.pathname.startsWith('/api/graphs/') &&
-        requestUrl.pathname.endsWith('/recompute-status')
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphId: graphData.id,
-            statusVersion: graphData.updatedAt,
-            nodeStates: {},
-          }),
-        });
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(graphData),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: '{}',
       });
-    });
+    }
 
     const page = await context.newPage();
+    await page.addInitScript((targetGraphId: string) => {
+      window.localStorage.setItem('k8v-current-graph-id', targetGraphId);
+    }, params.graphId);
     const targetUrl = new URL(params.frontendUrl);
     targetUrl.searchParams.set('canvasOnly', '1');
     targetUrl.searchParams.set('mcpScreenshot', '1');
-    await page.goto(targetUrl.toString(), { waitUntil: 'networkidle' });
+    await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded' });
 
     await page.waitForFunction(() => {
       const bridge = (window as any).__k8vMcpScreenshotBridge;
@@ -4383,11 +3678,12 @@ server.registerTool(
       : graphId
         ? await getGraph(resolvedBackendUrl, graphId)
         : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
-    const nodeNumbers = getStableNodeNumbers(graphData);
 
     const result = await renderGraphRegionScreenshotFromFrontend({
       frontendUrl: resolvedFrontendUrl,
-      graph: graphData,
+      backendUrl: resolvedBackendUrl,
+      graphId: graphData.id,
+      graphOverride: graph ? graphData : undefined,
       region: {
         x: regionX,
         y: regionY,
@@ -4424,7 +3720,6 @@ server.registerTool(
               height: bitmapHeight,
             },
             frontendUrl: resolvedFrontendUrl,
-            nodeNumbers,
             outputPath: result.outputPath,
             bytes: result.bytes,
           },

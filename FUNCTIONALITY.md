@@ -174,5 +174,4 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - MCP `bulk_edit` tool accepts an ordered array of graph-edit operations (including `node_add_numeric_input`) and applies them sequentially in one persisted graph update.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders through the frontend canvas in `canvasOnly` mode on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
-- Screenshot metadata returns stable concise per-graph node numbers (unique integers) for OCR/agent-friendly node identification.
 - Screenshot render includes persisted drawing paths and drawing handles.

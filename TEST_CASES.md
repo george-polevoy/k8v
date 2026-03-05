@@ -127,9 +127,9 @@ Last reviewed: March 5, 2026.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
 - `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
 - `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests and enforces required `maxNodes` for DFS requests.
-- `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer honors graph solid canvas background base color.
-- `A-MCP-07` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer applies graph-level connection stroke foreground/background colors and layered widths.
-- `A-MCP-08` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP screenshot renderer respects persisted node card width (`cardWidth`).
+- `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function output matches direct frontend canvas capture for identical graph/region inputs.
+- `A-MCP-07` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function respects requested bitmap dimensions.
+- `A-MCP-08` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function works when loading graph data from backend (no override payload).
 
 ## Manual Regression Test Cases
 
@@ -199,7 +199,6 @@ Last reviewed: March 5, 2026.
 - `M-VALID-02`: API rejects cycle on graph create/update and allows non-connection edits on legacy cyclic graph.
 - `M-MCP-01`: `graph_screenshot_region` captures the exact requested world rectangle into the requested fixed bitmap dimensions.
 - `M-MCP-02`: MCP screenshot renderer uses frontend `canvasOnly` mode and hides floating tool/sidebar windows.
-- `M-MCP-03`: MCP screenshot metadata node-number mapping is unique per graph and stable across repeated captures.
 - `M-MCP-04`: MCP graph-edit tools (add/move/rename/code/input/connection/delete) persist through backend and are reflected by `graph_get`.
 - `M-MCP-05`: MCP drawing tools can create/move/rename/delete drawings and append drawing paths that appear in `graph_get`.
 - `M-MCP-06`: MCP screenshot renderer includes persisted drawing paths and drawing handle labels.
@@ -321,7 +320,6 @@ Last reviewed: March 5, 2026.
 | MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
-| MCP screenshot node-number metadata mapping (stable unique identifiers) | `M-MCP-03` | Manual |
 
 ## Open Gaps
 
