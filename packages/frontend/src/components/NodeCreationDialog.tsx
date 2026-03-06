@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { GraphNode, NodeType } from '../types';
 import { useGraphStore } from '../store/graphStore';
 import ColorSelectionDialog from './ColorSelectionDialog';
@@ -134,8 +135,9 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
     setAnnotationColorDialogTarget(null);
   };
 
-  return (
+  const dialog = (
     <div
+      data-testid="node-creation-dialog"
       style={{
         position: 'fixed',
         top: '50%',
@@ -454,6 +456,12 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
       />
     </div>
   );
+
+  if (typeof document === 'undefined') {
+    return dialog;
+  }
+
+  return createPortal(dialog, document.body);
 }
 
 export default NodeCreationDialog;

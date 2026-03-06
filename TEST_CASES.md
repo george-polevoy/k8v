@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 5, 2026.
+Last reviewed: March 6, 2026.
 
 ## Coverage Legend
 
@@ -29,6 +29,7 @@ Last reviewed: March 5, 2026.
 - `A-E2E-16` `packages/frontend/tests/e2e/connectionStroke.test.ts`: graph panel connection stroke controls persist foreground/background colors and preserve the required 2x background-to-foreground width ratio.
 - `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas remains full viewport while toolbar/sidebar floating windows stay draggable and inside viewport bounds across window resize.
 - `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
+- `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -234,6 +235,7 @@ Last reviewed: March 5, 2026.
 | Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
 | Canvas remains full viewport while toolbar/right sidebar render as draggable floating windows during resize | `A-E2E-17` | Automated |
+| Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
 | Frontend `canvasOnly` mode hides floating toolbar/sidebar windows and keeps MCP screenshot bridge available | `A-E2E-18`, `M-MCP-02` | Automated + Manual |
 | Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
@@ -323,6 +325,6 @@ Last reviewed: March 5, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, and canvas-only screenshot mode (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, and toolbar add-node dialog layering (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.
