@@ -160,22 +160,23 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/mcp-server/src/index.ts` | 3759 | 1806 | -1953 |
+| `packages/mcp-server/src/index.ts` | 3759 | 1287 | -2472 |
 | `packages/mcp-server/src/graphModel.ts` | 0 | 412 | +412 |
 | `packages/mcp-server/src/mcpHttp.ts` | 0 | 92 | +92 |
 | `packages/mcp-server/src/frontendScreenshot.ts` | 0 | 186 | +186 |
 | `packages/mcp-server/src/graphEdits.ts` | 0 | 889 | +889 |
 | `packages/mcp-server/src/graphNodeEdits.ts` | 0 | 335 | +335 |
 | `packages/mcp-server/src/graphConnectionEdits.ts` | 0 | 143 | +143 |
-| **Net** | **3759** | **3863** | **+104** |
+| `packages/mcp-server/src/mcpNodeTools.ts` | 0 | 547 | +547 |
+| **Net** | **3759** | **3893** | **+134** |
 
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
-| R-002 | `packages/mcp-server/src/index.ts` | 1806 | The entry point is much smaller, but it still mixes server bootstrap, tool registration, request orchestration, and result shaping. |
-| R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
+| R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
+| R-003 | `packages/mcp-server/src/index.ts` | 1287 | The entry point is out of the urgent band, but it still mixes server bootstrap with graph, drawing, connection, and runtime tool registration. |
 | R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
@@ -623,6 +624,9 @@ Delivered so far:
 - Added `packages/mcp-server/src/graphConnectionEdits.ts` for graph-node lookup, connection listing filters, connection port validation, and atomic connection-set replacement.
 - Refactored `packages/mcp-server/src/graphEdits.ts` to focus on bulk graph mutation application while delegating node and connection helper logic to the new domain modules.
 - Reduced `packages/mcp-server/src/graphEdits.ts` from `1345` to `889` in phase 5, pushing the extracted graph-edit support modules below the large-file threshold.
+- Added `packages/mcp-server/src/mcpNodeTools.ts` for the `node_*` tool registrations, input schemas, and node-specific persistence workflows.
+- Refactored `packages/mcp-server/src/index.ts` to register node tools via the extracted module instead of embedding the `node_*` registration block inline.
+- Reduced `packages/mcp-server/src/index.ts` from `1806` to `1287` in phase 6, moving the MCP entrypoint out of the urgent `>1500` LOC band.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -653,5 +657,6 @@ Current status:
   - phase 3 complete: Playwright screenshot/render bridge extracted into `packages/mcp-server/src/frontendScreenshot.ts`
   - phase 4 complete: graph-edit helpers and bulk-edit mutation logic extracted into `packages/mcp-server/src/graphEdits.ts`
   - phase 5 complete: node-specific and connection-specific edit helpers extracted into `packages/mcp-server/src/graphNodeEdits.ts` and `packages/mcp-server/src/graphConnectionEdits.ts`
-  - next phase: split `index.ts` tool registration by domain and keep reducing it toward bootstrap plus registration composition only
+  - phase 6 complete: `node_*` tool registration extracted into `packages/mcp-server/src/mcpNodeTools.ts`
+  - next phase: extract graph/drawing/connection/runtime registration modules and keep reducing `index.ts` toward bootstrap plus registration composition only
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
