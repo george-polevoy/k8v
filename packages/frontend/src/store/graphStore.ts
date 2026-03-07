@@ -6,7 +6,6 @@ import {
   GraphNode,
   Connection,
   Position,
-  ComputationResult,
 } from '../types';
 import { normalizeHexColor } from '../utils/color';
 import {
@@ -28,21 +27,18 @@ import {
   type GraphStorePersistenceState,
 } from './graphStorePersistence';
 import {
-  buildNodeGraphicsOutputMapForGraph,
-  buildNodeStateMapForGraph,
+  createGraphComputationController,
+  type GraphStoreComputationState,
+} from './graphStoreComputation';
+import {
   DEFAULT_DRAWING_COLOR,
-  DEFAULT_NODE_EXECUTION_STATE,
-  getNodeExecutionStateFromResult,
-  normalizeBackendNodeExecutionState,
   normalizeGraph,
-  normalizeGraphicsOutput,
   parseGraphSummariesResponse,
   resolveErrorMessage,
   type BackendRecomputeStatus,
 } from './graphStoreState';
 import type {
   GraphSummary,
-  NodeExecutionState,
   NodeGraphicsComputationDebug,
   PencilColor,
   PencilThickness,
@@ -57,9 +53,8 @@ export type {
   PencilThickness,
 } from './graphStoreTypes';
 
-interface GraphStore extends GraphStorePersistenceState {
+interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationState {
   graphSummaries: GraphSummary[];
-  resultRefreshKey: number;
   selectedNodeGraphicsDebug: NodeGraphicsComputationDebug | null;
   drawingEnabled: boolean;
   drawingColor: PencilColor;
@@ -99,143 +94,12 @@ interface GraphStore extends GraphStorePersistenceState {
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
-  const hydrateNodeExecutionStates = async (graph: Graph) => {
-    const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
-      try {
-        const response = await graphApi.fetchNodeResult(node.id);
-        return {
-          nodeId: node.id,
-          executionState: getNodeExecutionStateFromResult(response),
-          graphicsOutput: normalizeGraphicsOutput((response as { graphics?: unknown })?.graphics),
-        };
-      } catch (error: any) {
-        if (error?.response?.status === 404) {
-          return {
-            nodeId: node.id,
-            executionState: { ...DEFAULT_NODE_EXECUTION_STATE },
-            graphicsOutput: null,
-          };
-        }
-
-        return {
-          nodeId: node.id,
-          executionState: {
-            ...DEFAULT_NODE_EXECUTION_STATE,
-            hasError: true,
-            errorMessage: `Error loading result: ${resolveErrorMessage(error, 'unknown error')}`,
-          },
-          graphicsOutput: null,
-        };
-      }
-    }));
-
-    const hydratedStates: Record<string, NodeExecutionState> = {};
-    const hydratedGraphicsOutputs = buildNodeGraphicsOutputMapForGraph(graph, {});
-    for (const entry of nodeStateEntries) {
-      hydratedStates[entry.nodeId] = entry.executionState;
-      hydratedGraphicsOutputs[entry.nodeId] = entry.graphicsOutput;
-    }
-
-    set({
-      nodeExecutionStates: buildNodeStateMapForGraph(graph, hydratedStates),
-      nodeGraphicsOutputs: hydratedGraphicsOutputs,
-    });
-  };
-
-  const refreshNodeResultSnapshots = async (graphId: string, nodeIds: string[]) => {
-    const uniqueNodeIds = [...new Set(nodeIds)];
-    if (uniqueNodeIds.length === 0) {
-      return;
-    }
-
-    const snapshots = await Promise.all(uniqueNodeIds.map(async (nodeId) => {
-      try {
-        const response = await graphApi.fetchNodeResult(nodeId);
-        return {
-          nodeId,
-          executionState: getNodeExecutionStateFromResult(response),
-          graphicsOutput: normalizeGraphicsOutput((response as { graphics?: unknown })?.graphics),
-        };
-      } catch (error: any) {
-        if (error?.response?.status === 404) {
-          return {
-            nodeId,
-            executionState: null,
-            graphicsOutput: null,
-          };
-        }
-
-        return {
-          nodeId,
-          executionState: null,
-          graphicsOutput: null,
-        };
-      }
-    }));
-
-    set((state) => {
-      if (!state.graph || state.graph.id !== graphId) {
-        return {};
-      }
-
-      const nextNodeStates = { ...state.nodeExecutionStates };
-      const nextGraphicsOutputs = { ...state.nodeGraphicsOutputs };
-
-      for (const snapshot of snapshots) {
-        if (snapshot.executionState) {
-          const currentState = nextNodeStates[snapshot.nodeId] ?? { ...DEFAULT_NODE_EXECUTION_STATE };
-          nextNodeStates[snapshot.nodeId] = {
-            ...currentState,
-            hasError: snapshot.executionState.hasError,
-            errorMessage: snapshot.executionState.errorMessage,
-            lastRunAt: snapshot.executionState.lastRunAt,
-          };
-        }
-        nextGraphicsOutputs[snapshot.nodeId] = snapshot.graphicsOutput;
-      }
-
-      return {
-        nodeExecutionStates: nextNodeStates,
-        nodeGraphicsOutputs: nextGraphicsOutputs,
-      };
-    });
-  };
-
-  const applyBackendRecomputeStatus = (graph: Graph, status: BackendRecomputeStatus) => {
-    const backendStates = status?.nodeStates ?? {};
-    const completedNodeIds: string[] = [];
-
-    set((state) => {
-      if (!state.graph || state.graph.id !== graph.id) {
-        return {};
-      }
-
-      const nextNodeStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
-      for (const node of graph.nodes) {
-        const previousState = nextNodeStates[node.id];
-        const backendState = normalizeBackendNodeExecutionState(backendStates[node.id], previousState);
-        nextNodeStates[node.id] = backendState;
-
-        const wasRunning = previousState.isPending || previousState.isComputing;
-        const isRunning = backendState.isPending || backendState.isComputing;
-        if (wasRunning && !isRunning) {
-          completedNodeIds.push(node.id);
-        }
-      }
-      const shouldRefreshSelectedNode = Boolean(
-        state.selectedNodeId && completedNodeIds.includes(state.selectedNodeId)
-      );
-
-      return {
-        nodeExecutionStates: nextNodeStates,
-        resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
-      };
-    });
-
-    if (completedNodeIds.length > 0) {
-      void refreshNodeResultSnapshots(graph.id, completedNodeIds);
-    }
-  };
+  const graphComputation = createGraphComputationController({
+    api: graphApi,
+    getState: () => get(),
+    setState: (partial) => set(partial as Parameters<typeof set>[0]),
+    startRecomputeStatusPolling: (graphId) => recomputeStatusPolling.start(graphId),
+  });
 
   const recomputeStatusPolling = createRecomputeStatusPollController<BackendRecomputeStatus>({
     fetchStatus: graphApi.fetchRecomputeStatus,
@@ -245,7 +109,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         return;
       }
 
-      applyBackendRecomputeStatus(currentGraph, status);
+      graphComputation.applyBackendRecomputeStatus(currentGraph, status);
     },
     shouldContinue: (graphId) => get().graph?.id === graphId,
   });
@@ -310,7 +174,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           isLoading: false,
           selectionMode: 'reset',
         }));
-        await hydrateNodeExecutionStates(graph);
+        await graphComputation.hydrateNodeExecutionStates(graph);
         syncPersistedGraph(graph);
       } catch (error: any) {
         if (error?.response?.status === 404) {
@@ -380,7 +244,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           isLoading: false,
           selectionMode: 'reset',
         }));
-        await hydrateNodeExecutionStates(graph);
+        await graphComputation.hydrateNodeExecutionStates(graph);
         syncPersistedGraph(graph);
       } catch (error: any) {
         if (error.response?.status === 404) {
@@ -742,169 +606,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ drawingThickness: thickness });
     },
 
-    computeNode: async (nodeId: string) => {
-      const { graph } = get();
-      if (!graph) return;
+    computeNode: graphComputation.computeNode,
 
-      set((state) => ({
-        nodeExecutionStates: {
-          ...state.nodeExecutionStates,
-          [nodeId]: {
-            ...(state.nodeExecutionStates[nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
-            isPending: true,
-            isComputing: false,
-            hasError: false,
-            isStale: false,
-            errorMessage: null,
-          },
-        },
-        error: null,
-      }));
-
-      try {
-        const result = await graphApi.computeGraph(graph.id, nodeId) as ComputationResult;
-        const activeGraph = get().graph;
-        if (!activeGraph || activeGraph.id !== graph.id) {
-          return;
-        }
-
-        set((state) => {
-          const nextNodeStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
-          if (result?.nodeId) {
-            const currentState = nextNodeStates[result.nodeId] ?? { ...DEFAULT_NODE_EXECUTION_STATE };
-            nextNodeStates[result.nodeId] = {
-              ...currentState,
-              ...getNodeExecutionStateFromResult(result),
-              isPending: false,
-              isComputing: false,
-            };
-          }
-
-          return {
-            nodeExecutionStates: nextNodeStates,
-            nodeGraphicsOutputs: {
-              ...state.nodeGraphicsOutputs,
-              [nodeId]: normalizeGraphicsOutput(result?.graphics),
-            },
-            resultRefreshKey: state.selectedNodeId === nodeId ? Date.now() : state.resultRefreshKey,
-          };
-        });
-
-        recomputeStatusPolling.start(graph.id);
-      } catch (error: any) {
-        const message = resolveErrorMessage(error, 'Failed to compute node');
-        set((state) => ({
-          nodeExecutionStates: {
-            ...state.nodeExecutionStates,
-            [nodeId]: {
-              ...(state.nodeExecutionStates[nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
-              isPending: false,
-              isComputing: false,
-              hasError: true,
-              isStale: false,
-              errorMessage: message,
-              lastRunAt: Date.now(),
-            },
-          },
-          error: message,
-        }));
-      }
-    },
-
-    computeGraph: async () => {
-      const { graph } = get();
-      if (!graph) return;
-
-      set((state) => {
-        const nextStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
-        for (const node of graph.nodes) {
-          nextStates[node.id] = {
-            ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
-            isPending: true,
-            isComputing: false,
-            hasError: false,
-            isStale: false,
-            errorMessage: null,
-          };
-        }
-        return {
-          isLoading: true,
-          error: null,
-          nodeExecutionStates: nextStates,
-        };
-      });
-
-      try {
-        const response = await graphApi.computeGraph(graph.id);
-        const results = Array.isArray(response) ? response : [];
-        const activeGraph = get().graph;
-        if (!activeGraph || activeGraph.id !== graph.id) {
-          return;
-        }
-
-        set((state) => {
-          const nextStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
-          const nextGraphicsOutputs = buildNodeGraphicsOutputMapForGraph(
-            activeGraph,
-            state.nodeGraphicsOutputs
-          );
-          for (const node of activeGraph.nodes) {
-            nextStates[node.id] = {
-              ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
-              isPending: false,
-              isComputing: false,
-            };
-          }
-          for (const result of results) {
-            if (result?.nodeId) {
-              nextStates[result.nodeId] = {
-                ...(nextStates[result.nodeId] ?? DEFAULT_NODE_EXECUTION_STATE),
-                ...getNodeExecutionStateFromResult(result),
-                isPending: false,
-                isComputing: false,
-              };
-              nextGraphicsOutputs[result.nodeId] = normalizeGraphicsOutput(result.graphics);
-            }
-          }
-          const shouldRefreshSelectedNode = Boolean(
-            state.selectedNodeId && results.some((result) => result?.nodeId === state.selectedNodeId)
-          );
-
-          return {
-            nodeExecutionStates: nextStates,
-            nodeGraphicsOutputs: nextGraphicsOutputs,
-            isLoading: false,
-            error: null,
-            resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
-          };
-        });
-        recomputeStatusPolling.start(graph.id);
-      } catch (error: any) {
-        const message = resolveErrorMessage(error, 'Failed to compute graph');
-        set((state) => {
-          const activeGraph = state.graph;
-          if (!activeGraph || activeGraph.id !== graph.id) {
-            return {
-              error: message,
-              isLoading: false,
-            };
-          }
-
-          const nextStates = buildNodeStateMapForGraph(activeGraph, state.nodeExecutionStates);
-          for (const node of activeGraph.nodes) {
-            nextStates[node.id] = {
-              ...(nextStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE),
-              isPending: false,
-              isComputing: false,
-            };
-          }
-          return {
-            nodeExecutionStates: nextStates,
-            error: message,
-            isLoading: false,
-          };
-        });
-      }
-    },
+    computeGraph: graphComputation.computeGraph,
   };
 });
