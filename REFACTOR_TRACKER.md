@@ -148,9 +148,10 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/backend/src/app.ts` | 1260 | 952 | -308 |
+| `packages/backend/src/app.ts` | 1260 | 664 | -596 |
 | `packages/backend/src/core/graphQuery.ts` | 0 | 365 | +365 |
-| **Net** | **1260** | **1317** | **+57** |
+| `packages/backend/src/core/graphNormalization.ts` | 0 | 307 | +307 |
+| **Net** | **1260** | **1336** | **+76** |
 
 ## Current Hotspots
 
@@ -566,7 +567,9 @@ Delivered so far:
 - Added `packages/backend/src/core/graphQuery.ts` for graph query field resolution, adjacency construction, traversal, starting-vertex detection, and response shaping.
 - Refactored `packages/backend/src/app.ts` to import the shared graph-query field lists for request schema validation instead of redefining them inline.
 - Refactored `/api/graphs/:id/query` in `packages/backend/src/app.ts` to delegate execution to `executeGraphQuery`, preserving 400 responses for validation failures via `GraphQueryValidationError`.
-- Reduced `packages/backend/src/app.ts` below the hotspot threshold while keeping the query route behavior covered by the existing backend integration tests.
+- Added `packages/backend/src/core/graphNormalization.ts` for canvas-background normalization, connection-stroke normalization, projection fallback shaping, active-projection application, and projected node card-size hydration.
+- Refactored the create/update graph routes in `packages/backend/src/app.ts` to delegate projection/background/stroke normalization to the shared backend service instead of carrying that logic inline.
+- Reduced `packages/backend/src/app.ts` from `952` to `664` in phase 2 while keeping the create/update route behavior covered by the existing backend integration tests.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -588,5 +591,6 @@ Current status:
   - phase 5 complete: `graphStore.test.ts` split by domain with shared test utilities
 - `IN PROGRESS`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
   - phase 1 complete: graph query traversal/response shaping extracted into `packages/backend/src/core/graphQuery.ts`
+  - phase 2 complete: graph normalization and projection shaping extracted into `packages/backend/src/core/graphNormalization.ts`
 - `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
