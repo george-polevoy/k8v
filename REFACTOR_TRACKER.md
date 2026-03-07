@@ -1,6 +1,6 @@
 # k8v Refactor Tracker
 
-Last updated: March 7, 2026.
+Last updated: March 8, 2026.
 
 This tracker breaks refactor work into small, independent tasks so we can ship incrementally.
 
@@ -160,7 +160,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/mcp-server/src/index.ts` | 3759 | 1287 | -2472 |
+| `packages/mcp-server/src/index.ts` | 3759 | 81 | -3678 |
 | `packages/mcp-server/src/graphModel.ts` | 0 | 412 | +412 |
 | `packages/mcp-server/src/mcpHttp.ts` | 0 | 92 | +92 |
 | `packages/mcp-server/src/frontendScreenshot.ts` | 0 | 186 | +186 |
@@ -170,7 +170,10 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/mcp-server/src/mcpNodeTools.ts` | 0 | 547 | +547 |
 | `packages/mcp-server/src/mcpConnectionTools.ts` | 0 | 278 | +278 |
 | `packages/mcp-server/src/mcpDrawingTools.ts` | 0 | 205 | +205 |
-| **Net** | **3759** | **3900** | **+141** |
+| `packages/mcp-server/src/mcpGraphClient.ts` | 0 | 139 | +139 |
+| `packages/mcp-server/src/mcpGraphTools.ts` | 0 | 519 | +519 |
+| `packages/mcp-server/src/mcpRuntimeTools.ts` | 0 | 222 | +222 |
+| **Net** | **3759** | **4048** | **+289** |
 
 ## Current Hotspots
 
@@ -178,8 +181,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
-| R-003 | `packages/mcp-server/src/index.ts` | 884 | The entry point is under the large-file threshold now, but it still mixes server bootstrap with graph and runtime tool registration. |
-| R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
+| R-003 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
 
@@ -602,7 +604,7 @@ Verification result (latest):
 - `npm run build`: pass
 
 ### T-013 Modularize mcp-server by tool domain and shared contracts
-Status: IN PROGRESS
+Status: DONE
 
 Scope:
 - Extract reusable MCP graph-model/support modules out of `packages/mcp-server/src/index.ts`.
@@ -610,7 +612,6 @@ Scope:
 
 Out of scope:
 - Replacing local MCP graph contracts with shared backend/frontend contracts in this slice
-- Reorganizing all tool registrations by domain yet
 
 Delivered so far:
 - Added `packages/mcp-server/src/graphModel.ts` for MCP-local graph contracts, drawing-color normalization, projection cloning, projection-state normalization, and normalized graph hydration.
@@ -635,6 +636,11 @@ Delivered so far:
 - Added `packages/mcp-server/src/mcpDrawingTools.ts` for `drawing_*` tool registrations and drawing-specific persistence workflows.
 - Refactored `packages/mcp-server/src/index.ts` to register drawing tools via the extracted module instead of embedding the drawing registration block inline.
 - Reduced `packages/mcp-server/src/index.ts` from `1061` to `884` in phase 8, moving the MCP entrypoint below the large-file threshold.
+- Added `packages/mcp-server/src/mcpGraphClient.ts` for graph fetch/update retry logic, connection-only persistence, and normalized graph hydration.
+- Added `packages/mcp-server/src/mcpGraphTools.ts` for `graph_*` registrations, the graph-query schema export, bulk-edit orchestration, projection workflows, and Python-environment mutations.
+- Added `packages/mcp-server/src/mcpRuntimeTools.ts` for `graph_compute`, `graphics_get`, and `graph_screenshot_region`.
+- Refactored `packages/mcp-server/src/index.ts` to become bootstrap plus registration composition only, re-exporting test helpers from the extracted modules.
+- Reduced `packages/mcp-server/src/index.ts` from `884` to `81` in phase 9, which completes the planned MCP entrypoint decomposition for T-013.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -659,7 +665,7 @@ Current status:
   - phase 2 complete: graph normalization and projection shaping extracted into `packages/backend/src/core/graphNormalization.ts`
   - phase 3 complete: structural graph validation extracted into `packages/backend/src/core/graphValidation.ts`
   - phase 4 complete: graph routes moved out of `app.ts` into `packages/backend/src/routes/graphRoutes.ts` with shared request validation middleware
-- `IN PROGRESS`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
+- `DONE`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
   - phase 1 complete: graph model/types/projection normalization extracted into `packages/mcp-server/src/graphModel.ts`
   - phase 2 complete: MCP transport/result helpers extracted into `packages/mcp-server/src/mcpHttp.ts`
   - phase 3 complete: Playwright screenshot/render bridge extracted into `packages/mcp-server/src/frontendScreenshot.ts`
@@ -668,5 +674,5 @@ Current status:
   - phase 6 complete: `node_*` tool registration extracted into `packages/mcp-server/src/mcpNodeTools.ts`
   - phase 7 complete: connection tool registration extracted into `packages/mcp-server/src/mcpConnectionTools.ts`
   - phase 8 complete: `drawing_*` tool registration extracted into `packages/mcp-server/src/mcpDrawingTools.ts`
-  - next phase: extract graph and runtime registration modules and keep reducing `index.ts` toward bootstrap plus registration composition only
+  - phase 9 complete: graph persistence helpers moved into `packages/mcp-server/src/mcpGraphClient.ts`, `graph_*` registrations moved into `packages/mcp-server/src/mcpGraphTools.ts`, and runtime/output registrations moved into `packages/mcp-server/src/mcpRuntimeTools.ts`
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
