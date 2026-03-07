@@ -148,11 +148,13 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/backend/src/app.ts` | 1260 | 530 | -730 |
+| `packages/backend/src/app.ts` | 1260 | 131 | -1129 |
 | `packages/backend/src/core/graphQuery.ts` | 0 | 365 | +365 |
 | `packages/backend/src/core/graphNormalization.ts` | 0 | 307 | +307 |
 | `packages/backend/src/core/graphValidation.ts` | 0 | 135 | +135 |
-| **Net** | **1260** | **1337** | **+77** |
+| `packages/backend/src/routes/graphRoutes.ts` | 0 | 406 | +406 |
+| `packages/backend/src/http/validate.ts` | 0 | 16 | +16 |
+| **Net** | **1260** | **1360** | **+100** |
 
 ## Current Hotspots
 
@@ -553,7 +555,7 @@ Verification result (latest):
 - `npm run build`: pass
 
 ### T-012 Extract backend graph services/routes from app.ts
-Status: IN PROGRESS
+Status: DONE
 
 Scope:
 - Extract backend graph-domain behavior from `packages/backend/src/app.ts`.
@@ -572,7 +574,10 @@ Delivered so far:
 - Refactored the create/update graph routes in `packages/backend/src/app.ts` to delegate projection/background/stroke normalization to the shared backend service instead of carrying that logic inline.
 - Added `packages/backend/src/core/graphValidation.ts` for graph projection, drawing, connection, DAG, and python-environment validation rules.
 - Refactored the create/update graph routes in `packages/backend/src/app.ts` to delegate structural graph validation to the backend validation service instead of embedding those domain rules in the transport layer.
-- Reduced `packages/backend/src/app.ts` from `664` to `530` in phase 3 while keeping the create/update route behavior covered by the existing backend integration tests.
+- Added `packages/backend/src/http/validate.ts` so request-body validation is reusable across route modules instead of being embedded in `app.ts`.
+- Added `packages/backend/src/routes/graphRoutes.ts` to own graph CRUD, query, compute, and recompute-status routes plus their request schemas and update bookkeeping helpers.
+- Refactored `packages/backend/src/app.ts` to bootstrap the graph router via `app.use('/api/graphs', createGraphRouter(...))` while keeping the remaining library, result, and graphics transport endpoints local.
+- Reduced `packages/backend/src/app.ts` from `530` to `131` in phase 4, which completes the planned T-012 backend app decomposition.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -592,9 +597,10 @@ Current status:
   - phase 3 complete: compute and hydration flow extracted into `graphStoreComputation.ts`
   - phase 4 complete: graph-edit/drawing mutations and UI-only state extracted into dedicated controllers
   - phase 5 complete: `graphStore.test.ts` split by domain with shared test utilities
-- `IN PROGRESS`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
+- `DONE`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
   - phase 1 complete: graph query traversal/response shaping extracted into `packages/backend/src/core/graphQuery.ts`
   - phase 2 complete: graph normalization and projection shaping extracted into `packages/backend/src/core/graphNormalization.ts`
   - phase 3 complete: structural graph validation extracted into `packages/backend/src/core/graphValidation.ts`
-- `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
+- phase 4 complete: graph routes moved out of `app.ts` into `packages/backend/src/routes/graphRoutes.ts` with shared request validation middleware
+- `IN PROGRESS`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
