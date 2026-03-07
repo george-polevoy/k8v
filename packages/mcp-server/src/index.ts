@@ -7,21 +7,25 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { renderGraphRegionScreenshotFromFrontend } from './frontendScreenshot.js';
 import {
-  applyBulkEditOperation,
   applyConnectionSet,
+  getNode,
   assertConnectionPortsExist,
-  assertValidPortName,
+  filterConnections,
+} from './graphConnectionEdits.js';
+import {
+  applyBulkEditOperation,
   BULK_EDIT_OPERATION_SCHEMA,
+  getNextProjectionName,
+  type BulkEditOperation,
+} from './graphEdits.js';
+import {
+  assertValidPortName,
   createNumericInputNode,
   ensureNodeVersion,
-  filterConnections,
-  getNextProjectionName,
-  getNode,
   inferInputPortNamesFromCode,
   inferOutputPortNamesFromCode,
-  type BulkEditOperation,
   updateInlineCodeNodeCode,
-} from './graphEdits.js';
+} from './graphNodeEdits.js';
 import {
   requestBinary,
   requestJson,
@@ -50,8 +54,10 @@ export { renderGraphRegionScreenshotFromFrontend } from './frontendScreenshot.js
 export {
   applyBulkEditOperation,
   BULK_EDIT_OPERATION_SCHEMA,
-  filterConnections,
 } from './graphEdits.js';
+export {
+  filterConnections,
+} from './graphConnectionEdits.js';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

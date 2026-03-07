@@ -160,22 +160,23 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/mcp-server/src/index.ts` | 3759 | 1800 | -1959 |
+| `packages/mcp-server/src/index.ts` | 3759 | 1806 | -1953 |
 | `packages/mcp-server/src/graphModel.ts` | 0 | 412 | +412 |
 | `packages/mcp-server/src/mcpHttp.ts` | 0 | 92 | +92 |
 | `packages/mcp-server/src/frontendScreenshot.ts` | 0 | 186 | +186 |
-| `packages/mcp-server/src/graphEdits.ts` | 0 | 1345 | +1345 |
-| **Net** | **3759** | **3835** | **+76** |
+| `packages/mcp-server/src/graphEdits.ts` | 0 | 889 | +889 |
+| `packages/mcp-server/src/graphNodeEdits.ts` | 0 | 335 | +335 |
+| `packages/mcp-server/src/graphConnectionEdits.ts` | 0 | 143 | +143 |
+| **Net** | **3759** | **3863** | **+104** |
 
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
-| R-002 | `packages/mcp-server/src/index.ts` | 1800 | The entry point is much smaller, but it still mixes server bootstrap, tool registration, request orchestration, and result shaping. |
+| R-002 | `packages/mcp-server/src/index.ts` | 1806 | The entry point is much smaller, but it still mixes server bootstrap, tool registration, request orchestration, and result shaping. |
 | R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
-| R-004 | `packages/mcp-server/src/graphEdits.ts` | 1345 | The extracted graph-edit domain is still too broad, combining port inference, numeric-input shaping, graph mutation helpers, and the full bulk-edit switch. |
-| R-005 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
+| R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
 
@@ -618,6 +619,10 @@ Delivered so far:
 - Added `packages/mcp-server/src/graphEdits.ts` for graph-edit helpers, inline-port inference, numeric-input shaping, the bulk-edit schema, and bulk graph mutation application.
 - Refactored `packages/mcp-server/src/index.ts` to import and re-export the extracted graph-edit helpers instead of carrying the full graph-edit mutation domain inline.
 - Reduced `packages/mcp-server/src/index.ts` from `3106` to `1800` in phase 4 while preserving graph-edit behavior and screenshot parity coverage.
+- Added `packages/mcp-server/src/graphNodeEdits.ts` for node-specific port validation, inline-port inference, inline-code node output reconciliation, node versioning, and numeric-input node creation.
+- Added `packages/mcp-server/src/graphConnectionEdits.ts` for graph-node lookup, connection listing filters, connection port validation, and atomic connection-set replacement.
+- Refactored `packages/mcp-server/src/graphEdits.ts` to focus on bulk graph mutation application while delegating node and connection helper logic to the new domain modules.
+- Reduced `packages/mcp-server/src/graphEdits.ts` from `1345` to `889` in phase 5, pushing the extracted graph-edit support modules below the large-file threshold.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -647,5 +652,6 @@ Current status:
   - phase 2 complete: MCP transport/result helpers extracted into `packages/mcp-server/src/mcpHttp.ts`
   - phase 3 complete: Playwright screenshot/render bridge extracted into `packages/mcp-server/src/frontendScreenshot.ts`
   - phase 4 complete: graph-edit helpers and bulk-edit mutation logic extracted into `packages/mcp-server/src/graphEdits.ts`
-  - next phase: split `graphEdits.ts` by mutation domain and keep reducing `index.ts` toward bootstrap plus tool registration only
+  - phase 5 complete: node-specific and connection-specific edit helpers extracted into `packages/mcp-server/src/graphNodeEdits.ts` and `packages/mcp-server/src/graphConnectionEdits.ts`
+  - next phase: split `index.ts` tool registration by domain and keep reducing it toward bootstrap plus registration composition only
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
