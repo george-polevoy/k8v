@@ -1,4 +1,4 @@
-import { PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Application,
   Circle,
@@ -73,10 +73,6 @@ import {
   resolveNodeRenderTargetPosition,
   type WorldBounds,
 } from '../utils/canvasNodeRender';
-import {
-  resolveGraphWorldBounds,
-  resolveViewportFitTransform,
-} from '../utils/canvasViewportFit';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { colorStringToPixi, hexColorToNumber } from '../utils/color';
 import {
@@ -108,6 +104,12 @@ import {
 } from '../../../shared/src/nodeCardGeometry.js';
 import { v4 as uuidv4 } from 'uuid';
 import AnnotationMarkdown from './AnnotationMarkdown';
+import {
+  useCanvasViewport,
+  type MinimapTransform,
+  type ProjectionTransitionState,
+} from './useCanvasViewport';
+import { useMcpScreenshotBridge } from './useMcpScreenshotBridge';
 import { normalizeAnnotationConfig } from '../utils/annotation';
 
 const ANNOTATION_TEXT_INSET_X = 8;
@@ -254,16 +256,6 @@ interface ConnectionDragState {
   hoveredInputKey: string | null;
 }
 
-interface MinimapTransform {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-}
-
 interface ActiveDrawingPath {
   drawingId: string;
   path: DrawingPath;
@@ -313,24 +305,6 @@ interface NodeCardDimensions {
   height: number;
   minWidth: number;
   minHeight: number;
-}
-
-interface ProjectionNodeVisualState {
-  position: Position;
-  width: number;
-  height: number;
-}
-
-interface ProjectionTransitionState {
-  graphId: string;
-  fromProjectionId: string;
-  toProjectionId: string;
-  fromBackground: CanvasBackgroundSettings;
-  toBackground: CanvasBackgroundSettings;
-  fromNodes: Map<string, ProjectionNodeVisualState>;
-  toNodes: Map<string, ProjectionNodeVisualState>;
-  startAt: number;
-  durationMs: number;
 }
 
 let nodeCardBorderTexture: Texture | null = null;
@@ -943,30 +917,6 @@ function areNodeGraphicsDebugValuesEqual(
   return true;
 }
 
-interface ScreenshotRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface ScreenshotBitmap {
-  width: number;
-  height: number;
-}
-
-interface McpScreenshotBridge {
-  isCanvasReady: () => boolean;
-  isGraphReady: () => boolean;
-  setViewportRegion: (region: ScreenshotRegion, bitmap: ScreenshotBitmap) => boolean;
-}
-
-declare global {
-  interface Window {
-    __k8vMcpScreenshotBridge?: McpScreenshotBridge;
-  }
-}
-
 interface CanvasProps {
   enableMcpScreenshotBridge?: boolean;
 }
@@ -1096,6 +1046,53 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     });
   }, []);
 
+  const {
+    drawMinimap,
+    fitViewportToGraph,
+    handleMinimapPointerDown,
+    setViewportRegionForScreenshot,
+    startProjectionTransition,
+    updateTextResolutionForScale,
+  } = useCanvasViewport({
+    appRef,
+    minimapCanvasRef,
+    minimapTransformRef,
+    viewportRef,
+    textNodesRef,
+    graphRef,
+    selectedNodeIdRef,
+    selectedDrawingIdRef,
+    nodeVisualsRef,
+    drawingPositionsRef,
+    nodePositionsRef,
+    nodeCardDraftSizesRef,
+    projectionTransitionRef,
+    viewportInitializedRef,
+    lastResolvedCanvasBackgroundRef,
+    renderGraphRef,
+    requestCanvasAnimationLoop,
+    requestViewportDrivenGraphRefresh,
+    resolveNodeCardDimensions,
+    config: {
+      pixelRatio: PIXEL_RATIO,
+      maxTextResolution: MAX_TEXT_RESOLUTION,
+      minimapWidth: MINIMAP_WIDTH,
+      minimapHeight: MINIMAP_HEIGHT,
+      minimapPadding: MINIMAP_PADDING,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      viewportMargin: VIEWPORT_MARGIN,
+      projectionTransitionDurationMs: PROJECTION_TRANSITION_DURATION_MS,
+    },
+  });
+
+  useMcpScreenshotBridge({
+    enabled: enableMcpScreenshotBridge,
+    appRef,
+    graphRef,
+    setViewportRegionForScreenshot,
+  });
+
   const refreshCanvasBackgroundTexture = useCallback((backgroundOverride?: CanvasBackgroundSettings) => {
     const app = appRef.current;
     const backgroundSprite = backgroundSpriteRef.current;
@@ -1189,244 +1186,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     }
     app.stop();
   }, [shouldKeepCanvasAnimationLoop]);
-
-  const drawMinimap = useCallback(() => {
-    const canvas = minimapCanvasRef.current;
-    const app = appRef.current;
-    const viewport = viewportRef.current;
-    const currentGraph = graphRef.current;
-
-    if (!canvas || !app || !viewport) {
-      return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      return;
-    }
-
-    const cssWidth = MINIMAP_WIDTH;
-    const cssHeight = MINIMAP_HEIGHT;
-    const dpr = PIXEL_RATIO;
-    const deviceWidth = Math.max(1, Math.round(cssWidth * dpr));
-    const deviceHeight = Math.max(1, Math.round(cssHeight * dpr));
-
-    if (canvas.width !== deviceWidth || canvas.height !== deviceHeight) {
-      canvas.width = deviceWidth;
-      canvas.height = deviceHeight;
-    }
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssWidth, cssHeight);
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-    const viewportScale = viewport.scale.x || 1;
-    const viewMinX = -viewport.position.x / viewportScale;
-    const viewMinY = -viewport.position.y / viewportScale;
-    const viewMaxX = viewMinX + app.screen.width / viewportScale;
-    const viewMaxY = viewMinY + app.screen.height / viewportScale;
-
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-
-    if (currentGraph && (currentGraph.nodes.length > 0 || (currentGraph.drawings?.length ?? 0) > 0)) {
-      for (const node of currentGraph.nodes) {
-        const position = nodePositionsRef.current.get(node.id) ?? node.position;
-        const visual = nodeVisualsRef.current.get(node.id);
-        const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
-        const nodeWidth = visual?.width ?? dimensions.width;
-        const nodeHeight = visual
-          ? visual.height + visual.projectedGraphicsHeight
-          : dimensions.height;
-
-        minX = Math.min(minX, position.x);
-        minY = Math.min(minY, position.y);
-        maxX = Math.max(maxX, position.x + nodeWidth);
-        maxY = Math.max(maxY, position.y + nodeHeight);
-      }
-
-      for (const drawing of currentGraph.drawings ?? []) {
-        const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
-        minX = Math.min(minX, drawingPosition.x);
-        minY = Math.min(minY, drawingPosition.y);
-        maxX = Math.max(maxX, drawingPosition.x + 140);
-        maxY = Math.max(maxY, drawingPosition.y + 26);
-
-        for (const path of drawing.paths) {
-          for (const point of path.points) {
-            const worldX = drawingPosition.x + point.x;
-            const worldY = drawingPosition.y + point.y;
-            minX = Math.min(minX, worldX);
-            minY = Math.min(minY, worldY);
-            maxX = Math.max(maxX, worldX);
-            maxY = Math.max(maxY, worldY);
-          }
-        }
-      }
-    } else {
-      minX = viewMinX - 100;
-      minY = viewMinY - 100;
-      maxX = viewMaxX + 100;
-      maxY = viewMaxY + 100;
-    }
-
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
-      minX = viewMinX - 100;
-      minY = viewMinY - 100;
-      maxX = viewMaxX + 100;
-      maxY = viewMaxY + 100;
-    }
-
-    const minimapWorldPadding = 120;
-    minX -= minimapWorldPadding;
-    minY -= minimapWorldPadding;
-    maxX += minimapWorldPadding;
-    maxY += minimapWorldPadding;
-
-    const worldWidth = Math.max(maxX - minX, 1);
-    const worldHeight = Math.max(maxY - minY, 1);
-    const innerWidth = cssWidth - MINIMAP_PADDING * 2;
-    const innerHeight = cssHeight - MINIMAP_PADDING * 2;
-    const scale = Math.min(innerWidth / worldWidth, innerHeight / worldHeight);
-    const offsetX = MINIMAP_PADDING + (innerWidth - worldWidth * scale) * 0.5;
-    const offsetY = MINIMAP_PADDING + (innerHeight - worldHeight * scale) * 0.5;
-
-    minimapTransformRef.current = {
-      minX,
-      minY,
-      maxX,
-      maxY,
-      scale,
-      offsetX,
-      offsetY,
-    };
-
-    if (currentGraph) {
-      for (const node of currentGraph.nodes) {
-        const position = nodePositionsRef.current.get(node.id) ?? node.position;
-        const visual = nodeVisualsRef.current.get(node.id);
-        const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
-        const nodeWidth = visual?.width ?? dimensions.width;
-        const nodeHeight = visual
-          ? visual.height + visual.projectedGraphicsHeight
-          : dimensions.height;
-
-        const x = offsetX + (position.x - minX) * scale;
-        const y = offsetY + (position.y - minY) * scale;
-        const w = nodeWidth * scale;
-        const h = nodeHeight * scale;
-
-        ctx.fillStyle = selectedNodeIdRef.current === node.id ? 'rgba(59, 130, 246, 0.75)' : 'rgba(203, 213, 225, 0.95)';
-        ctx.strokeStyle = 'rgba(30, 41, 59, 0.8)';
-        ctx.lineWidth = 1;
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeRect(x, y, w, h);
-      }
-
-      for (const drawing of currentGraph.drawings ?? []) {
-        const position = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
-        const x = offsetX + (position.x - minX) * scale;
-        const y = offsetY + (position.y - minY) * scale;
-        const w = Math.max(26 * scale, 10);
-        const h = Math.max(12 * scale, 6);
-        ctx.fillStyle = selectedDrawingIdRef.current === drawing.id
-          ? 'rgba(14, 165, 233, 0.9)'
-          : 'rgba(15, 118, 110, 0.75)';
-        ctx.fillRect(x, y, w, h);
-
-        ctx.strokeStyle = 'rgba(241, 245, 249, 0.9)';
-        ctx.lineWidth = 1;
-        for (const path of drawing.paths) {
-          if (path.points.length < 2) {
-            continue;
-          }
-          ctx.beginPath();
-          const first = path.points[0];
-          ctx.moveTo(
-            offsetX + ((position.x + first.x) - minX) * scale,
-            offsetY + ((position.y + first.y) - minY) * scale
-          );
-          for (let i = 1; i < path.points.length; i += 1) {
-            const point = path.points[i];
-            ctx.lineTo(
-              offsetX + ((position.x + point.x) - minX) * scale,
-              offsetY + ((position.y + point.y) - minY) * scale
-            );
-          }
-          ctx.stroke();
-        }
-      }
-    }
-
-    const viewX = offsetX + (viewMinX - minX) * scale;
-    const viewY = offsetY + (viewMinY - minY) * scale;
-    const viewW = (viewMaxX - viewMinX) * scale;
-    const viewH = (viewMaxY - viewMinY) * scale;
-    ctx.strokeStyle = 'rgba(59, 130, 246, 1)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(viewX, viewY, viewW, viewH);
-  }, []);
-
-  const updateTextResolutionForScale = useCallback((scale: number) => {
-    const nextResolution = clamp(
-      PIXEL_RATIO * Math.max(scale, 1),
-      PIXEL_RATIO,
-      MAX_TEXT_RESOLUTION
-    );
-
-    for (const textNode of textNodesRef.current) {
-      if (Math.abs(textNode.resolution - nextResolution) > 0.01) {
-        textNode.resolution = nextResolution;
-      }
-    }
-  }, []);
-
-  const centerViewportAtWorldPoint = useCallback((worldX: number, worldY: number) => {
-    const app = appRef.current;
-    const viewport = viewportRef.current;
-    if (!app || !viewport) {
-      return;
-    }
-
-    const scale = viewport.scale.x || 1;
-    viewport.position.set(
-      snapToPixel(app.screen.width * 0.5 - worldX * scale),
-      snapToPixel(app.screen.height * 0.5 - worldY * scale)
-    );
-    requestCanvasAnimationLoop();
-    requestViewportDrivenGraphRefresh();
-  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh]);
-
-  const handleMinimapPointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const transform = minimapTransformRef.current;
-    const canvas = minimapCanvasRef.current;
-    if (!transform || !canvas) {
-      return;
-    }
-
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const worldX = clamp(
-      transform.minX + (x - transform.offsetX) / transform.scale,
-      transform.minX,
-      transform.maxX
-    );
-    const worldY = clamp(
-      transform.minY + (y - transform.offsetY) / transform.scale,
-      transform.minY,
-      transform.maxY
-    );
-
-    centerViewportAtWorldPoint(worldX, worldY);
-    drawMinimap();
-  }, [centerViewportAtWorldPoint, drawMinimap]);
 
   const setInputPortHighlight = useCallback((portKey: string, highlighted: boolean) => {
     const marker = inputPortMarkersRef.current.get(portKey);
@@ -1749,149 +1508,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     lastSmokeEmitAtRef.current = effectResult.lastSmokeEmitAtByNode;
     pauseCanvasAnimationLoopIfIdle();
   }, [pauseCanvasAnimationLoopIfIdle]);
-
-  const fitViewportToGraph = useCallback(() => {
-    const app = appRef.current;
-    const viewport = viewportRef.current;
-    const currentGraph = graphRef.current;
-
-    if (!app || !viewport) return;
-    const resetViewport = () => {
-      viewport.scale.set(1);
-      viewport.position.set(app.screen.width / 2, app.screen.height / 2);
-      updateTextResolutionForScale(1);
-      drawMinimap();
-      requestViewportDrivenGraphRefresh();
-    };
-
-    if (!currentGraph || (currentGraph.nodes.length === 0 && (currentGraph.drawings?.length ?? 0) === 0)) {
-      resetViewport();
-      return;
-    }
-
-    const nodeBounds = currentGraph.nodes.flatMap((node) => {
-      const visual = nodeVisualsRef.current.get(node.id);
-      const position = nodePositionsRef.current.get(node.id);
-      if (!visual || !position) {
-        return [];
-      }
-
-      return [{
-        x: position.x,
-        y: position.y,
-        width: visual.width,
-        height: visual.height,
-        projectedGraphicsHeight: visual.projectedGraphicsHeight,
-      }];
-    });
-    const drawingBounds = (currentGraph.drawings ?? []).map((drawing) => ({
-      position: drawingPositionsRef.current.get(drawing.id) ?? drawing.position,
-      paths: drawing.paths,
-    }));
-    const graphBounds = resolveGraphWorldBounds(nodeBounds, drawingBounds);
-    if (!graphBounds) {
-      resetViewport();
-      return;
-    }
-
-    const nextTransform = resolveViewportFitTransform({
-      bounds: graphBounds,
-      screenWidth: app.screen.width,
-      screenHeight: app.screen.height,
-      margin: VIEWPORT_MARGIN,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-    });
-    viewport.scale.set(nextTransform.scale);
-    viewport.position.set(nextTransform.x, nextTransform.y);
-    updateTextResolutionForScale(nextTransform.scale);
-    drawMinimap();
-    requestViewportDrivenGraphRefresh();
-  }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);
-
-  const setViewportRegionForScreenshot = useCallback((
-    region: ScreenshotRegion,
-    bitmap: ScreenshotBitmap
-  ): boolean => {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return false;
-    }
-
-    const safeRegionWidth = Math.max(0.0001, Math.abs(region.width));
-    const safeRegionHeight = Math.max(0.0001, Math.abs(region.height));
-    const safeBitmapWidth = Math.max(1, Math.round(bitmap.width));
-    const safeBitmapHeight = Math.max(1, Math.round(bitmap.height));
-    const scaleX = safeBitmapWidth / safeRegionWidth;
-    const scaleY = safeBitmapHeight / safeRegionHeight;
-
-    viewport.scale.set(scaleX, scaleY);
-    viewport.position.set(
-      snapToPixel(-region.x * scaleX),
-      snapToPixel(-region.y * scaleY)
-    );
-    viewportInitializedRef.current = true;
-    updateTextResolutionForScale(scaleX);
-    drawMinimap();
-    requestViewportDrivenGraphRefresh();
-    renderGraphRef.current();
-    return true;
-  }, [drawMinimap, requestViewportDrivenGraphRefresh, updateTextResolutionForScale]);
-
-  const buildProjectionTargetNodeVisualMap = useCallback((targetGraph: typeof graph): Map<string, ProjectionNodeVisualState> => {
-    const map = new Map<string, ProjectionNodeVisualState>();
-    if (!targetGraph) {
-      return map;
-    }
-
-    for (const node of targetGraph.nodes) {
-      const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
-      map.set(node.id, {
-        position: {
-          x: node.position.x,
-          y: node.position.y,
-        },
-        width: dimensions.width,
-        height: dimensions.height,
-      });
-    }
-
-    return map;
-  }, []);
-
-  const startProjectionTransition = useCallback((previousGraph: typeof graph, nextGraph: typeof graph) => {
-    if (!previousGraph || !nextGraph) {
-      projectionTransitionRef.current = null;
-      return;
-    }
-
-    const fromNodes = new Map<string, ProjectionNodeVisualState>();
-    for (const node of previousGraph.nodes) {
-      const renderedPosition = nodePositionsRef.current.get(node.id) ?? node.position;
-      const renderedVisual = nodeVisualsRef.current.get(node.id);
-      const fallbackDimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
-      fromNodes.set(node.id, {
-        position: {
-          x: renderedPosition.x,
-          y: renderedPosition.y,
-        },
-        width: renderedVisual?.width ?? fallbackDimensions.width,
-        height: renderedVisual?.height ?? fallbackDimensions.height,
-      });
-    }
-
-    projectionTransitionRef.current = {
-      graphId: nextGraph.id,
-      fromProjectionId: previousGraph.activeProjectionId ?? 'unknown',
-      toProjectionId: nextGraph.activeProjectionId ?? 'unknown',
-      fromBackground: lastResolvedCanvasBackgroundRef.current,
-      toBackground: resolveGraphCanvasBackground(nextGraph),
-      fromNodes,
-      toNodes: buildProjectionTargetNodeVisualMap(nextGraph),
-      startAt: performance.now(),
-      durationMs: PROJECTION_TRANSITION_DURATION_MS,
-    };
-  }, [buildProjectionTargetNodeVisualMap]);
 
   const endConnectionDrag = useCallback((commit: boolean) => {
     const dragState = connectionDragStateRef.current;
@@ -2922,25 +2538,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   useEffect(() => {
     renderGraphRef.current = renderGraph;
   }, [renderGraph]);
-
-  useEffect(() => {
-    if (!enableMcpScreenshotBridge || typeof window === 'undefined') {
-      return;
-    }
-
-    const bridge: McpScreenshotBridge = {
-      isCanvasReady: () => Boolean(appRef.current),
-      isGraphReady: () => Boolean(graphRef.current),
-      setViewportRegion: (region, bitmap) => setViewportRegionForScreenshot(region, bitmap),
-    };
-    window.__k8vMcpScreenshotBridge = bridge;
-
-    return () => {
-      if (window.__k8vMcpScreenshotBridge === bridge) {
-        delete window.__k8vMcpScreenshotBridge;
-      }
-    };
-  }, [enableMcpScreenshotBridge, setViewportRegionForScreenshot]);
 
   useEffect(() => {
     const previousGraph = graphRef.current;

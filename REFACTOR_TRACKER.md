@@ -175,11 +175,20 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/mcp-server/src/mcpRuntimeTools.ts` | 0 | 222 | +222 |
 | **Net** | **3759** | **4048** | **+289** |
 
+### T-014 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/Canvas.tsx` | 3808 | 3405 | -403 |
+| `packages/frontend/src/components/useCanvasViewport.ts` | 0 | 576 | +576 |
+| `packages/frontend/src/components/useMcpScreenshotBridge.ts` | 0 | 54 | +54 |
+| **Net** | **3808** | **4035** | **+227** |
+
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | 3405 | Reduced by T-014 phase 1, but it still owns Pixi lifecycle, render passes, interactions, overlays, and large event-handler state in one component. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
@@ -648,6 +657,30 @@ Verification result (latest):
 - `npm run test`: pass (`214` tests, `0` fail)
 - `npm run build`: pass
 
+### T-014 Continue Canvas architectural split with hooks/controllers
+Status: IN PROGRESS
+
+Scope:
+- Extract runtime concerns out of `packages/frontend/src/components/Canvas.tsx` without changing canvas behavior.
+- Prefer hook/controller boundaries over additional one-off helper functions.
+
+Out of scope:
+- Reworking canvas visuals or interaction behavior
+- Changing graph store contracts
+
+Delivered so far:
+- Added `packages/frontend/src/components/useCanvasViewport.ts` for minimap rendering, viewport-fit/reset logic, screenshot-region viewport control, and projection-transition state shaping.
+- Added `packages/frontend/src/components/useMcpScreenshotBridge.ts` for registering and cleaning up the MCP screenshot bridge window hook.
+- Refactored `packages/frontend/src/components/Canvas.tsx` to consume the extracted viewport and screenshot-bridge hooks instead of owning those concerns inline.
+- Reduced `packages/frontend/src/components/Canvas.tsx` from `3808` to `3405` in phase 1.
+
+Verification result (latest):
+- `npm run lint`: pass
+- `npx tsx --test packages/frontend/tests/canvasAnimation.test.ts packages/frontend/tests/canvasEffects.test.ts packages/frontend/tests/canvasHelpers.test.ts packages/frontend/tests/canvasInteractions.test.ts packages/frontend/tests/canvasNodeRender.test.ts packages/frontend/tests/canvasRenderLifecycle.test.ts packages/frontend/tests/canvasTextureCache.test.ts packages/frontend/tests/canvasViewportFit.test.ts packages/frontend/tests/projections.test.ts packages/mcp-server/tests/screenshotParity.test.ts`: pass (`50` tests, `0` fail)
+- `npx tsx --test --test-concurrency=1 packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: pass (`2` tests, `0` fail)
+- `npm run test`: pass (`214` tests, `0` fail)
+- `npm run build`: pass
+
 ## Current Focus
 
 Queue reopened after the March 7, 2026 size/architecture review.
@@ -675,4 +708,6 @@ Current status:
   - phase 7 complete: connection tool registration extracted into `packages/mcp-server/src/mcpConnectionTools.ts`
   - phase 8 complete: `drawing_*` tool registration extracted into `packages/mcp-server/src/mcpDrawingTools.ts`
   - phase 9 complete: graph persistence helpers moved into `packages/mcp-server/src/mcpGraphClient.ts`, `graph_*` registrations moved into `packages/mcp-server/src/mcpGraphTools.ts`, and runtime/output registrations moved into `packages/mcp-server/src/mcpRuntimeTools.ts`
-- `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
+- `IN PROGRESS`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
+  - phase 1 complete: minimap, viewport fit/screenshot control, projection-transition shaping, and MCP screenshot bridge registration extracted into `useCanvasViewport.ts` and `useMcpScreenshotBridge.ts`
+  - next phase: extract the Pixi app bootstrap/event wiring lifecycle out of `Canvas.tsx`
