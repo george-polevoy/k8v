@@ -1,6 +1,6 @@
 # k8v Refactor Tracker
 
-Last updated: March 5, 2026.
+Last updated: March 7, 2026.
 
 This tracker breaks refactor work into small, independent tasks so we can ship incrementally.
 
@@ -10,6 +10,7 @@ This tracker breaks refactor work into small, independent tasks so we can ship i
 2. Keep each task behavior-preserving unless explicitly noted.
 3. Add or run relevant tests before marking a task `DONE`.
 4. Update docs (`FUNCTIONALITY.md`, `TEST_CASES.md`) only when behavior or coverage changes.
+5. Treat large source files as a default factoring signal: `>1000` LOC enters the queue and `>1500` LOC is urgent unless there is a clear justification.
 
 ## LOC Tracking
 
@@ -107,16 +108,34 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/shared/src/*` + `packages/shared/package.json` | 0 | 280 | +280 |
 | **Net** | **8647** | **8929** | **+282** |
 
+### T-010 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/components/NodePanel.tsx` | 2000 | 1576 | -424 |
+| `packages/frontend/src/components/GraphPanel.tsx` | 1422 | 1000 | -422 |
+| `packages/frontend/src/components/useGraphManagementState.ts` | 0 | 205 | +205 |
+| `packages/frontend/src/components/GraphManagementControls.tsx` | 0 | 229 | +229 |
+| `packages/frontend/src/components/PythonEnvironmentSection.tsx` | 0 | 168 | +168 |
+| **Net** | **3422** | **3178** | **-244** |
+
 ## Current Hotspots
 
-| ID | Area | Current State | Why Refactor |
-| --- | --- | --- | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | ~3729 lines | Monolithic: rendering, input handling, effects, minimap, and texture lifecycle are tightly coupled. |
-| R-002 | `packages/frontend/src/components/NodePanel.tsx` | ~2000 lines | Mixed concerns: node editing + graph management + drawing controls in one component. |
-| R-003 | `packages/frontend/src/components/GraphPanel.tsx` | ~1422 lines | Overlaps heavily with NodePanel graph-admin logic and UI patterns. |
-| R-004 | Shared helpers duplicated | Multiple files | Repeated helper functions increase drift risk and maintenance cost. |
-| R-005 | Node panel draft sync | `NodePanel.tsx` effects | Draft values can reset during unrelated graph updates. |
-| R-006 | MCP screenshot renderer parity | `packages/mcp-server/src/index.ts` (`RENDERER_HTML`) | Screenshot renderer is a separate canvas implementation and can drift from user-visible frontend canvas. |
+| ID | Area | Current LOC | Why Refactor |
+| --- | --- | ---: | --- |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
+| R-002 | `packages/mcp-server/src/index.ts` | 3759 | Entry point is carrying DTOs, graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration. |
+| R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
+| R-004 | `packages/frontend/src/store/graphStore.ts` | 1348 | Store is still a god object spanning API I/O, optimistic updates, conflict recovery, polling, selection, and graphics cache state. |
+| R-005 | `packages/backend/src/app.ts` | 1260 | Express transport is still mixed with graph normalization, validation, projection behavior, and query traversal logic. |
+| R-006 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
+
+## Large Test Watchlist
+
+| Area | Current LOC | Why Watch |
+| --- | ---: | --- |
+| `packages/backend/tests/app.test.ts` | 2146 | Backend route/service extraction in T-012 should let this split by route domain instead of one oversized integration file. |
+| `packages/frontend/tests/graphStore.test.ts` | 1483 | Store decomposition in T-011 should let this split by slice/service and keep failures easier to localize. |
 
 ## Refactor Queue
 
@@ -426,6 +445,47 @@ Verification result:
 - `npm run build`: pass
 - `npm run test:e2e`: pass on rerun (`22` tests, `0` fail); first run had one transient failure in `inlineCodeOutputPortSync.test.ts`, then passed in isolation and full-suite rerun
 
+### T-010 Extract shared graph-management controller and sections
+Status: DONE
+
+Scope:
+- Extract shared graph-admin state/actions used by `NodePanel.tsx` and `GraphPanel.tsx`.
+- Extract shared graph-management UI sections while preserving existing `data-testid` hooks and behavior.
+
+Out of scope:
+- Moving graph-wide controls fully out of `NodePanel.tsx`
+- Splitting graph-specific projection/background/connection-stroke sections yet
+- Backend/API changes
+
+Delivered:
+- Added `packages/frontend/src/components/useGraphManagementState.ts` to centralize:
+  - graph select/create/delete/rename flow
+  - shared in-flight/delete-confirm state
+  - graph-level Python environment draft/edit/save flow
+- Added `packages/frontend/src/components/GraphManagementControls.tsx` for shared graph selection, rename, create, and delete-confirm UI.
+- Added `packages/frontend/src/components/PythonEnvironmentSection.tsx` for shared graph-level Python environment editing UI.
+- Refactored `NodePanel.tsx` to consume the shared graph-management hook and extracted sections instead of carrying its own duplicate graph-admin code.
+- Refactored `GraphPanel.tsx` to consume the same shared hook/sections, while composing graph-specific controls into the shared scaffold via `afterRename` and `afterCreate` slots.
+
+Verification result:
+- `npm run lint`: pass
+- `npm run test`: pass on rerun (`211` tests, `0` fail); first full run had one transient timeout in `packages/mcp-server/tests/screenshotParity.test.ts`, then passed in isolation and on full-suite rerun
+- `npm run build`: pass
+- Targeted frontend e2e: pass (`6` tests, `0` fail)
+  - `tests/e2e/nodePanelDraftStability.test.ts`
+  - `tests/e2e/diagnosticsPanel.test.ts`
+  - `tests/e2e/graphDeletion.test.ts`
+  - `tests/e2e/graphConflictReload.test.ts`
+  - `tests/e2e/panelAccordion.test.ts`
+- `npm run test:e2e`: currently hangs in `tests/e2e/annotationCard.test.ts` after its first two tests complete; this appears unrelated to T-010 and should be tracked separately
+
 ## Current Focus
 
-Refactor queue complete (`T-001` through `T-009` are done). Next work should be selected from `BACKLOG.md` follow-up items.
+Queue reopened after the March 7, 2026 size/architecture review.
+
+Current status:
+- `DONE`: `T-010` shared graph-management controller and sections
+- `NEXT`: `T-011` split `packages/frontend/src/store/graphStore.ts` into API client, polling/recompute service, optimistic-update/conflict helpers, and smaller Zustand slices
+- `FOLLOWING`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
+- `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
+- `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
