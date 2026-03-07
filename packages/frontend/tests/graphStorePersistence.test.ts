@@ -1,0 +1,430 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import axios from 'axios';
+import { setTimeout as delay } from 'node:timers/promises';
+import { useGraphStore } from '../src/store/graphStore.ts';
+import type { Graph } from '../src/types.ts';
+import {
+  MemoryLocalStorage,
+  makeGraph,
+  resetGraphStoreState,
+} from './graphStoreTestUtils.ts';
+
+test.beforeEach(() => {
+  (globalThis as any).localStorage = new MemoryLocalStorage();
+  resetGraphStoreState();
+});
+
+test('initializeGraph recovers from stale saved graph id by loading latest graph', async () => {
+  const localStorage = new MemoryLocalStorage();
+  localStorage.setItem('k8v-current-graph-id', 'stale-id');
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const originalPost = axios.post;
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/stale-id') {
+      const error: any = new Error('Graph not found');
+      error.response = { status: 404 };
+      throw error;
+    }
+
+    if (url === '/api/graphs/latest') {
+      return { data: makeGraph('latest-id') };
+    }
+
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  (axios as any).post = async (_url: string, _body: unknown) => {
+    throw new Error('createGraph should not be called in this test');
+  };
+
+  try {
+    await useGraphStore.getState().initializeGraph();
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, 'latest-id');
+    assert.equal(localStorage.getItem('k8v-current-graph-id'), 'latest-id');
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).post = originalPost;
+  }
+});
+
+test('loadGraph normalizes missing graph execution timeout to 30 seconds', async () => {
+  (globalThis as any).localStorage = new MemoryLocalStorage();
+
+  const originalGet = axios.get;
+  const graphWithoutTimeout = makeGraph('g-timeout-default');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-timeout-default') {
+      return { data: graphWithoutTimeout };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-timeout-default');
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, 'g-timeout-default');
+    assert.equal(state.graph?.executionTimeoutMs, 30_000);
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
+test('recompute status polling backs off after repeated network failures', async () => {
+  (globalThis as any).localStorage = new MemoryLocalStorage();
+
+  const originalWindow = (globalThis as any).window;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalGet = axios.get;
+
+  const scheduledTimeouts: Array<{ delay: number; callback: () => void }> = [];
+  (globalThis as any).window = {};
+  (globalThis as any).setTimeout = ((callback: () => void, timeout?: number) => {
+    scheduledTimeouts.push({
+      delay: typeof timeout === 'number' ? timeout : 0,
+      callback,
+    });
+    return scheduledTimeouts.length;
+  }) as typeof setTimeout;
+  (globalThis as any).clearTimeout = (() => undefined) as typeof clearTimeout;
+
+  const graph = makeGraph('g-poll-backoff');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-poll-backoff') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-poll-backoff/recompute-status') {
+      throw new Error('Backend unavailable');
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-poll-backoff');
+
+    await delay(0);
+    assert.equal(scheduledTimeouts.length >= 1, true);
+    assert.equal(scheduledTimeouts[0]?.delay, 400);
+
+    scheduledTimeouts[0]?.callback();
+    await delay(0);
+    assert.equal(scheduledTimeouts.length >= 2, true);
+    assert.equal(scheduledTimeouts[1]?.delay, 800);
+  } finally {
+    (axios as any).get = originalGet;
+    (globalThis as any).window = originalWindow;
+    (globalThis as any).setTimeout = originalSetTimeout;
+    (globalThis as any).clearTimeout = originalClearTimeout;
+  }
+});
+
+test('deleteGraph replaces current graph with latest remaining graph', async () => {
+  const localStorage = new MemoryLocalStorage();
+  localStorage.setItem('k8v-current-graph-id', 'g-delete-current');
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const originalDelete = (axios as any).delete;
+  const currentGraph = makeGraph('g-delete-current');
+  const fallbackGraph = makeGraph('g-fallback');
+
+  (axios as any).delete = async (url: string) => {
+    assert.equal(url, '/api/graphs/g-delete-current');
+    return { status: 204 };
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/latest') {
+      return { data: fallbackGraph };
+    }
+    if (url === '/api/graphs') {
+      return {
+        data: {
+          graphs: [{ id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt }],
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  resetGraphStoreState({
+    graph: currentGraph,
+    graphSummaries: [
+      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
+      { id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt },
+    ],
+  });
+
+  try {
+    await useGraphStore.getState().deleteGraph(currentGraph.id);
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, fallbackGraph.id);
+    assert.equal(localStorage.getItem('k8v-current-graph-id'), fallbackGraph.id);
+    assert.deepEqual(state.graphSummaries.map((summary) => summary.id), [fallbackGraph.id]);
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).delete = originalDelete;
+  }
+});
+
+test('deleteGraph removes non-selected graph without switching current graph', async () => {
+  const localStorage = new MemoryLocalStorage();
+  localStorage.setItem('k8v-current-graph-id', 'g-keep');
+  (globalThis as any).localStorage = localStorage;
+
+  const originalGet = axios.get;
+  const originalDelete = (axios as any).delete;
+  const currentGraph = makeGraph('g-keep');
+  const deletedGraph = makeGraph('g-drop');
+
+  (axios as any).delete = async (url: string) => {
+    assert.equal(url, '/api/graphs/g-drop');
+    return { status: 204 };
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs') {
+      return {
+        data: {
+          graphs: [{ id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt }],
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  resetGraphStoreState({
+    graph: currentGraph,
+    graphSummaries: [
+      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
+      { id: deletedGraph.id, name: deletedGraph.name, updatedAt: deletedGraph.updatedAt },
+    ],
+  });
+
+  try {
+    await useGraphStore.getState().deleteGraph(deletedGraph.id);
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.id, currentGraph.id);
+    assert.equal(localStorage.getItem('k8v-current-graph-id'), currentGraph.id);
+    assert.deepEqual(state.graphSummaries.map((summary) => summary.id), [currentGraph.id]);
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).delete = originalDelete;
+  }
+});
+
+test('updateGraph reloads latest graph when backend reports conflict', async () => {
+  const originalGet = axios.get;
+  const originalPut = axios.put;
+
+  const initialGraph: Graph = {
+    id: 'g-conflict',
+    name: 'Graph conflict local',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 100,
+  };
+  const latestGraph: Graph = {
+    id: 'g-conflict',
+    name: 'Graph conflict remote',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 200,
+  };
+
+  let putPayload: any = null;
+  (axios as any).put = async (_url: string, body: unknown) => {
+    putPayload = body;
+    const error: any = new Error('Graph has changed since it was loaded. Reload and retry your update.');
+    error.response = { status: 409 };
+    throw error;
+  };
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-conflict') {
+      return { data: latestGraph };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  resetGraphStoreState({
+    graph: initialGraph,
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph({ name: 'Graph conflict attempted update' });
+
+    const state = useGraphStore.getState();
+    assert.ok(putPayload, 'expected PUT payload to be sent');
+    assert.equal(putPayload.ifMatchUpdatedAt, 100);
+    assert.equal(state.graph?.name, 'Graph conflict remote');
+    assert.equal(state.graph?.updatedAt, 200);
+    assert.match(state.error ?? '', /changed remotely/i);
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).put = originalPut;
+  }
+});
+
+test('updateGraph keeps the latest persisted graph when responses resolve out of order', async () => {
+  const originalPut = axios.put;
+
+  const initialGraph: Graph = {
+    id: 'g-latest-wins',
+    name: 'Graph baseline',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 100,
+  };
+
+  const pendingResponses: Array<{ resolve: (value: { data: Graph }) => void }> = [];
+  const putPayloads: any[] = [];
+
+  (axios as any).put = async (_url: string, body: any) => {
+    putPayloads.push(body);
+    return await new Promise<{ data: Graph }>((resolve) => {
+      pendingResponses.push({ resolve });
+    });
+  };
+
+  resetGraphStoreState({
+    graph: initialGraph,
+  });
+
+  try {
+    const firstUpdate = useGraphStore.getState().updateGraph({ name: 'Graph first optimistic' });
+    const secondUpdate = useGraphStore.getState().updateGraph({ name: 'Graph second optimistic' });
+
+    assert.equal(pendingResponses.length, 2);
+    assert.equal(useGraphStore.getState().graph?.name, 'Graph second optimistic');
+
+    pendingResponses[1].resolve({
+      data: {
+        ...initialGraph,
+        name: 'Graph second persisted',
+        updatedAt: 202,
+      },
+    });
+    pendingResponses[0].resolve({
+      data: {
+        ...initialGraph,
+        name: 'Graph first persisted',
+        updatedAt: 201,
+      },
+    });
+
+    await Promise.all([firstUpdate, secondUpdate]);
+
+    const state = useGraphStore.getState();
+    assert.equal(putPayloads.length, 2);
+    assert.equal(putPayloads[0].ifMatchUpdatedAt, 100);
+    assert.equal(putPayloads[1].ifMatchUpdatedAt, 100);
+    assert.equal(state.graph?.name, 'Graph second persisted');
+    assert.equal(state.graph?.updatedAt, 202);
+    assert.equal(state.error, null);
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
+test('graph updates do not trigger frontend auto recompute requests', async () => {
+  const originalPut = axios.put;
+  const originalPost = axios.post;
+
+  let computeCalls = 0;
+  const initialGraph: Graph = {
+    id: 'g-auto',
+    name: 'Auto Graph',
+    nodes: [
+      {
+        id: 'upstream',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Upstream',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'u-v1',
+      },
+      {
+        id: 'downstream',
+        type: 'inline_code' as any,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'Downstream',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+          config: { autoRecompute: true },
+        },
+        version: 'd-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'c1',
+        sourceNodeId: 'upstream',
+        sourcePort: 'output',
+        targetNodeId: 'downstream',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
+  (axios as any).post = async (_url: string, body: any) => {
+    computeCalls += 1;
+    throw new Error(`Unexpected compute request: ${JSON.stringify(body)}`);
+  };
+
+  const patchUpstreamVersion = (version: string): Graph => ({
+    ...initialGraph,
+    nodes: initialGraph.nodes.map((node) =>
+      node.id === 'upstream'
+        ? { ...node, version }
+        : node
+    ),
+    updatedAt: Date.now(),
+  });
+
+  resetGraphStoreState({
+    graph: initialGraph,
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v2'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v3'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v4'));
+    await useGraphStore.getState().updateGraph(patchUpstreamVersion('u-v5'));
+    await delay(0);
+    assert.equal(computeCalls, 0);
+  } finally {
+    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
+  }
+});

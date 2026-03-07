@@ -135,10 +135,14 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/src/store/graphLocalStorage.ts` | 0 | 36 | +36 |
 | `packages/frontend/src/store/recomputeStatusPolling.ts` | 0 | 76 | +76 |
 | `packages/frontend/src/App.tsx` | 74 | 94 | +20 |
-| `packages/frontend/tests/graphStore.test.ts` | 1483 | 1551 | +68 |
+| `packages/frontend/tests/graphStore.test.ts` | 1483 | 0 | -1483 |
+| `packages/frontend/tests/graphStorePersistence.test.ts` | 0 | 430 | +430 |
+| `packages/frontend/tests/graphStoreEditing.test.ts` | 0 | 453 | +453 |
+| `packages/frontend/tests/graphStoreComputation.test.ts` | 0 | 610 | +610 |
+| `packages/frontend/tests/graphStoreTestUtils.ts` | 0 | 47 | +47 |
 | `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 88 | 97 | +9 |
 | `packages/frontend/tests/e2e/support/browser.ts` | 56 | 75 | +19 |
-| **Net** | **3049** | **3522** | **+473** |
+| **Net** | **3049** | **3511** | **+462** |
 
 ## Current Hotspots
 
@@ -155,7 +159,6 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | Area | Current LOC | Why Watch |
 | --- | ---: | --- |
 | `packages/backend/tests/app.test.ts` | 2146 | Backend route/service extraction in T-012 should let this split by route domain instead of one oversized integration file. |
-| `packages/frontend/tests/graphStore.test.ts` | 1551 | Store decomposition in T-011 should let this split by slice/service and keep failures easier to localize. |
 
 ## Refactor Queue
 
@@ -499,8 +502,8 @@ Verification result:
 - `tests/e2e/panelAccordion.test.ts`
 - `npm run test:e2e`: currently hangs in `tests/e2e/annotationCard.test.ts` after its first two tests complete; this appears unrelated to T-010 and should be tracked separately
 
-### T-011 Split graphStore: support modules and focused controllers
-Status: IN PROGRESS
+### T-011 Split graphStore: support modules, focused controllers, and test decomposition
+Status: DONE
 
 Scope:
 - Extract non-Zustand responsibilities out of `packages/frontend/src/store/graphStore.ts`.
@@ -527,22 +530,18 @@ Delivered so far:
 - Exposed a browser-test `window.__k8vGraphStore` handle in `packages/frontend/src/App.tsx` so e2e coverage can access the live app store instance without dynamic module-import ambiguity.
 - Updated browser test support in `packages/frontend/tests/e2e/support/browser.ts` and `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` to wait on user-visible graph readiness and use the live store handle.
 - Added a regression case in `packages/frontend/tests/graphStore.test.ts` that verifies out-of-order optimistic update responses cannot overwrite the latest persisted graph state.
-
-Remaining inside T-011:
-- Split `packages/frontend/tests/graphStore.test.ts` by domain (`persistence`, `computation`, `editing/ui`) now that store boundaries have stabilized.
-- Optionally extract graph initialization/list-loading flow later if it starts growing again, but it is no longer a size hotspot.
+- Split the old `packages/frontend/tests/graphStore.test.ts` monolith into:
+  - `packages/frontend/tests/graphStorePersistence.test.ts`
+  - `packages/frontend/tests/graphStoreEditing.test.ts`
+  - `packages/frontend/tests/graphStoreComputation.test.ts`
+  - shared setup in `packages/frontend/tests/graphStoreTestUtils.ts`
+- Added small regression coverage for drawing UI local-state updates and `deleteDrawing` clearing the selected drawing before persistence.
 
 Verification result (latest):
 - `npm run lint`: pass
-- `npx tsx --test packages/frontend/tests/graphStore.test.ts`: pass (`21` tests, `0` fail)
-- `npm run test`: pass (`212` tests, `0` fail)
+- `npx tsx --test packages/frontend/tests/graphStorePersistence.test.ts packages/frontend/tests/graphStoreEditing.test.ts packages/frontend/tests/graphStoreComputation.test.ts`: pass (`23` tests, `0` fail)
+- `npm run test`: pass (`214` tests, `0` fail)
 - `npm run build`: pass
-- Targeted frontend e2e: pass (`6` tests, `0` fail)
-  - `tests/e2e/nodePanelDraftStability.test.ts`
-  - `tests/e2e/diagnosticsPanel.test.ts`
-  - `tests/e2e/graphDeletion.test.ts`
-  - `tests/e2e/graphConflictReload.test.ts`
-  - `tests/e2e/panelAccordion.test.ts`
 
 ## Current Focus
 
@@ -550,12 +549,12 @@ Queue reopened after the March 7, 2026 size/architecture review.
 
 Current status:
 - `DONE`: `T-010` shared graph-management controller and sections
-- `IN PROGRESS`: `T-011` split `packages/frontend/src/store/graphStore.ts`
+- `DONE`: `T-011` split `packages/frontend/src/store/graphStore.ts`
   - phase 1 complete: API client, current-graph storage, recompute polling, and pure state helpers extracted
   - phase 2 complete: optimistic persistence/conflict handling extracted into `graphStorePersistence.ts`
   - phase 3 complete: compute and hydration flow extracted into `graphStoreComputation.ts`
   - phase 4 complete: graph-edit/drawing mutations and UI-only state extracted into dedicated controllers
-  - next inside T-011: split `graphStore.test.ts` by domain
-- `FOLLOWING`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
+- phase 5 complete: `graphStore.test.ts` split by domain with shared test utilities
+- `IN PROGRESS`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
 - `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
