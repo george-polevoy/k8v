@@ -179,17 +179,18 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/frontend/src/components/Canvas.tsx` | 3808 | 3336 | -472 |
+| `packages/frontend/src/components/Canvas.tsx` | 3808 | 2882 | -926 |
 | `packages/frontend/src/components/useCanvasViewport.ts` | 0 | 576 | +576 |
 | `packages/frontend/src/components/useMcpScreenshotBridge.ts` | 0 | 54 | +54 |
 | `packages/frontend/src/components/useCanvasGraphEffects.ts` | 0 | 229 | +229 |
-| **Net** | **3808** | **4195** | **+387** |
+| `packages/frontend/src/components/useCanvasInteractions.ts` | 0 | 866 | +866 |
+| **Net** | **3808** | **4607** | **+799** |
 
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | 3336 | Reduced by T-014 phases 1-2, but it still owns Pixi lifecycle, render passes, interactions, overlays, and large event-handler state in one component. |
+| R-001 | `packages/frontend/src/components/Canvas.tsx` | 2882 | Reduced by T-014 phases 1-3, but it still owns Pixi lifecycle, render passes, overlays, and large node/drawing rendering composition in one component. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
@@ -677,6 +678,9 @@ Delivered so far:
 - Added `packages/frontend/src/components/useCanvasGraphEffects.ts` for graph-to-canvas synchronization, drawing-create request handling, selection-triggered redraws, and drawing-mode reset effects.
 - Refactored `packages/frontend/src/components/Canvas.tsx` to consume the extracted graph-effects hook instead of owning those store/selection coordination effects inline.
 - Reduced `packages/frontend/src/components/Canvas.tsx` from `3405` to `3336` in phase 2.
+- Added `packages/frontend/src/components/useCanvasInteractions.ts` for stage pointer/wheel/keyboard handlers plus drag, resize, slider, connection, and freehand interaction finalization.
+- Refactored `packages/frontend/src/components/Canvas.tsx` to consume the extracted interaction controller instead of owning the interaction/event callback block inline.
+- Reduced `packages/frontend/src/components/Canvas.tsx` from `3336` to `2882` in phase 3.
 
 Verification result (latest):
   - `npm run lint`: pass
@@ -715,4 +719,5 @@ Current status:
 - `IN PROGRESS`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
   - phase 1 complete: minimap, viewport fit/screenshot control, projection-transition shaping, and MCP screenshot bridge registration extracted into `useCanvasViewport.ts` and `useMcpScreenshotBridge.ts`
   - phase 2 complete: graph-to-canvas synchronization, drawing-create request handling, and drawing-mode reset effects extracted into `useCanvasGraphEffects.ts`
-  - next phase: extract the Pixi app bootstrap/event wiring lifecycle out of `Canvas.tsx`
+  - phase 3 complete: stage pointer/wheel/keyboard handlers and drag/resize/drawing interaction finalization extracted into `useCanvasInteractions.ts`
+  - next phase: extract the remaining render/bootstrap composition out of `Canvas.tsx`

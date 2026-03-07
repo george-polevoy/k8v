@@ -39,14 +39,6 @@ import {
   snapToPixel,
 } from '../utils/canvasHelpers';
 import {
-  computeNodeResizeDraft,
-  computeSnappedDragPosition,
-  computeSnappedPanPosition,
-  hasExceededDragThreshold,
-  isCanvasDeletionShortcutBlocked,
-  resolveWheelInteractionPlan,
-} from '../utils/canvasInteractions';
-import {
   clearAllNodeGraphicsTextures as clearAllNodeGraphicsTexturesInCache,
   getNodeGraphicsTextureForNode as getNodeGraphicsTextureForNodeInCache,
   releaseUnusedNodeGraphicsTextures as releaseUnusedNodeGraphicsTexturesInCache,
@@ -81,20 +73,10 @@ import {
 } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
 import {
-  resolveModifierWheelScrollDelta,
-  resolveWheelZoomSensitivityMultiplier,
-  shouldWheelPanCanvas,
-} from '../utils/wheelNavigation';
-import {
   formatNumericInputValue,
   normalizeNumericInputConfig,
   snapNumericInputValue,
 } from '../utils/numericInput';
-import {
-  DEFAULT_GRAPH_PROJECTION_ID,
-  withNodeCardSizeInProjection,
-  withNodePositionInProjection,
-} from '../utils/projections';
 import {
   HEADER_HEIGHT,
   NODE_BODY_PADDING,
@@ -110,6 +92,7 @@ import {
   type ProjectionTransitionState,
 } from './useCanvasViewport';
 import { useCanvasGraphEffects } from './useCanvasGraphEffects';
+import { useCanvasInteractions } from './useCanvasInteractions';
 import { useMcpScreenshotBridge } from './useMcpScreenshotBridge';
 import { normalizeAnnotationConfig } from '../utils/annotation';
 
@@ -1602,6 +1585,75 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     });
   }, [updateNode]);
 
+  const {
+    finishInteraction,
+    handleStagePointerDown,
+    handleStagePointerMove,
+    handleStagePointerUp,
+    handleWheel,
+    handleResize,
+    handleKeyDown,
+  } = useCanvasInteractions({
+    appRef,
+    viewportRef,
+    graphRef,
+    drawingEnabledRef,
+    drawingColorRef,
+    drawingThicknessRef,
+    activeDrawingPathRef,
+    drawingPositionsRef,
+    drawingVisualsRef,
+    drawingDragStateRef,
+    nodeDragStateRef,
+    nodeResizeStateRef,
+    nodeVisualsRef,
+    nodePositionsRef,
+    nodeCardDraftSizesRef,
+    nodeCardDraftPositionsRef,
+    numericSliderDragStateRef,
+    connectionDragStateRef,
+    panStateRef,
+    inputPortPositionsRef,
+    hoveredInputPortKeyRef,
+    hoveredOutputPortKeyRef,
+    selectedConnectionIdRef,
+    selectedDrawingIdRef,
+    selectedNodeIdRef,
+    requestCanvasAnimationLoop,
+    requestViewportDrivenGraphRefresh,
+    drawConnections,
+    drawFreehandStrokes,
+    drawMinimap,
+    drawEffects,
+    updateTextResolutionForScale,
+    updateNumericSliderFromPointer,
+    refreshCanvasBackgroundTexture,
+    syncNodePortPositions,
+    pickConnectionAtClientPoint,
+    endConnectionDrag,
+    commitNumericSliderValue,
+    addDrawingPath,
+    updateNodePosition,
+    updateDrawingPosition,
+    updateGraph,
+    deleteConnection,
+    deleteDrawing,
+    deleteNode,
+    selectNode,
+    selectDrawing,
+    setInputPortHighlight,
+    applyCanvasCursor,
+    renderGraphRef,
+    config: {
+      portRadius: PORT_RADIUS,
+      nodeDragStartThreshold: NODE_DRAG_START_THRESHOLD,
+      drawSmoothingStep: DRAW_SMOOTHING_STEP,
+      zoomSensitivity: ZOOM_SENSITIVITY,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+    },
+  });
+
   const renderGraph = useCallback(() => {
     const nodesLayer = nodeLayerRef.current;
     const drawingHandleLayer = drawingHandleLayerRef.current;
@@ -2633,512 +2685,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     applyCanvasCursor();
     refreshCanvasBackgroundTexture();
 
-    const finishInteraction = () => {
-      if (connectionDragStateRef.current) {
-        endConnectionDrag(true);
-      }
-
-      const numericSliderDragState = numericSliderDragStateRef.current;
-      if (numericSliderDragState) {
-        if (Math.abs(numericSliderDragState.currentValue - numericSliderDragState.initialValue) > 1e-9) {
-          commitNumericSliderValue(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
-        }
-        numericSliderDragStateRef.current = null;
-      }
-
-      const activeDrawingPath = activeDrawingPathRef.current;
-      if (activeDrawingPath) {
-        const normalizedPoints = activeDrawingPath.path.points
-          .filter((point, index, points) =>
-            index === 0 || Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y) >= 0.2
-          );
-        if (normalizedPoints.length > 0) {
-          addDrawingPath(activeDrawingPath.drawingId, {
-            ...activeDrawingPath.path,
-            points: normalizedPoints,
-          });
-        }
-        activeDrawingPathRef.current = null;
-        drawFreehandStrokes();
-      }
-
-      const dragState = nodeDragStateRef.current;
-      if (dragState) {
-        if (dragState.moved) {
-          updateNodePosition(dragState.nodeId, {
-            x: dragState.currentX,
-            y: dragState.currentY,
-          });
-        }
-        nodeDragStateRef.current = null;
-      }
-
-      const resizeState = nodeResizeStateRef.current;
-      if (resizeState) {
-        const positionChanged = (
-          Math.abs(resizeState.currentX - resizeState.x) > 0.5 ||
-          Math.abs(resizeState.currentY - resizeState.y) > 0.5
-        );
-        const sizeChanged = (
-          Math.abs(resizeState.currentWidth - resizeState.width) > 0.5 ||
-          Math.abs(resizeState.currentHeight - resizeState.height) > 0.5
-        );
-        const currentGraph = graphRef.current;
-        if ((positionChanged || sizeChanged) && currentGraph) {
-          const activeProjectionId = currentGraph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-          const nextPosition = {
-            x: resizeState.currentX,
-            y: resizeState.currentY,
-          };
-          const nextCardSize = {
-            width: resizeState.currentWidth,
-            height: resizeState.currentHeight,
-          };
-          const nextNodes = currentGraph.nodes.map((node) => {
-            if (node.id !== resizeState.nodeId) {
-              return node;
-            }
-            return {
-              ...node,
-              position: nextPosition,
-              config: {
-                ...node.config,
-                config: {
-                  ...(node.config.config ?? {}),
-                  cardWidth: nextCardSize.width,
-                  cardHeight: nextCardSize.height,
-                },
-              },
-            };
-          });
-          const nextProjections = (currentGraph.projections ?? []).map((projection) =>
-            projection.id === activeProjectionId
-              ? withNodeCardSizeInProjection(
-                withNodePositionInProjection(projection, resizeState.nodeId, nextPosition),
-                resizeState.nodeId,
-                nextCardSize
-              )
-              : projection
-          );
-
-          void updateGraph({
-            ...currentGraph,
-            nodes: nextNodes,
-            projections: nextProjections,
-            updatedAt: Date.now(),
-          });
-        }
-        nodeCardDraftSizesRef.current.delete(resizeState.nodeId);
-        nodeCardDraftPositionsRef.current.delete(resizeState.nodeId);
-        if (hoveredNodeResizeHandleRef.current?.nodeId === resizeState.nodeId) {
-          hoveredNodeResizeHandleRef.current = null;
-        }
-        nodeResizeStateRef.current = null;
-      }
-
-      const drawingDragState = drawingDragStateRef.current;
-      if (drawingDragState) {
-        if (drawingDragState.moved) {
-          updateDrawingPosition(drawingDragState.drawingId, {
-            x: drawingDragState.currentX,
-            y: drawingDragState.currentY,
-          });
-        }
-        drawingDragStateRef.current = null;
-      }
-
-      panStateRef.current = null;
-      applyCanvasCursor();
-    };
-
-    const handleStagePointerDown = (event: FederatedPointerEvent) => {
-      if (event.button !== 0) return;
-      canvasElement.focus({ preventScroll: true });
-
-      if (drawingEnabledRef.current) {
-        const drawingId = selectedDrawingIdRef.current;
-        if (!drawingId) {
-          return;
-        }
-        const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
-        const drawingPosition =
-          drawingPositionsRef.current.get(drawingId) ??
-          graphRef.current?.drawings?.find((drawing) => drawing.id === drawingId)?.position;
-
-        if (!drawingPosition) {
-          return;
-        }
-
-        activeDrawingPathRef.current = {
-          drawingId,
-          path: {
-            id: uuidv4(),
-            color: drawingColorRef.current,
-            thickness: drawingThicknessRef.current,
-            points: [
-              {
-                x: worldPoint.x - drawingPosition.x,
-                y: worldPoint.y - drawingPosition.y,
-              },
-            ],
-          },
-        };
-        drawFreehandStrokes();
-        return;
-      }
-
-      // Only treat direct stage clicks as empty-canvas interactions.
-      if (event.target !== app.stage) {
-        return;
-      }
-
-      const pickedConnectionId = pickConnectionAtClientPoint(event.clientX, event.clientY);
-      if (pickedConnectionId) {
-        selectedConnectionIdRef.current = pickedConnectionId;
-        selectedNodeIdRef.current = null;
-        selectNode(null);
-        drawConnections();
-        return;
-      }
-
-      panStateRef.current = {
-        pointerX: event.global.x,
-        pointerY: event.global.y,
-        viewportX: viewport.position.x,
-        viewportY: viewport.position.y,
-      };
-      applyCanvasCursor();
-      if (selectedConnectionIdRef.current) {
-        selectedConnectionIdRef.current = null;
-        drawConnections();
-      }
-      if (selectedDrawingIdRef.current) {
-        selectedDrawingIdRef.current = null;
-        selectDrawing(null);
-      }
-      selectedNodeIdRef.current = null;
-      selectNode(null);
-    };
-
-    const handleStagePointerMove = (event: FederatedPointerEvent) => {
-      const numericSliderDragState = numericSliderDragStateRef.current;
-      if (numericSliderDragState) {
-        applyCanvasCursor();
-        requestCanvasAnimationLoop();
-        updateNumericSliderFromPointer(numericSliderDragState.nodeId, event.global.x, event.global.y);
-        return;
-      }
-
-      const nodeResizeState = nodeResizeStateRef.current;
-      if (nodeResizeState) {
-        const currentViewport = viewportRef.current;
-        if (!currentViewport) {
-          return;
-        }
-        const resizeDraft = computeNodeResizeDraft({
-          x: nodeResizeState.x,
-          y: nodeResizeState.y,
-          width: nodeResizeState.width,
-          height: nodeResizeState.height,
-          minWidth: nodeResizeState.minWidth,
-          minHeight: nodeResizeState.minHeight,
-          handle: nodeResizeState.handle,
-          pointerX: event.global.x,
-          pointerY: event.global.y,
-          startPointerX: nodeResizeState.pointerX,
-          startPointerY: nodeResizeState.pointerY,
-          scale: currentViewport.scale.x || 1,
-        });
-        const nextX = resizeDraft.x;
-        const nextY = resizeDraft.y;
-        const nextWidth = resizeDraft.width;
-        const nextHeight = resizeDraft.height;
-
-        if (
-          nextX !== nodeResizeState.currentX ||
-          nextY !== nodeResizeState.currentY ||
-          nextWidth !== nodeResizeState.currentWidth ||
-          nextHeight !== nodeResizeState.currentHeight
-        ) {
-          nodeResizeState.currentX = nextX;
-          nodeResizeState.currentY = nextY;
-          nodeResizeState.currentWidth = nextWidth;
-          nodeResizeState.currentHeight = nextHeight;
-          nodeCardDraftSizesRef.current.set(nodeResizeState.nodeId, {
-            width: nextWidth,
-            height: nextHeight,
-          });
-          nodeCardDraftPositionsRef.current.set(nodeResizeState.nodeId, {
-            x: nextX,
-            y: nextY,
-          });
-          renderGraphRef.current();
-        }
-        applyCanvasCursor();
-        return;
-      }
-
-      const connectionDrag = connectionDragStateRef.current;
-      if (connectionDrag) {
-        connectionDrag.pointerX = event.global.x;
-        connectionDrag.pointerY = event.global.y;
-
-        const viewportContainer = viewportRef.current;
-        if (viewportContainer) {
-          const worldPoint = viewportContainer.toLocal(new Point(event.global.x, event.global.y));
-          const hoverRadius = (PORT_RADIUS + 8) / Math.max(viewportContainer.scale.x, 0.1);
-          let nextHoveredKey: string | null = null;
-
-          for (const [portKey, portPosition] of inputPortPositionsRef.current.entries()) {
-            const dx = worldPoint.x - portPosition.x;
-            const dy = worldPoint.y - portPosition.y;
-            if ((dx * dx) + (dy * dy) <= hoverRadius * hoverRadius) {
-              nextHoveredKey = portKey;
-              break;
-            }
-          }
-
-          if (connectionDrag.hoveredInputKey !== nextHoveredKey) {
-            if (connectionDrag.hoveredInputKey) {
-              setInputPortHighlight(connectionDrag.hoveredInputKey, false);
-            }
-            if (nextHoveredKey) {
-              setInputPortHighlight(nextHoveredKey, true);
-            }
-            connectionDrag.hoveredInputKey = nextHoveredKey;
-          }
-        }
-
-        drawConnections();
-        return;
-      }
-
-      const activeDrawingPath = activeDrawingPathRef.current;
-      if (activeDrawingPath) {
-        const currentViewport = viewportRef.current;
-        if (!currentViewport) {
-          return;
-        }
-        const worldPoint = currentViewport.toLocal(new Point(event.global.x, event.global.y));
-        const drawingPosition =
-          drawingPositionsRef.current.get(activeDrawingPath.drawingId) ??
-          graphRef.current?.drawings?.find((drawing) => drawing.id === activeDrawingPath.drawingId)?.position;
-        if (!drawingPosition) {
-          activeDrawingPathRef.current = null;
-          return;
-        }
-
-        const localPoint = {
-          x: worldPoint.x - drawingPosition.x,
-          y: worldPoint.y - drawingPosition.y,
-        };
-
-        const previousPoint = activeDrawingPath.path.points[activeDrawingPath.path.points.length - 1];
-        if (
-          !previousPoint ||
-          Math.hypot(localPoint.x - previousPoint.x, localPoint.y - previousPoint.y) >= DRAW_SMOOTHING_STEP
-        ) {
-          activeDrawingPath.path.points.push(localPoint);
-          drawFreehandStrokes();
-        }
-        return;
-      }
-
-      const activeDrawingDragState = drawingDragStateRef.current;
-      if (activeDrawingDragState) {
-        const deltaX = event.global.x - activeDrawingDragState.pointerX;
-        const deltaY = event.global.y - activeDrawingDragState.pointerY;
-        if (
-          !activeDrawingDragState.moved &&
-          !hasExceededDragThreshold(deltaX, deltaY, NODE_DRAG_START_THRESHOLD)
-        ) {
-          return;
-        }
-
-        const currentViewport = viewportRef.current;
-        const drawingVisual = drawingVisualsRef.current.get(activeDrawingDragState.drawingId);
-        if (!currentViewport || !drawingVisual) {
-          return;
-        }
-
-        const nextPosition = computeSnappedDragPosition({
-          originX: activeDrawingDragState.drawingX,
-          originY: activeDrawingDragState.drawingY,
-          pointerX: event.global.x,
-          pointerY: event.global.y,
-          startPointerX: activeDrawingDragState.pointerX,
-          startPointerY: activeDrawingDragState.pointerY,
-          scale: currentViewport.scale.x || 1,
-        });
-        activeDrawingDragState.currentX = nextPosition.x;
-        activeDrawingDragState.currentY = nextPosition.y;
-        drawingPositionsRef.current.set(activeDrawingDragState.drawingId, nextPosition);
-        drawingVisual.container.position.set(nextPosition.x, nextPosition.y);
-        activeDrawingDragState.moved = true;
-        drawFreehandStrokes();
-        drawMinimap();
-        return;
-      }
-
-      const dragState = nodeDragStateRef.current;
-      if (dragState) {
-        const currentViewport = viewportRef.current;
-        const nodeVisual = nodeVisualsRef.current.get(dragState.nodeId);
-        if (!currentViewport || !nodeVisual) return;
-
-        const deltaX = event.global.x - dragState.pointerX;
-        const deltaY = event.global.y - dragState.pointerY;
-        if (
-          !dragState.moved &&
-          !hasExceededDragThreshold(deltaX, deltaY, NODE_DRAG_START_THRESHOLD)
-        ) {
-          return;
-        }
-
-        const nextPosition = computeSnappedDragPosition({
-          originX: dragState.nodeX,
-          originY: dragState.nodeY,
-          pointerX: event.global.x,
-          pointerY: event.global.y,
-          startPointerX: dragState.pointerX,
-          startPointerY: dragState.pointerY,
-          scale: currentViewport.scale.x || 1,
-        });
-        dragState.currentX = nextPosition.x;
-        dragState.currentY = nextPosition.y;
-        nodePositionsRef.current.set(dragState.nodeId, nextPosition);
-        nodeVisual.container.position.set(nextPosition.x, nextPosition.y);
-        syncNodePortPositions(dragState.nodeId, nextPosition, nodeVisual);
-        dragState.moved = true;
-        drawConnections();
-        drawMinimap();
-        return;
-      }
-
-      const panState = panStateRef.current;
-      if (!panState) return;
-
-      requestCanvasAnimationLoop();
-      const nextPanPosition = computeSnappedPanPosition({
-        viewportX: panState.viewportX,
-        viewportY: panState.viewportY,
-        pointerX: event.global.x,
-        pointerY: event.global.y,
-        startPointerX: panState.pointerX,
-        startPointerY: panState.pointerY,
-      });
-      viewport.position.set(nextPanPosition.x, nextPanPosition.y);
-      drawMinimap();
-      requestViewportDrivenGraphRefresh();
-    };
-
-    const handleStagePointerUp = (event: FederatedPointerEvent) => {
-      if (event.button !== 0) return;
-      finishInteraction();
-    };
-
-    const handleWheel = (event: WheelEvent) => {
-      const currentViewport = viewportRef.current;
-      if (!currentViewport) return;
-
-      event.preventDefault();
-
-      // Modifier wheel scroll is explicit panning; default wheel keeps zoom semantics.
-      const modifierScrollDelta = resolveModifierWheelScrollDelta(event);
-      const shouldPan = shouldWheelPanCanvas(event);
-      let pointerX = 0;
-      let pointerY = 0;
-      let worldBeforeX = 0;
-      let worldBeforeY = 0;
-      if (!modifierScrollDelta && !shouldPan) {
-        const rect = canvasElement.getBoundingClientRect();
-        const pointer = new Point(event.clientX - rect.left, event.clientY - rect.top);
-        const worldPointBefore = currentViewport.toLocal(pointer);
-        pointerX = pointer.x;
-        pointerY = pointer.y;
-        worldBeforeX = worldPointBefore.x;
-        worldBeforeY = worldPointBefore.y;
-      }
-
-      const wheelPlan = resolveWheelInteractionPlan({
-        currentX: currentViewport.position.x,
-        currentY: currentViewport.position.y,
-        currentScale: currentViewport.scale.x,
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        modifierScrollDelta,
-        shouldPan,
-        pointerX,
-        pointerY,
-        worldBeforeX,
-        worldBeforeY,
-        zoomSensitivity: ZOOM_SENSITIVITY * resolveWheelZoomSensitivityMultiplier(event),
-        minZoom: MIN_ZOOM,
-        maxZoom: MAX_ZOOM,
-      });
-
-      if (wheelPlan.kind === 'zoom') {
-        currentViewport.scale.set(wheelPlan.scale);
-        updateTextResolutionForScale(wheelPlan.scale);
-        drawFreehandStrokes();
-      }
-
-      currentViewport.position.set(wheelPlan.x, wheelPlan.y);
-      drawMinimap();
-      requestViewportDrivenGraphRefresh();
-    };
-
-    const handleResize = () => {
-      app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height);
-      refreshCanvasBackgroundTexture();
-      drawMinimap();
-      drawEffects();
-      drawFreehandStrokes();
-      requestViewportDrivenGraphRefresh();
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Delete' && event.key !== 'Backspace') {
-        return;
-      }
-
-      const activeElement = document.activeElement as HTMLElement | null;
-      if (isCanvasDeletionShortcutBlocked(activeElement, canvasElement)) {
-        return;
-      }
-
-      const selectedConnectionId = selectedConnectionIdRef.current;
-      if (selectedConnectionId) {
-        event.preventDefault();
-        deleteConnection(selectedConnectionId);
-        selectedConnectionIdRef.current = null;
-        drawConnections();
-        return;
-      }
-
-      const drawingId = selectedDrawingIdRef.current;
-      if (drawingId) {
-        event.preventDefault();
-        deleteDrawing(drawingId);
-        selectedDrawingIdRef.current = null;
-        drawFreehandStrokes();
-        drawMinimap();
-        return;
-      }
-
-      const selectedNode = selectedNodeIdRef.current;
-      if (!selectedNode) {
-        return;
-      }
-
-      event.preventDefault();
-      deleteNode(selectedNode);
-      selectedConnectionIdRef.current = null;
-      selectedNodeIdRef.current = null;
-      selectNode(null);
-      drawConnections();
-    };
-
     app.stage.on('pointerdown', handleStagePointerDown);
     app.stage.on('pointermove', handleStagePointerMove);
     app.stage.on('pointerup', handleStagePointerUp);
@@ -3180,7 +2726,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
-  }, [addDrawingPath, applyCanvasCursor, clearAllNodeGraphicsTextures, commitNumericSliderValue, deleteConnection, deleteDrawing, deleteNode, drawConnections, drawEffects, drawFreehandStrokes, drawMinimap, endConnectionDrag, pickConnectionAtClientPoint, refreshCanvasBackgroundTexture, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, selectDrawing, selectNode, setInputPortHighlight, setSelectedNodeGraphicsDebug, syncNodePortPositions, updateDrawingPosition, updateGraph, updateNodePosition, updateNumericSliderFromPointer, updateTextResolutionForScale]);
+  }, [applyCanvasCursor, clearAllNodeGraphicsTextures, drawEffects, finishInteraction, handleKeyDown, handleResize, handleStagePointerDown, handleStagePointerMove, handleStagePointerUp, handleWheel, refreshCanvasBackgroundTexture, setSelectedNodeGraphicsDebug]);
 
   useEffect(() => {
     const previous = previousNodeExecutionStatesRef.current;
