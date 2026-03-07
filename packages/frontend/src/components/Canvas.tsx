@@ -1,54 +1,35 @@
-import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Application,
   Circle,
   Container,
   FederatedPointerEvent,
   Graphics,
-  Matrix,
-  Point,
   Rectangle,
-  settings,
   Sprite,
   Text,
   Texture,
-  WRAP_MODES,
 } from 'pixi.js';
 import { useGraphStore } from '../store/graphStore';
 import type {
   NodeExecutionState,
-  PencilColor,
   NodeGraphicsComputationDebug,
 } from '../store/graphStore';
 import {
   CanvasBackgroundSettings,
-  DrawingPath,
-  GraphDrawing,
-  GraphNode,
-  GraphicsArtifact,
   NodeType,
   Position,
 } from '../types';
-import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
-import { deriveGradientStops, normalizeCanvasBackground, resolveGraphCanvasBackground } from '../utils/canvasBackground';
+import { resolveGraphCanvasBackground } from '../utils/canvasBackground';
 import {
-  clamp,
   interpolateCanvasBackground,
   makePortKey,
-  parsePortKey,
   snapToPixel,
 } from '../utils/canvasHelpers';
 import {
-  clearAllNodeGraphicsTextures as clearAllNodeGraphicsTexturesInCache,
-  getNodeGraphicsTextureForNode as getNodeGraphicsTextureForNodeInCache,
-  releaseUnusedNodeGraphicsTextures as releaseUnusedNodeGraphicsTexturesInCache,
   type GraphicsTextureCacheEntry,
-  type TextureCacheState,
 } from '../utils/canvasTextureCache';
 import {
-  enqueueLightningPulse as enqueueLightningPulseEffect,
-  enqueueNodeShock as enqueueNodeShockEffect,
-  runCanvasEffectsPass,
   type ConnectionGeometry,
   type LightningPulse,
   type NodeShock,
@@ -63,14 +44,9 @@ import {
   resolveGraphicsProjectionPlan,
   resolveNodeRenderFrame,
   resolveNodeRenderTargetPosition,
-  type WorldBounds,
 } from '../utils/canvasNodeRender';
-import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
-import { colorStringToPixi, hexColorToNumber } from '../utils/color';
-import {
-  buildGraphicsImageUrl,
-  isRenderableGraphicsArtifact,
-} from '../utils/graphics';
+import { colorStringToPixi } from '../utils/color';
+import { buildGraphicsImageUrl } from '../utils/graphics';
 import { truncateTextToWidth } from '../utils/textLayout';
 import {
   formatNumericInputValue,
@@ -80,20 +56,48 @@ import {
 import {
   HEADER_HEIGHT,
   NODE_BODY_PADDING,
-  NODE_MIN_WIDTH,
-  NODE_WIDTH,
-  resolveStandardNodeMinHeight,
 } from '../../../shared/src/nodeCardGeometry.js';
-import { v4 as uuidv4 } from 'uuid';
-import AnnotationMarkdown from './AnnotationMarkdown';
+import { CanvasChrome } from './CanvasChrome';
+import { CanvasStatusOverlay } from './CanvasStatusOverlay';
 import {
   useCanvasViewport,
   type MinimapTransform,
   type ProjectionTransitionState,
 } from './useCanvasViewport';
+import {
+  type ActiveDrawingPath,
+  type AnnotationOverlayEntry,
+  type AnnotationOverlayTransform,
+  type ConnectionDragState,
+  type DrawingDragState,
+  type DrawingVisual,
+  type HoveredResizeHandle,
+  type NodeDragState,
+  type NodeResizeState,
+  type NodeVisual,
+  type NumericSliderDragState,
+  type NumericSliderVisual,
+  type PanState,
+  areAnnotationOverlaysEqual,
+  areNodeGraphicsDebugValuesEqual,
+  drawInputPortMarker,
+  drawNodeCardFrame,
+  drawNumericSliderVisual,
+  drawOutputPortMarker,
+  getNextDrawingName,
+  getTextureDimensions,
+  getViewportWorldBounds,
+  isRenderablePythonGraphicsOutput,
+  resolveNodeCardDimensions,
+  type ResizeHandleDirection,
+  resolveResizeCursor,
+} from './canvasShared';
 import { useCanvasGraphEffects } from './useCanvasGraphEffects';
 import { useCanvasInteractions } from './useCanvasInteractions';
 import { useMcpScreenshotBridge } from './useMcpScreenshotBridge';
+import { useCanvasRuntime } from './useCanvasRuntime';
+import { usePixiCanvasLifecycle } from './usePixiCanvasLifecycle';
+import { useCanvasExecutionEffects } from './useCanvasExecutionEffects';
 import { normalizeAnnotationConfig } from '../utils/annotation';
 
 const ANNOTATION_TEXT_INSET_X = 8;
@@ -121,785 +125,17 @@ const DRAW_SMOOTHING_STEP = 1;
 const NUMERIC_SLIDER_LEFT_PADDING = 12;
 const NUMERIC_SLIDER_RIGHT_PADDING = 34;
 const NUMERIC_SLIDER_Y_OFFSET = 15;
-const NUMERIC_SLIDER_TRACK_WIDTH = 4;
-const NUMERIC_SLIDER_KNOB_RADIUS = 7;
 const NODE_RESIZE_HANDLE_SIZE = 10;
 const NODE_RESIZE_HANDLE_MARGIN = 4;
-const ANNOTATION_NODE_MIN_WIDTH = 140;
-const ANNOTATION_NODE_MIN_HEIGHT = 84;
 const SMOKE_EMIT_INTERVAL_MS = 140;
 const SMOKE_MIN_DURATION_MS = 720;
 const SMOKE_MAX_DURATION_MS = 1320;
 const SMOKE_MAX_PARTICLES = 96;
 const PROJECTION_TRANSITION_DURATION_MS = 260;
-const NODE_CARD_BACKGROUND_ALPHA = 0.8;
-const NODE_CARD_BACKGROUND_BOTTOM_ALPHA = 0.2;
-const NODE_CARD_BORDER_WIDTH = 1.5;
-const NODE_CARD_BORDER_MAX_ALPHA = 0.5;
-const NODE_CARD_BORDER_PATTERN_WIDTH = 8;
-const NODE_CARD_BORDER_PATTERN_HEIGHT = 256;
-const NODE_CARD_CORNER_RADIUS = 20;
-const NODE_CARD_BACKGROUND_PATTERN_WIDTH = 8;
-const NODE_CARD_BACKGROUND_PATTERN_HEIGHT = 256;
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
 const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
 const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
-const NODE_TITLE_TEXT_STYLE = {
-  fontFamily: 'Arial',
-  fontSize: 14,
-  fontWeight: 'bold' as const,
-  fill: 0x0f172a,
-};
-const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
-  isPending: false,
-  isComputing: false,
-  hasError: false,
-  isStale: false,
-  errorMessage: null,
-  lastRunAt: null,
-};
-
-interface NodeVisual {
-  node: GraphNode;
-  container: Container;
-  width: number;
-  height: number;
-  projectedGraphicsHeight: number;
-  inputPortOffsets: Map<string, number>;
-  outputPortOffsets: Map<string, number>;
-}
-
-interface PanState {
-  pointerX: number;
-  pointerY: number;
-  viewportX: number;
-  viewportY: number;
-}
-
-interface NodeDragState {
-  nodeId: string;
-  pointerX: number;
-  pointerY: number;
-  nodeX: number;
-  nodeY: number;
-  currentX: number;
-  currentY: number;
-  moved: boolean;
-}
-
-interface NodeResizeState {
-  nodeId: string;
-  pointerX: number;
-  pointerY: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  handle: ResizeHandleDirection;
-  minWidth: number;
-  minHeight: number;
-  currentX: number;
-  currentY: number;
-  currentWidth: number;
-  currentHeight: number;
-}
-
-type ResizeHandleDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-
-interface HoveredResizeHandle {
-  nodeId: string;
-  handle: ResizeHandleDirection;
-}
-
-interface AnnotationOverlayEntry {
-  nodeId: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  text: string;
-  backgroundColor: string;
-  fontColor: string;
-  fontSize: number;
-}
-
-interface AnnotationOverlayTransform {
-  x: number;
-  y: number;
-  scale: number;
-}
-
-interface ConnectionDragState {
-  sourceNodeId: string;
-  sourcePort: string;
-  sourcePortKey: string;
-  startX: number;
-  startY: number;
-  pointerX: number;
-  pointerY: number;
-  hoveredInputKey: string | null;
-}
-
-interface ActiveDrawingPath {
-  drawingId: string;
-  path: DrawingPath;
-}
-
-interface DrawingDragState {
-  drawingId: string;
-  pointerX: number;
-  pointerY: number;
-  drawingX: number;
-  drawingY: number;
-  currentX: number;
-  currentY: number;
-  moved: boolean;
-}
-
-interface DrawingVisual {
-  drawing: GraphDrawing;
-  container: Container;
-  width: number;
-  height: number;
-}
-
-interface NumericSliderVisual {
-  nodeId: string;
-  nodeContainer: Container;
-  track: Graphics;
-  knob: Graphics;
-  valueLabel: Text;
-  trackX: number;
-  trackY: number;
-  trackWidth: number;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-}
-
-interface NumericSliderDragState {
-  nodeId: string;
-  initialValue: number;
-  currentValue: number;
-}
-
-interface NodeCardDimensions {
-  width: number;
-  height: number;
-  minWidth: number;
-  minHeight: number;
-}
-
-let nodeCardBorderTexture: Texture | null = null;
-let nodeCardBackgroundFadeTexture: Texture | null = null;
-
-function toFiniteNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function resolveNumericSliderValue(
-  localX: number,
-  slider: NumericSliderVisual
-): number {
-  if (slider.trackWidth <= 0 || slider.max <= slider.min) {
-    return slider.min;
-  }
-
-  const ratio = clamp((localX - slider.trackX) / slider.trackWidth, 0, 1);
-  const rawValue = slider.min + (ratio * (slider.max - slider.min));
-  return snapNumericInputValue(rawValue, slider.min, slider.max, slider.step);
-}
-
-function drawNumericSliderVisual(slider: NumericSliderVisual): void {
-  const ratio = slider.max > slider.min
-    ? clamp((slider.value - slider.min) / (slider.max - slider.min), 0, 1)
-    : 0;
-  const knobX = slider.trackX + (ratio * slider.trackWidth);
-
-  slider.track.clear();
-  slider.track.lineStyle(NUMERIC_SLIDER_TRACK_WIDTH, 0xcbd5e1, 1, 0.5, false);
-  slider.track.moveTo(slider.trackX, slider.trackY);
-  slider.track.lineTo(slider.trackX + slider.trackWidth, slider.trackY);
-  slider.track.lineStyle(NUMERIC_SLIDER_TRACK_WIDTH, 0x2563eb, 1, 0.5, false);
-  slider.track.moveTo(slider.trackX, slider.trackY);
-  slider.track.lineTo(knobX, slider.trackY);
-
-  slider.knob.clear();
-  slider.knob.lineStyle(1, 0x1d4ed8, 1);
-  slider.knob.beginFill(0xffffff, 1);
-  slider.knob.drawCircle(knobX, slider.trackY, NUMERIC_SLIDER_KNOB_RADIUS);
-  slider.knob.endFill();
-
-  slider.valueLabel.text = formatNumericInputValue(slider.value, slider.step);
-}
-
-function drawInputPortMarker(marker: Graphics, highlighted: boolean): void {
-  marker.clear();
-  marker.beginFill(highlighted ? 0x2563eb : 0x1d4ed8);
-  marker.drawCircle(0, 0, highlighted ? PORT_RADIUS + 2 : PORT_RADIUS);
-  marker.endFill();
-}
-
-function drawOutputPortMarker(marker: Graphics, highlighted: boolean): void {
-  marker.clear();
-  marker.beginFill(highlighted ? 0x22c55e : 0x16a34a);
-  marker.drawCircle(0, 0, highlighted ? PORT_RADIUS + 2 : PORT_RADIUS);
-  marker.endFill();
-}
-
-function resolvePencilColor(color: PencilColor): number {
-  return hexColorToNumber(color, '#ffffff');
-}
-
-function getNextDrawingName(drawings: GraphDrawing[]): string {
-  const existing = new Set(drawings.map((drawing) => drawing.name));
-  let index = 1;
-  let candidate = `Drawing ${index}`;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `Drawing ${index}`;
-  }
-  return candidate;
-}
-
-function isRenderablePythonGraphicsOutput(
-  node: GraphNode,
-  graphicsOutput: GraphicsArtifact | null | undefined
-): graphicsOutput is GraphicsArtifact {
-  return node.config.runtime === 'python_process' &&
-    isRenderableGraphicsArtifact(graphicsOutput);
-}
-
-function getNodeMinWidth(node: GraphNode): number {
-  if (node.type === NodeType.ANNOTATION) {
-    return ANNOTATION_NODE_MIN_WIDTH;
-  }
-  return NODE_MIN_WIDTH;
-}
-
-function getNodeMinHeight(node: GraphNode): number {
-  if (node.type === NodeType.ANNOTATION) {
-    return ANNOTATION_NODE_MIN_HEIGHT;
-  }
-  return resolveStandardNodeMinHeight(
-    node.metadata.inputs.length,
-    node.metadata.outputs.length,
-    node.type === NodeType.NUMERIC_INPUT
-  );
-}
-
-function resolveNodeCardDimensions(
-  node: GraphNode,
-  draftSize?: { width: number; height: number }
-): NodeCardDimensions {
-  const minWidth = getNodeMinWidth(node);
-  const minHeight = getNodeMinHeight(node);
-  const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
-  const widthCandidate = draftSize
-    ? draftSize.width
-    : toFiniteNumber(nodeConfig.cardWidth, NODE_WIDTH);
-  const heightCandidate = draftSize
-    ? draftSize.height
-    : toFiniteNumber(nodeConfig.cardHeight, minHeight);
-
-  const width = Math.max(minWidth, snapToPixel(widthCandidate));
-  const height = Math.max(minHeight, snapToPixel(heightCandidate));
-  return { width, height, minWidth, minHeight };
-}
-
-function resolveResizeCursor(handle: ResizeHandleDirection): string {
-  if (handle === 'n' || handle === 's') {
-    return 'ns-resize';
-  }
-  if (handle === 'e' || handle === 'w') {
-    return 'ew-resize';
-  }
-  if (handle === 'ne' || handle === 'sw') {
-    return 'nesw-resize';
-  }
-  return 'nwse-resize';
-}
-
-function areAnnotationOverlaysEqual(
-  left: AnnotationOverlayEntry[],
-  right: AnnotationOverlayEntry[]
-): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    const leftItem = left[index];
-    const rightItem = right[index];
-    if (
-      leftItem.nodeId !== rightItem.nodeId ||
-      leftItem.x !== rightItem.x ||
-      leftItem.y !== rightItem.y ||
-      leftItem.width !== rightItem.width ||
-      leftItem.height !== rightItem.height ||
-      leftItem.text !== rightItem.text ||
-      leftItem.backgroundColor !== rightItem.backgroundColor ||
-      leftItem.fontColor !== rightItem.fontColor ||
-      leftItem.fontSize !== rightItem.fontSize
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
-  const width = texture.orig.width || texture.width || 0;
-  const height = texture.orig.height || texture.height || 0;
-  const valid = texture.baseTexture.valid && width > 0 && height > 0;
-  return { width, height, valid };
-}
-
-function getViewportWorldBounds(app: Application, viewport: Container): WorldBounds {
-  const scaleX = Math.max(Math.abs(viewport.scale.x || 1), 0.0001);
-  const scaleY = Math.max(Math.abs(viewport.scale.y || 1), 0.0001);
-  const minX = -viewport.position.x / scaleX;
-  const minY = -viewport.position.y / scaleY;
-  return {
-    minX,
-    minY,
-    maxX: minX + app.screen.width / scaleX,
-    maxY: minY + app.screen.height / scaleY,
-  };
-}
-
-function getCanvasBackgroundSignature(
-  background: CanvasBackgroundSettings,
-  width: number,
-  height: number
-): string {
-  return `${background.mode}:${background.baseColor}:${Math.round(width)}x${Math.round(height)}`;
-}
-
-function createCanvasBackgroundTexture(
-  width: number,
-  height: number,
-  background: CanvasBackgroundSettings
-): Texture {
-  const safeWidth = Math.max(2, Math.round(width * PIXEL_RATIO));
-  const safeHeight = Math.max(2, Math.round(height * PIXEL_RATIO));
-  const canvas = document.createElement('canvas');
-  canvas.width = safeWidth;
-  canvas.height = safeHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    return Texture.WHITE;
-  }
-
-  if (background.mode === 'solid') {
-    ctx.fillStyle = background.baseColor;
-    ctx.fillRect(0, 0, safeWidth, safeHeight);
-    return Texture.from(canvas);
-  }
-
-  const [highlight, base, shadow, deepShadow] = deriveGradientStops(background.baseColor);
-  const gradient = ctx.createRadialGradient(
-    safeWidth * 0.12,
-    safeHeight * 0.08,
-    safeWidth * 0.06,
-    safeWidth * 0.52,
-    safeHeight * 0.56,
-    Math.max(safeWidth, safeHeight) * 0.9
-  );
-  gradient.addColorStop(0, highlight);
-  gradient.addColorStop(0.35, base);
-  gradient.addColorStop(0.7, shadow);
-  gradient.addColorStop(1, deepShadow);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, safeWidth, safeHeight);
-  return Texture.from(canvas);
-}
-
-function getNodeCardBorderTexture(): Texture {
-  if (nodeCardBorderTexture) {
-    return nodeCardBorderTexture;
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = NODE_CARD_BORDER_PATTERN_WIDTH;
-  canvas.height = NODE_CARD_BORDER_PATTERN_HEIGHT;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    return Texture.WHITE;
-  }
-
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, '#ffffff');
-  gradient.addColorStop(0.5, '#808080');
-  gradient.addColorStop(1, '#ffffff');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const texture = Texture.from(canvas);
-  texture.baseTexture.wrapMode = WRAP_MODES.CLAMP;
-  nodeCardBorderTexture = texture;
-  return texture;
-}
-
-function getNodeCardBackgroundFadeTexture(): Texture {
-  if (nodeCardBackgroundFadeTexture) {
-    return nodeCardBackgroundFadeTexture;
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = NODE_CARD_BACKGROUND_PATTERN_WIDTH;
-  canvas.height = NODE_CARD_BACKGROUND_PATTERN_HEIGHT;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    return Texture.WHITE;
-  }
-
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const texture = Texture.from(canvas);
-  texture.baseTexture.wrapMode = WRAP_MODES.CLAMP;
-  nodeCardBackgroundFadeTexture = texture;
-  return texture;
-}
-
-function clampAlpha(alpha: number): number {
-  if (!Number.isFinite(alpha)) {
-    return 1;
-  }
-  return Math.max(0, Math.min(1, alpha));
-}
-
-function blendPixiColors(baseColor: number, targetColor: number, amount: number): number {
-  const clampedAmount = Math.max(0, Math.min(1, amount));
-  const baseR = (baseColor >> 16) & 0xff;
-  const baseG = (baseColor >> 8) & 0xff;
-  const baseB = baseColor & 0xff;
-  const targetR = (targetColor >> 16) & 0xff;
-  const targetG = (targetColor >> 8) & 0xff;
-  const targetB = targetColor & 0xff;
-  const blendedR = Math.round(baseR + ((targetR - baseR) * clampedAmount));
-  const blendedG = Math.round(baseG + ((targetG - baseG) * clampedAmount));
-  const blendedB = Math.round(baseB + ((targetB - baseB) * clampedAmount));
-
-  return (blendedR << 16) | (blendedG << 8) | blendedB;
-}
-
-function drawNodeCardPath(
-  graphics: Graphics,
-  width: number,
-  height: number,
-  squareBottomCorners: boolean,
-  inset = 0,
-  radius = NODE_CARD_CORNER_RADIUS
-): void {
-  const x = inset;
-  const y = inset;
-  const shapeWidth = Math.max(1, width - (inset * 2));
-  const shapeHeight = Math.max(1, height - (inset * 2));
-  const resolvedRadius = Math.min(radius, Math.floor(shapeWidth * 0.5), Math.floor(shapeHeight * 0.5));
-
-  if (!squareBottomCorners) {
-    graphics.drawRoundedRect(x, y, shapeWidth, shapeHeight, resolvedRadius);
-    return;
-  }
-
-  graphics.moveTo(x + resolvedRadius, y);
-  graphics.lineTo(x + shapeWidth - resolvedRadius, y);
-  graphics.quadraticCurveTo(x + shapeWidth, y, x + shapeWidth, y + resolvedRadius);
-  graphics.lineTo(x + shapeWidth, y + shapeHeight);
-  graphics.lineTo(x, y + shapeHeight);
-  graphics.lineTo(x, y + resolvedRadius);
-  graphics.quadraticCurveTo(x, y, x + resolvedRadius, y);
-  graphics.lineTo(x + resolvedRadius, y);
-}
-
-function drawNodeCardFrame(
-  graphics: Graphics,
-  width: number,
-  height: number,
-  strokeColor: number,
-  fillColor: number,
-  squareBottomCorners: boolean,
-  strokeAlpha = 1,
-  fillAlpha = 1,
-  useGlobalBackgroundOpacityCap = true
-): void {
-  const safeStrokeAlpha = clampAlpha(strokeAlpha);
-  const safeFillAlpha = useGlobalBackgroundOpacityCap
-    ? clampAlpha(Math.min(fillAlpha, NODE_CARD_BACKGROUND_ALPHA))
-    : clampAlpha(fillAlpha);
-  const strokeInset = NODE_CARD_BORDER_WIDTH * 0.5;
-  const fillBaseAlpha = clampAlpha(Math.min(safeFillAlpha, NODE_CARD_BACKGROUND_BOTTOM_ALPHA));
-  const fillOverlayAlpha = clampAlpha(safeFillAlpha - fillBaseAlpha);
-  const fillTextureMatrix = new Matrix(
-    1,
-    0,
-    0,
-    Math.max(1, height) / NODE_CARD_BACKGROUND_PATTERN_HEIGHT,
-    0,
-    0
-  );
-  const cardBackgroundFadeTexture = getNodeCardBackgroundFadeTexture();
-  const gradientSpanHeight = Math.max(1, height - (strokeInset * 2));
-  const borderTextureMatrix = new Matrix(
-    1,
-    0,
-    0,
-    gradientSpanHeight / NODE_CARD_BORDER_PATTERN_HEIGHT,
-    0,
-    strokeInset
-  );
-  const cardBorderTexture = getNodeCardBorderTexture();
-  const strokeTintColor = blendPixiColors(strokeColor, 0xffffff, 0.92);
-  const resolvedStrokeAlpha = clampAlpha(Math.min(safeStrokeAlpha, NODE_CARD_BORDER_MAX_ALPHA));
-
-  graphics.beginFill(fillColor, fillBaseAlpha);
-  drawNodeCardPath(graphics, width, height, squareBottomCorners, 0, NODE_CARD_CORNER_RADIUS);
-  graphics.endFill();
-  if (fillOverlayAlpha > 0) {
-    graphics.beginTextureFill({
-      texture: cardBackgroundFadeTexture,
-      color: fillColor,
-      alpha: fillOverlayAlpha,
-      matrix: fillTextureMatrix,
-    });
-    drawNodeCardPath(graphics, width, height, squareBottomCorners, 0, NODE_CARD_CORNER_RADIUS);
-    graphics.endFill();
-  }
-
-  if (safeStrokeAlpha <= 0) {
-    return;
-  }
-
-  if (width <= strokeInset * 2 || height <= strokeInset * 2) {
-    return;
-  }
-
-  graphics.lineTextureStyle({
-    width: NODE_CARD_BORDER_WIDTH,
-    texture: cardBorderTexture,
-    color: strokeTintColor,
-    alpha: resolvedStrokeAlpha,
-    alignment: 0.5,
-    matrix: borderTextureMatrix,
-  });
-  drawNodeCardPath(graphics, width, height, squareBottomCorners, strokeInset, NODE_CARD_CORNER_RADIUS);
-}
-
-function drawBezierConnection(
-  graphics: Graphics,
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number
-): void {
-  const controlOffset = Math.max(Math.abs(endX - startX) * 0.4, 60);
-  graphics.moveTo(startX, startY);
-  graphics.bezierCurveTo(
-    startX + controlOffset,
-    startY,
-    endX - controlOffset,
-    endY,
-    endX,
-    endY
-  );
-}
-
-function getBezierGeometry(
-  id: string,
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number
-): ConnectionGeometry {
-  const controlOffset = Math.max(Math.abs(endX - startX) * 0.4, 60);
-  return {
-    id,
-    startX,
-    startY,
-    c1X: startX + controlOffset,
-    c1Y: startY,
-    c2X: endX - controlOffset,
-    c2Y: endY,
-    endX,
-    endY,
-  };
-}
-
-function pointOnBezier(geometry: ConnectionGeometry, t: number): { x: number; y: number } {
-  const oneMinus = 1 - t;
-  const oneMinus2 = oneMinus * oneMinus;
-  const oneMinus3 = oneMinus2 * oneMinus;
-  const t2 = t * t;
-  const t3 = t2 * t;
-
-  return {
-    x:
-      oneMinus3 * geometry.startX +
-      3 * oneMinus2 * t * geometry.c1X +
-      3 * oneMinus * t2 * geometry.c2X +
-      t3 * geometry.endX,
-    y:
-      oneMinus3 * geometry.startY +
-      3 * oneMinus2 * t * geometry.c1Y +
-      3 * oneMinus * t2 * geometry.c2Y +
-      t3 * geometry.endY,
-  };
-}
-
-function distanceSquaredToSegment(
-  pointX: number,
-  pointY: number,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-): number {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lengthSquared = (dx * dx) + (dy * dy);
-  if (lengthSquared === 0) {
-    const ox = pointX - x1;
-    const oy = pointY - y1;
-    return (ox * ox) + (oy * oy);
-  }
-
-  const t = clamp(((pointX - x1) * dx + (pointY - y1) * dy) / lengthSquared, 0, 1);
-  const projX = x1 + t * dx;
-  const projY = y1 + t * dy;
-  const ox = pointX - projX;
-  const oy = pointY - projY;
-  return (ox * ox) + (oy * oy);
-}
-
-function distanceSquaredToBezier(
-  pointX: number,
-  pointY: number,
-  geometry: ConnectionGeometry
-): number {
-  const samples = 28;
-  let best = Number.POSITIVE_INFINITY;
-  let previous = pointOnBezier(geometry, 0);
-
-  for (let i = 1; i <= samples; i += 1) {
-    const current = pointOnBezier(geometry, i / samples);
-    const distanceSquared = distanceSquaredToSegment(
-      pointX,
-      pointY,
-      previous.x,
-      previous.y,
-      current.x,
-      current.y
-    );
-    if (distanceSquared < best) {
-      best = distanceSquared;
-    }
-    previous = current;
-  }
-
-  return best;
-}
-
-function createsCycle(
-  nodes: GraphNode[],
-  sourceNodeId: string,
-  targetNodeId: string,
-  connections: Array<{ sourceNodeId: string; targetNodeId: string }>
-): boolean {
-  if (sourceNodeId === targetNodeId) {
-    return true;
-  }
-
-  const adjacency = new Map<string, string[]>();
-  for (const node of nodes) {
-    adjacency.set(node.id, []);
-  }
-
-  for (const connection of connections) {
-    const next = adjacency.get(connection.sourceNodeId);
-    if (next) {
-      next.push(connection.targetNodeId);
-    }
-  }
-
-  const stack = [targetNodeId];
-  const visited = new Set<string>();
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current || visited.has(current)) {
-      continue;
-    }
-
-    if (current === sourceNodeId) {
-      return true;
-    }
-
-    visited.add(current);
-    const nextNodes = adjacency.get(current) || [];
-    for (const next of nextNodes) {
-      if (!visited.has(next)) {
-        stack.push(next);
-      }
-    }
-  }
-
-  return false;
-}
-
-function areNodeGraphicsDebugValuesEqual(
-  left: NodeGraphicsComputationDebug | null,
-  right: NodeGraphicsComputationDebug | null
-): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (!left || !right) {
-    return false;
-  }
-
-  if (
-    left.nodeId !== right.nodeId ||
-    left.nodeType !== right.nodeType ||
-    left.hasGraphicsOutput !== right.hasGraphicsOutput ||
-    left.isRenderableGraphics !== right.isRenderableGraphics ||
-    left.graphicsId !== right.graphicsId ||
-    left.mimeType !== right.mimeType ||
-    left.levelCount !== right.levelCount ||
-    left.viewportScale !== right.viewportScale ||
-    left.projectionWidth !== right.projectionWidth ||
-    left.projectedWidthOnScreen !== right.projectedWidthOnScreen ||
-    left.devicePixelRatio !== right.devicePixelRatio ||
-    left.estimatedMaxPixels !== right.estimatedMaxPixels ||
-    left.stableMaxPixels !== right.stableMaxPixels ||
-    left.selectedLevel !== right.selectedLevel ||
-    left.selectedLevelPixels !== right.selectedLevelPixels ||
-    left.shouldLoadProjectedGraphicsByViewport !== right.shouldLoadProjectedGraphicsByViewport ||
-    left.canReloadProjectedGraphics !== right.canReloadProjectedGraphics ||
-    left.shouldLoadProjectedGraphics !== right.shouldLoadProjectedGraphics ||
-    left.requestUrl !== right.requestUrl
-  ) {
-    return false;
-  }
-
-  if (left.levelPixels.length !== right.levelPixels.length) {
-    return false;
-  }
-
-  for (let index = 0; index < left.levelPixels.length; index += 1) {
-    if (left.levelPixels[index] !== right.levelPixels[index]) {
-      return false;
-    }
-  }
-
-  return true;
-}
+const NODE_TITLE_TEXT_STYLE = { fontFamily: 'Arial', fontSize: 14, fontWeight: 'bold' as const, fill: 0x0f172a };
 
 interface CanvasProps {
   enableMcpScreenshotBridge?: boolean;
@@ -1077,513 +313,83 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     setViewportRegionForScreenshot,
   });
 
-  const refreshCanvasBackgroundTexture = useCallback((backgroundOverride?: CanvasBackgroundSettings) => {
-    const app = appRef.current;
-    const backgroundSprite = backgroundSpriteRef.current;
-    if (!app || !backgroundSprite) {
-      return;
-    }
-
-    const resolvedBackground = normalizeCanvasBackground(
-      backgroundOverride ?? resolveGraphCanvasBackground(graphRef.current)
-    );
-    const signature = getCanvasBackgroundSignature(
-      resolvedBackground,
-      app.screen.width,
-      app.screen.height
-    );
-    if (signature === appliedCanvasBackgroundSignatureRef.current) {
-      return;
-    }
-
-    const previousTexture = backgroundSprite.texture;
-    backgroundSprite.texture = createCanvasBackgroundTexture(
-      app.screen.width,
-      app.screen.height,
-      resolvedBackground
-    );
-    backgroundSprite.width = app.screen.width;
-    backgroundSprite.height = app.screen.height;
-    appliedCanvasBackgroundSignatureRef.current = signature;
-    lastResolvedCanvasBackgroundRef.current = resolvedBackground;
-
-    if (previousTexture !== Texture.WHITE && previousTexture !== backgroundSprite.texture) {
-      previousTexture.destroy(true);
-    }
-  }, []);
-
-  const applyCanvasCursor = useCallback(() => {
-    const app = appRef.current;
-    if (!app) {
-      return;
-    }
-
-    const canvas = app.view as HTMLCanvasElement;
-    if (drawingEnabledRef.current) {
-      canvas.style.cursor = 'crosshair';
-      return;
-    }
-    if (nodeResizeStateRef.current || hoveredNodeResizeHandleRef.current) {
-      const resizeHandle =
-        nodeResizeStateRef.current?.handle ??
-        hoveredNodeResizeHandleRef.current?.handle ??
-        'se';
-      canvas.style.cursor = resolveResizeCursor(resizeHandle);
-      return;
-    }
-    if (numericSliderDragStateRef.current || hoveredNumericSliderNodeIdRef.current) {
-      canvas.style.cursor = 'ew-resize';
-      return;
-    }
-    if (panStateRef.current) {
-      canvas.style.cursor = 'grabbing';
-      return;
-    }
-    canvas.style.cursor = 'grab';
-  }, []);
-
-  const shouldKeepCanvasAnimationLoop = useCallback(() => {
-    return shouldKeepCanvasAnimationLoopRunning({
-      hasActiveInteraction: Boolean(
-        connectionDragStateRef.current ||
-        nodeDragStateRef.current ||
-        nodeResizeStateRef.current ||
-        numericSliderDragStateRef.current ||
-        drawingDragStateRef.current ||
-        panStateRef.current ||
-        activeDrawingPathRef.current
-      ),
-      hasErroredNodes: hasErroredNodeExecutionState(nodeExecutionStatesRef.current),
-      lightningPulseCount: lightningPulsesRef.current.length,
-      nodeShockCount: nodeShocksRef.current.length,
-      smokePuffCount: smokePuffsRef.current.length,
-    });
-  }, []);
-
-  const pauseCanvasAnimationLoopIfIdle = useCallback(() => {
-    const app = appRef.current;
-    if (!app || !app.ticker.started) {
-      return;
-    }
-    if (shouldKeepCanvasAnimationLoop()) {
-      return;
-    }
-    app.stop();
-  }, [shouldKeepCanvasAnimationLoop]);
-
-  const setInputPortHighlight = useCallback((portKey: string, highlighted: boolean) => {
-    const marker = inputPortMarkersRef.current.get(portKey);
-    if (marker) {
-      drawInputPortMarker(marker, highlighted);
-      requestCanvasAnimationLoop();
-    }
-  }, [requestCanvasAnimationLoop]);
-
-  const setOutputPortHighlight = useCallback((portKey: string, highlighted: boolean) => {
-    const marker = outputPortMarkersRef.current.get(portKey);
-    if (marker) {
-      drawOutputPortMarker(marker, highlighted);
-      requestCanvasAnimationLoop();
-    }
-  }, [requestCanvasAnimationLoop]);
-
-  const syncNodePortPositions = useCallback((nodeId: string, position: Position, visual: NodeVisual) => {
-    for (const [portName, offsetY] of visual.inputPortOffsets.entries()) {
-      inputPortPositionsRef.current.set(makePortKey(nodeId, portName), {
-        x: position.x,
-        y: position.y + offsetY,
-      });
-    }
-
-    for (const [portName, offsetY] of visual.outputPortOffsets.entries()) {
-      outputPortPositionsRef.current.set(makePortKey(nodeId, portName), {
-        x: position.x + visual.width,
-        y: position.y + offsetY,
-      });
-    }
-  }, []);
-
-  const getTextureCacheState = useCallback((): TextureCacheState => ({
-    graphicsTextureCache: graphicsTextureCacheRef.current,
-    pendingGraphicsTextureLoads: pendingGraphicsTextureLoadsRef.current,
-    nodeGraphicsTextureBindings: nodeGraphicsTextureBindingsRef.current,
-    nodePendingGraphicsTextureBindings: nodePendingGraphicsTextureBindingsRef.current,
-  }), []);
-
-  const requestNodeGraphicsTextureRefresh = useCallback(() => {
-    requestCanvasAnimationLoop();
-    renderGraphRef.current();
-  }, [requestCanvasAnimationLoop]);
-
-  const getNodeGraphicsTextureForNode = useCallback((nodeId: string, source: string): Texture => {
-    return getNodeGraphicsTextureForNodeInCache(
-      getTextureCacheState(),
-      nodeId,
-      source,
-      requestNodeGraphicsTextureRefresh
-    );
-  }, [getTextureCacheState, requestNodeGraphicsTextureRefresh]);
-
-  const releaseUnusedNodeGraphicsTextures = useCallback((activeNodeIds: Set<string>) => {
-    releaseUnusedNodeGraphicsTexturesInCache(getTextureCacheState(), activeNodeIds);
-  }, [getTextureCacheState]);
-
-  const clearAllNodeGraphicsTextures = useCallback(() => {
-    clearAllNodeGraphicsTexturesInCache(getTextureCacheState());
-  }, [getTextureCacheState]);
-
-  const pickConnectionAtClientPoint = useCallback((clientX: number, clientY: number): string | null => {
-    const viewport = viewportRef.current;
-    const app = appRef.current;
-    if (!viewport) {
-      return null;
-    }
-    if (!app) {
-      return null;
-    }
-
-    const canvasRect = (app.view as HTMLCanvasElement).getBoundingClientRect();
-    const localX = clientX - canvasRect.left;
-    const localY = clientY - canvasRect.top;
-    const worldPoint = viewport.toLocal(new Point(localX, localY));
-    const scale = Math.max(viewport.scale.x, 0.1);
-    const connectionStroke = resolveGraphConnectionStroke(graphRef.current);
-    const hitWidth = Math.max(EDGE_HIT_WIDTH, connectionStroke.backgroundWidth * 6);
-    const maxDistanceWorld = hitWidth / scale;
-    const maxDistanceSquared = maxDistanceWorld * maxDistanceWorld;
-
-    let pickedId: string | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (const [connectionId, geometry] of connectionGeometriesRef.current.entries()) {
-      const distanceSquared = distanceSquaredToBezier(worldPoint.x, worldPoint.y, geometry);
-      if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistance) {
-        bestDistance = distanceSquared;
-        pickedId = connectionId;
-      }
-    }
-
-    return pickedId;
-  }, []);
-
-  const drawConnections = useCallback(() => {
-    const edges = edgeLayerRef.current;
-    const currentGraph = graphRef.current;
-
-    if (!edges) return;
-
-    requestCanvasAnimationLoop();
-    edges.clear();
-    connectionGeometriesRef.current.clear();
-    if (!currentGraph) return;
-    const viewportScale = Math.max(viewportRef.current?.scale.x ?? 1, 0.1);
-    const connectionStroke = resolveGraphConnectionStroke(currentGraph);
-    const foregroundLineWidth = Math.max(
-      connectionStroke.foregroundWidth / viewportScale,
-      CONNECTION_WIRE_SCREEN_WIDTH / viewportScale
-    );
-    const backgroundLineWidth = Math.max(
-      connectionStroke.backgroundWidth / viewportScale,
-      foregroundLineWidth * 2
-    );
-    const foregroundColor = hexColorToNumber(
-      connectionStroke.foregroundColor,
-      DEFAULT_GRAPH_CONNECTION_STROKE.foregroundColor
-    );
-    const backgroundColor = hexColorToNumber(
-      connectionStroke.backgroundColor,
-      DEFAULT_GRAPH_CONNECTION_STROKE.backgroundColor
-    );
-    const selectedForegroundColor = blendPixiColors(foregroundColor, 0x2563eb, 0.55);
-    const selectedBackgroundColor = blendPixiColors(backgroundColor, 0x93c5fd, 0.45);
-
-    for (const connection of currentGraph.connections) {
-      const sourceVisual = nodeVisualsRef.current.get(connection.sourceNodeId);
-      const targetVisual = nodeVisualsRef.current.get(connection.targetNodeId);
-      const sourcePosition = nodePositionsRef.current.get(connection.sourceNodeId);
-      const targetPosition = nodePositionsRef.current.get(connection.targetNodeId);
-
-      if (!sourceVisual || !targetVisual || !sourcePosition || !targetPosition) {
-        continue;
-      }
-
-      const sourceY =
-        sourceVisual.outputPortOffsets.get(connection.sourcePort) ?? sourceVisual.height / 2;
-      const targetY =
-        targetVisual.inputPortOffsets.get(connection.targetPort) ?? targetVisual.height / 2;
-
-      const startX = sourcePosition.x + sourceVisual.width;
-      const startY = sourcePosition.y + sourceY;
-      const endX = targetPosition.x;
-      const endY = targetPosition.y + targetY;
-      const geometry = getBezierGeometry(connection.id, startX, startY, endX, endY);
-      connectionGeometriesRef.current.set(connection.id, geometry);
-      const isSelectedConnection = selectedConnectionIdRef.current === connection.id;
-      edges.lineStyle(
-        backgroundLineWidth,
-        isSelectedConnection ? selectedBackgroundColor : backgroundColor,
-        isSelectedConnection ? CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA : CONNECTION_WIRE_BACKGROUND_ALPHA,
-        0.5,
-        false
-      );
-      drawBezierConnection(edges, startX, startY, endX, endY);
-      edges.lineStyle(
-        foregroundLineWidth,
-        isSelectedConnection ? selectedForegroundColor : foregroundColor,
-        isSelectedConnection ? CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA : CONNECTION_WIRE_FOREGROUND_ALPHA,
-        0.5,
-        false
-      );
-      drawBezierConnection(edges, startX, startY, endX, endY);
-    }
-
-    const dragState = connectionDragStateRef.current;
-    if (!dragState) return;
-
-    let endX = dragState.startX;
-    let endY = dragState.startY;
-
-    if (dragState.hoveredInputKey) {
-      const hoveredPosition = inputPortPositionsRef.current.get(dragState.hoveredInputKey);
-      if (hoveredPosition) {
-        endX = hoveredPosition.x;
-        endY = hoveredPosition.y;
-      }
-    } else {
-      const viewport = viewportRef.current;
-      if (viewport) {
-        const worldPoint = viewport.toLocal(new Point(dragState.pointerX, dragState.pointerY));
-        endX = worldPoint.x;
-        endY = worldPoint.y;
-      }
-    }
-
-    edges.lineStyle(
-      backgroundLineWidth,
-      selectedBackgroundColor,
-      CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA,
-      0.5,
-      false
-    );
-    drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
-    edges.lineStyle(
-      foregroundLineWidth,
-      selectedForegroundColor,
-      CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA,
-      0.5,
-      false
-    );
-    drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
-  }, [requestCanvasAnimationLoop]);
-
-  const drawFreehandStrokes = useCallback(() => {
-    const drawLayer = drawLayerRef.current;
-    const viewport = viewportRef.current;
-    const currentGraph = graphRef.current;
-    if (!drawLayer || !viewport) {
-      return;
-    }
-
-    requestCanvasAnimationLoop();
-    drawLayer.clear();
-    const viewportScale = Math.max(viewport.scale.x, 0.1);
-
-    const drawPath = (path: DrawingPath, origin: Position) => {
-      if (path.points.length === 0) {
-        return;
-      }
-
-      const lineWidth = Math.max(path.thickness / viewportScale, 0.5 / viewportScale);
-      const color = resolvePencilColor(path.color);
-      drawLayer.lineStyle(lineWidth, color, 0.95, 0.5, false);
-
-      if (path.points.length === 1) {
-        const point = path.points[0];
-        drawLayer.beginFill(color, 0.95);
-        drawLayer.drawCircle(origin.x + point.x, origin.y + point.y, lineWidth * 0.5);
-        drawLayer.endFill();
-        return;
-      }
-
-      drawLayer.moveTo(origin.x + path.points[0].x, origin.y + path.points[0].y);
-      for (let i = 1; i < path.points.length; i += 1) {
-        drawLayer.lineTo(origin.x + path.points[i].x, origin.y + path.points[i].y);
-      }
-    };
-
-    for (const drawing of currentGraph?.drawings ?? []) {
-      const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
-      for (const path of drawing.paths) {
-        drawPath(path, drawingPosition);
-      }
-    }
-
-    const activePath = activeDrawingPathRef.current;
-    if (activePath) {
-      const drawing = currentGraph?.drawings?.find((candidate) => candidate.id === activePath.drawingId);
-      if (drawing) {
-        const drawingPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
-        drawPath(activePath.path, drawingPosition);
-      }
-    }
-  }, [requestCanvasAnimationLoop]);
-
-  const enqueueLightningForConnection = useCallback((connectionId: string) => {
-    const now = performance.now();
-    requestCanvasAnimationLoop();
-    lightningPulsesRef.current = enqueueLightningPulseEffect(
-      lightningPulsesRef.current,
-      connectionId,
-      now,
-      LIGHTNING_DURATION_MS
-    );
-  }, [requestCanvasAnimationLoop]);
-
-  const enqueueLightningForNodeInputs = useCallback((nodeId: string) => {
-    const currentGraph = graphRef.current;
-    if (!currentGraph) {
-      return;
-    }
-
-    for (const connection of currentGraph.connections) {
-      if (connection.targetNodeId === nodeId) {
-        enqueueLightningForConnection(connection.id);
-      }
-    }
-  }, [enqueueLightningForConnection]);
-
-  const enqueueNodeShock = useCallback((nodeId: string) => {
-    const now = performance.now();
-    requestCanvasAnimationLoop();
-    nodeShocksRef.current = enqueueNodeShockEffect(
-      nodeShocksRef.current,
-      nodeId,
-      now,
-      NODE_SHOCK_DURATION_MS
-    );
-  }, [requestCanvasAnimationLoop]);
-
-  const drawEffects = useCallback(() => {
-    const effectsLayer = effectsLayerRef.current;
-    if (!effectsLayer) {
-      return;
-    }
-
-    const effectResult = runCanvasEffectsPass({
-      effectsLayer,
-      now: performance.now(),
-      hasGraph: Boolean(graphRef.current),
-      nodeExecutionStates: nodeExecutionStatesRef.current,
-      nodeVisuals: nodeVisualsRef.current,
-      nodePositions: nodePositionsRef.current,
-      connectionGeometries: connectionGeometriesRef.current,
-      smokePuffs: smokePuffsRef.current,
-      lightningPulses: lightningPulsesRef.current,
-      nodeShocks: nodeShocksRef.current,
-      lastSmokeEmitAtByNode: lastSmokeEmitAtRef.current,
+  const {
+    applyCanvasCursor,
+    clearAllNodeGraphicsTextures,
+    commitNumericSliderValue,
+    drawConnections,
+    drawEffects,
+    drawFreehandStrokes,
+    endConnectionDrag,
+    enqueueLightningForNodeInputs,
+    enqueueNodeShock,
+    getNodeGraphicsTextureForNode,
+    pickConnectionAtClientPoint,
+    refreshCanvasBackgroundTexture,
+    releaseUnusedNodeGraphicsTextures,
+    setInputPortHighlight,
+    syncNodePortPositions,
+    updateNumericSliderFromPointer,
+  } = useCanvasRuntime({
+    appRef,
+    viewportRef,
+    graphRef,
+    backgroundSpriteRef,
+    appliedCanvasBackgroundSignatureRef,
+    lastResolvedCanvasBackgroundRef,
+    nodeResizeStateRef,
+    hoveredNodeResizeHandleRef,
+    drawingEnabledRef,
+    numericSliderDragStateRef,
+    hoveredNumericSliderNodeIdRef,
+    panStateRef,
+    connectionDragStateRef,
+    nodeDragStateRef,
+    drawingDragStateRef,
+    activeDrawingPathRef,
+    nodeExecutionStatesRef,
+    lightningPulsesRef,
+    nodeShocksRef,
+    smokePuffsRef,
+    inputPortMarkersRef,
+    outputPortMarkersRef,
+    inputPortPositionsRef,
+    outputPortPositionsRef,
+    connectionGeometriesRef,
+    edgeLayerRef,
+    drawLayerRef,
+    effectsLayerRef,
+    nodeVisualsRef,
+    nodePositionsRef,
+    drawingPositionsRef,
+    numericSliderVisualsRef,
+    selectedConnectionIdRef,
+    hoveredInputPortKeyRef,
+    hoveredOutputPortKeyRef,
+    graphicsTextureCacheRef,
+    pendingGraphicsTextureLoadsRef,
+    nodeGraphicsTextureBindingsRef,
+    nodePendingGraphicsTextureBindingsRef,
+    lastSmokeEmitAtRef,
+    renderGraphRef,
+    requestCanvasAnimationLoop,
+    updateNode,
+    addConnection,
+    config: {
+      edgeHitWidth: EDGE_HIT_WIDTH,
+      connectionWireScreenWidth: CONNECTION_WIRE_SCREEN_WIDTH,
+      connectionWireForegroundAlpha: CONNECTION_WIRE_FOREGROUND_ALPHA,
+      connectionWireBackgroundAlpha: CONNECTION_WIRE_BACKGROUND_ALPHA,
+      connectionWireSelectedForegroundAlpha: CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA,
+      connectionWireSelectedBackgroundAlpha: CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA,
+      lightningDurationMs: LIGHTNING_DURATION_MS,
+      nodeShockDurationMs: NODE_SHOCK_DURATION_MS,
       smokeEmitIntervalMs: SMOKE_EMIT_INTERVAL_MS,
       smokeMinDurationMs: SMOKE_MIN_DURATION_MS,
       smokeMaxDurationMs: SMOKE_MAX_DURATION_MS,
       smokeMaxParticles: SMOKE_MAX_PARTICLES,
-    });
-    smokePuffsRef.current = effectResult.smokePuffs;
-    lightningPulsesRef.current = effectResult.lightningPulses;
-    nodeShocksRef.current = effectResult.nodeShocks;
-    lastSmokeEmitAtRef.current = effectResult.lastSmokeEmitAtByNode;
-    pauseCanvasAnimationLoopIfIdle();
-  }, [pauseCanvasAnimationLoopIfIdle]);
-
-  const endConnectionDrag = useCallback((commit: boolean) => {
-    const dragState = connectionDragStateRef.current;
-    if (!dragState) return;
-
-    const previousHoveredInput = dragState.hoveredInputKey;
-    const previousSourceOutput = dragState.sourcePortKey;
-
-    if (commit && previousHoveredInput) {
-      const currentGraph = graphRef.current;
-      const { nodeId: targetNodeId, portName: targetPort } = parsePortKey(previousHoveredInput);
-      if (currentGraph && targetPort) {
-        const alreadyExists = currentGraph.connections.some(
-          (connection) =>
-            connection.sourceNodeId === dragState.sourceNodeId &&
-            connection.sourcePort === dragState.sourcePort &&
-            connection.targetNodeId === targetNodeId &&
-            connection.targetPort === targetPort
-        );
-
-        const introducesCycle = createsCycle(
-          currentGraph.nodes,
-          dragState.sourceNodeId,
-          targetNodeId,
-          currentGraph.connections
-        );
-
-        if (!alreadyExists && !introducesCycle) {
-          addConnection({
-            id: uuidv4(),
-            sourceNodeId: dragState.sourceNodeId,
-            sourcePort: dragState.sourcePort,
-            targetNodeId,
-            targetPort,
-          });
-        }
-      }
-    }
-
-    connectionDragStateRef.current = null;
-    hoveredInputPortKeyRef.current = null;
-    hoveredOutputPortKeyRef.current = null;
-    setInputPortHighlight(previousHoveredInput || '', false);
-    setOutputPortHighlight(previousSourceOutput || '', false);
-    drawConnections();
-  }, [addConnection, drawConnections, setInputPortHighlight, setOutputPortHighlight]);
-
-  const updateNumericSliderFromPointer = useCallback((nodeId: string, pointerX: number, pointerY: number) => {
-    const slider = numericSliderVisualsRef.current.get(nodeId);
-    if (!slider) {
-      return;
-    }
-
-    const localPoint = slider.nodeContainer.toLocal(new Point(pointerX, pointerY));
-    const nextValue = resolveNumericSliderValue(localPoint.x, slider);
-    if (nextValue !== slider.value) {
-      slider.value = nextValue;
-      drawNumericSliderVisual(slider);
-    }
-
-    const dragState = numericSliderDragStateRef.current;
-    if (dragState?.nodeId === nodeId) {
-      dragState.currentValue = nextValue;
-    }
-  }, []);
-
-  const commitNumericSliderValue = useCallback((nodeId: string, nextValue: number) => {
-    const currentGraph = graphRef.current;
-    const node = currentGraph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || node.type !== NodeType.NUMERIC_INPUT) {
-      return;
-    }
-
-    const currentConfig = normalizeNumericInputConfig(node.config.config as Record<string, unknown> | undefined);
-    const value = snapNumericInputValue(nextValue, currentConfig.min, currentConfig.max, currentConfig.step);
-    if (value === currentConfig.value) {
-      return;
-    }
-
-    updateNode(nodeId, {
-      config: {
-        ...node.config,
-        config: {
-          ...(node.config.config ?? {}),
-          min: currentConfig.min,
-          max: currentConfig.max,
-          step: currentConfig.step,
-          value,
-        },
-      },
-    });
-  }, [updateNode]);
+    },
+  });
 
   const {
     finishInteraction,
@@ -2625,257 +1431,59 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     applyCanvasCursor,
   });
 
-  useEffect(() => {
-    const host = canvasHostRef.current;
-    if (!host) return;
-    settings.ROUND_PIXELS = true;
+  usePixiCanvasLifecycle({
+    canvasHostRef,
+    appRef,
+    viewportRef,
+    edgeLayerRef,
+    nodeLayerRef,
+    drawingHandleLayerRef,
+    drawLayerRef,
+    effectsLayerRef,
+    backgroundSpriteRef,
+    viewportRefreshRafRef,
+    selectedNodeGraphicsDebugRef,
+    setCanvasReady,
+    setSelectedNodeGraphicsDebug,
+    applyCanvasCursor,
+    refreshCanvasBackgroundTexture,
+    handleStagePointerDown,
+    handleStagePointerMove,
+    handleStagePointerUp,
+    handleWheel,
+    handleResize,
+    handleKeyDown,
+    finishInteraction,
+    drawEffects,
+    clearAllNodeGraphicsTextures,
+    renderGraphRef,
+    appliedCanvasBackgroundSignatureRef,
+  });
 
-    const app = new Application({
-      antialias: true,
-      autoDensity: true,
-      backgroundAlpha: 0,
-      resolution: PIXEL_RATIO,
-      resizeTo: host,
-    });
+  useCanvasExecutionEffects({
+    nodeExecutionStates,
+    nodeGraphicsOutputs,
+    previousNodeExecutionStatesRef,
+    renderGraphRef,
+    enqueueLightningForNodeInputs,
+    enqueueNodeShock,
+  });
 
-    appRef.current = app;
-    setCanvasReady(true);
-    host.appendChild(app.view as HTMLCanvasElement);
-
-    const viewport = new Container();
-    const edgeLayer = new Graphics();
-    const nodeLayer = new Container();
-    const drawingHandleLayer = new Container();
-    const drawLayer = new Graphics();
-    drawLayer.eventMode = 'none';
-    drawingHandleLayer.eventMode = 'passive';
-    const effectsLayer = new Graphics();
-    effectsLayer.eventMode = 'none';
-    const backgroundSprite = new Sprite(Texture.WHITE);
-    backgroundSpriteRef.current = backgroundSprite;
-    backgroundSprite.position.set(0, 0);
-    backgroundSprite.width = app.screen.width;
-    backgroundSprite.height = app.screen.height;
-    backgroundSprite.eventMode = 'none';
-
-    viewportRef.current = viewport;
-    edgeLayerRef.current = edgeLayer;
-    nodeLayerRef.current = nodeLayer;
-    drawingHandleLayerRef.current = drawingHandleLayer;
-    drawLayerRef.current = drawLayer;
-    effectsLayerRef.current = effectsLayer;
-    app.stage.addChild(backgroundSprite);
-    viewport.addChild(edgeLayer);
-    viewport.addChild(nodeLayer);
-    viewport.addChild(drawLayer);
-    viewport.addChild(drawingHandleLayer);
-    viewport.addChild(effectsLayer);
-    app.stage.addChild(viewport);
-
-    app.stage.eventMode = 'static';
-    app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height);
-
-    const canvasElement = app.view as HTMLCanvasElement;
-    canvasElement.style.display = 'block';
-    canvasElement.style.width = '100%';
-    canvasElement.style.height = '100%';
-    canvasElement.style.touchAction = 'none';
-    canvasElement.tabIndex = 0;
-    canvasElement.style.outline = 'none';
-    applyCanvasCursor();
-    refreshCanvasBackgroundTexture();
-
-    app.stage.on('pointerdown', handleStagePointerDown);
-    app.stage.on('pointermove', handleStagePointerMove);
-    app.stage.on('pointerup', handleStagePointerUp);
-    app.stage.on('pointerupoutside', handleStagePointerUp);
-    app.renderer.on('resize', handleResize);
-    canvasElement.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('pointerup', finishInteraction);
-    window.addEventListener('keydown', handleKeyDown);
-    app.ticker.add(drawEffects);
-
-    renderGraphRef.current();
-
-    return () => {
-      if (viewportRefreshRafRef.current !== null) {
-        window.cancelAnimationFrame(viewportRefreshRafRef.current);
-        viewportRefreshRafRef.current = null;
-      }
-      window.removeEventListener('pointerup', finishInteraction);
-      canvasElement.removeEventListener('wheel', handleWheel);
-      app.stage.off('pointerdown', handleStagePointerDown);
-      app.stage.off('pointermove', handleStagePointerMove);
-      app.stage.off('pointerup', handleStagePointerUp);
-      app.stage.off('pointerupoutside', handleStagePointerUp);
-      app.renderer.off('resize', handleResize);
-      window.removeEventListener('keydown', handleKeyDown);
-      app.ticker.remove(drawEffects);
-      clearAllNodeGraphicsTextures();
-      selectedNodeGraphicsDebugRef.current = null;
-      setSelectedNodeGraphicsDebug(null);
-      app.destroy(true);
-      setCanvasReady(false);
-      appliedCanvasBackgroundSignatureRef.current = '';
-      backgroundSpriteRef.current = null;
-      appRef.current = null;
-      viewportRef.current = null;
-      edgeLayerRef.current = null;
-      nodeLayerRef.current = null;
-      drawingHandleLayerRef.current = null;
-      drawLayerRef.current = null;
-      effectsLayerRef.current = null;
-    };
-  }, [applyCanvasCursor, clearAllNodeGraphicsTextures, drawEffects, finishInteraction, handleKeyDown, handleResize, handleStagePointerDown, handleStagePointerMove, handleStagePointerUp, handleWheel, refreshCanvasBackgroundTexture, setSelectedNodeGraphicsDebug]);
-
-  useEffect(() => {
-    const previous = previousNodeExecutionStatesRef.current;
-    const current = nodeExecutionStates;
-
-    for (const [nodeId, state] of Object.entries(current)) {
-      const previousState = previous[nodeId] ?? FALLBACK_NODE_EXECUTION_STATE;
-
-      if (!previousState.isComputing && state.isComputing) {
-        enqueueLightningForNodeInputs(nodeId);
-      }
-
-      if (previousState.isComputing && !state.isComputing && !state.hasError) {
-        enqueueNodeShock(nodeId);
-      }
-    }
-
-    previousNodeExecutionStatesRef.current = current;
-    renderGraphRef.current();
-  }, [enqueueLightningForNodeInputs, enqueueNodeShock, nodeExecutionStates]);
-
-  useEffect(() => {
-    renderGraphRef.current();
-  }, [nodeGraphicsOutputs]);
-
-  let overlay: ReactNode = null;
-  if (isLoading && !graph) {
-    overlay = (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '16px' }}>
-        <div>Loading...</div>
-        {error && <div style={{ color: 'red', fontSize: '12px' }}>Error: {error}</div>}
-      </div>
-    );
-  } else if (!graph) {
-    overlay = (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '16px' }}>
-        <div>No graph loaded</div>
-        {error && <div style={{ color: 'red', fontSize: '12px' }}>Error: {error}</div>}
-        <button
-          onClick={() => {
-            createGraph('Untitled Graph');
-          }}
-          style={{
-            padding: '8px 16px',
-            background: '#2196F3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          Create New Graph
-        </button>
-      </div>
-    );
-  }
+  const overlay = (isLoading && !graph) || !graph
+    ? <CanvasStatusOverlay graphExists={Boolean(graph)} isLoading={isLoading} error={error} createGraph={createGraph} />
+    : null;
 
   return (
-    <div
-      data-testid="canvas-root"
-      style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}
-    >
-      <div
-        ref={canvasHostRef}
-        style={{ width: '100%', height: '100%', overflow: 'hidden' }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          overflow: 'hidden',
-          pointerEvents: 'none',
-          zIndex: 4,
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            transform: `translate(${annotationOverlayTransform.x}px, ${annotationOverlayTransform.y}px) scale(${annotationOverlayTransform.scale})`,
-            transformOrigin: '0 0',
-            width: '1px',
-            height: '1px',
-          }}
-        >
-          {annotationOverlays.map((overlayEntry) => (
-            <div
-              key={overlayEntry.nodeId}
-              data-testid={`annotation-overlay-${overlayEntry.nodeId}`}
-              style={{
-                position: 'absolute',
-                left: `${overlayEntry.x}px`,
-                top: `${overlayEntry.y}px`,
-                width: `${overlayEntry.width}px`,
-                height: `${overlayEntry.height}px`,
-                overflow: 'hidden',
-                padding: '4px 6px 6px',
-                color: overlayEntry.fontColor,
-              }}
-            >
-              <AnnotationMarkdown
-                markdown={overlayEntry.text}
-                color={overlayEntry.fontColor}
-                fontSize={overlayEntry.fontSize}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-      <div
-        style={{
-          position: 'absolute',
-          right: '14px',
-          bottom: '14px',
-          width: `${MINIMAP_WIDTH}px`,
-          height: `${MINIMAP_HEIGHT}px`,
-          borderRadius: '8px',
-          border: '1px solid rgba(148, 163, 184, 0.65)',
-          background: 'rgba(15, 23, 42, 0.72)',
-          backdropFilter: 'blur(2px)',
-          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.35)',
-          overflow: 'hidden',
-          zIndex: 5,
-        }}
-      >
-        <canvas
-          ref={minimapCanvasRef}
-          width={MINIMAP_WIDTH}
-          height={MINIMAP_HEIGHT}
-          onPointerDown={handleMinimapPointerDown}
-          onWheel={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'block',
-            cursor: 'pointer',
-          }}
-        />
-      </div>
-      {overlay && (
-        <div style={{ position: 'absolute', inset: 0 }}>
-          {overlay}
-        </div>
-      )}
-    </div>
+    <CanvasChrome
+      canvasHostRef={canvasHostRef}
+      minimapCanvasRef={minimapCanvasRef}
+      annotationOverlays={annotationOverlays}
+      annotationOverlayTransform={annotationOverlayTransform}
+      handleMinimapPointerDown={handleMinimapPointerDown}
+      overlay={overlay}
+      minimapWidth={MINIMAP_WIDTH}
+      minimapHeight={MINIMAP_HEIGHT}
+    />
   );
 }
 

@@ -179,19 +179,25 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/frontend/src/components/Canvas.tsx` | 3808 | 2882 | -926 |
+| `packages/frontend/src/components/Canvas.tsx` | 3808 | 1490 | -2318 |
 | `packages/frontend/src/components/useCanvasViewport.ts` | 0 | 576 | +576 |
 | `packages/frontend/src/components/useMcpScreenshotBridge.ts` | 0 | 54 | +54 |
 | `packages/frontend/src/components/useCanvasGraphEffects.ts` | 0 | 229 | +229 |
 | `packages/frontend/src/components/useCanvasInteractions.ts` | 0 | 866 | +866 |
-| **Net** | **3808** | **4607** | **+799** |
+| `packages/frontend/src/components/canvasShared.ts` | 0 | 791 | +791 |
+| `packages/frontend/src/components/useCanvasRuntime.ts` | 0 | 784 | +784 |
+| `packages/frontend/src/components/usePixiCanvasLifecycle.ts` | 0 | 209 | +209 |
+| `packages/frontend/src/components/useCanvasExecutionEffects.ts` | 0 | 60 | +60 |
+| `packages/frontend/src/components/CanvasChrome.tsx` | 0 | 122 | +122 |
+| `packages/frontend/src/components/CanvasStatusOverlay.tsx` | 0 | 48 | +48 |
+| **Net** | **3808** | **5229** | **+1421** |
 
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
-| R-001 | `packages/frontend/src/components/Canvas.tsx` | 2882 | Reduced by T-014 phases 1-3, but it still owns Pixi lifecycle, render passes, overlays, and large node/drawing rendering composition in one component. |
-| R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
+| R-001 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
+| R-002 | `packages/frontend/src/components/Canvas.tsx` | 1490 | T-014 moved Canvas below the urgent band, but it still carries the main scene-render pass and should be a follow-up candidate if we do another frontend factoring round. |
 | R-003 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
@@ -660,7 +666,7 @@ Verification result (latest):
 - `npm run build`: pass
 
 ### T-014 Continue Canvas architectural split with hooks/controllers
-Status: IN PROGRESS
+Status: DONE
 
 Scope:
 - Extract runtime concerns out of `packages/frontend/src/components/Canvas.tsx` without changing canvas behavior.
@@ -681,9 +687,18 @@ Delivered so far:
 - Added `packages/frontend/src/components/useCanvasInteractions.ts` for stage pointer/wheel/keyboard handlers plus drag, resize, slider, connection, and freehand interaction finalization.
 - Refactored `packages/frontend/src/components/Canvas.tsx` to consume the extracted interaction controller instead of owning the interaction/event callback block inline.
 - Reduced `packages/frontend/src/components/Canvas.tsx` from `3336` to `2882` in phase 3.
+- Added `packages/frontend/src/components/canvasShared.ts` for shared canvas types plus node-card, slider, connection, background-texture, and graphics-debug rendering helpers.
+- Added `packages/frontend/src/components/useCanvasRuntime.ts` for canvas background/cursor control, node-graphics texture cache orchestration, connection/freehand/effects drawing, numeric-slider updates, and connection commit handling.
+- Added `packages/frontend/src/components/usePixiCanvasLifecycle.ts` for Pixi app bootstrap, layer wiring, stage event registration, and teardown cleanup.
+- Refactored `packages/frontend/src/components/Canvas.tsx` to consume the extracted shared helpers, runtime controller, and lifecycle hook instead of carrying those concerns inline.
+- Reduced `packages/frontend/src/components/Canvas.tsx` from `2882` to `1520` across phases 4-5.
+- Added `packages/frontend/src/components/CanvasChrome.tsx` and `packages/frontend/src/components/CanvasStatusOverlay.tsx` for the DOM overlay/minimap/status shell.
+- Added `packages/frontend/src/components/useCanvasExecutionEffects.ts` for execution-state and graphics-output driven redraw/effect orchestration.
+- Refactored `packages/frontend/src/components/Canvas.tsx` to delegate chrome/status rendering and execution effects, bringing the main component below the urgent size threshold.
+- Reduced `packages/frontend/src/components/Canvas.tsx` from `1520` to `1490` in phase 6, which completes the planned T-014 Canvas decomposition for this queue.
 
 Verification result (latest):
-  - `npm run lint`: pass
+- `npm run lint`: pass
 - `npx tsx --test packages/frontend/tests/canvasAnimation.test.ts packages/frontend/tests/canvasEffects.test.ts packages/frontend/tests/canvasHelpers.test.ts packages/frontend/tests/canvasInteractions.test.ts packages/frontend/tests/canvasNodeRender.test.ts packages/frontend/tests/canvasRenderLifecycle.test.ts packages/frontend/tests/canvasTextureCache.test.ts packages/frontend/tests/canvasViewportFit.test.ts packages/frontend/tests/projections.test.ts packages/mcp-server/tests/screenshotParity.test.ts`: pass (`50` tests, `0` fail)
 - `npx tsx --test --test-concurrency=1 packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: pass (`2` tests, `0` fail)
 - `npm run test`: pass (`214` tests, `0` fail)
@@ -716,8 +731,14 @@ Current status:
   - phase 7 complete: connection tool registration extracted into `packages/mcp-server/src/mcpConnectionTools.ts`
   - phase 8 complete: `drawing_*` tool registration extracted into `packages/mcp-server/src/mcpDrawingTools.ts`
   - phase 9 complete: graph persistence helpers moved into `packages/mcp-server/src/mcpGraphClient.ts`, `graph_*` registrations moved into `packages/mcp-server/src/mcpGraphTools.ts`, and runtime/output registrations moved into `packages/mcp-server/src/mcpRuntimeTools.ts`
-- `IN PROGRESS`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
+- `DONE`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
   - phase 1 complete: minimap, viewport fit/screenshot control, projection-transition shaping, and MCP screenshot bridge registration extracted into `useCanvasViewport.ts` and `useMcpScreenshotBridge.ts`
   - phase 2 complete: graph-to-canvas synchronization, drawing-create request handling, and drawing-mode reset effects extracted into `useCanvasGraphEffects.ts`
   - phase 3 complete: stage pointer/wheel/keyboard handlers and drag/resize/drawing interaction finalization extracted into `useCanvasInteractions.ts`
-  - next phase: extract the remaining render/bootstrap composition out of `Canvas.tsx`
+  - phase 4 complete: shared canvas types/render helpers extracted into `canvasShared.ts`
+  - phase 5 complete: runtime controls and Pixi lifecycle extracted into `useCanvasRuntime.ts` and `usePixiCanvasLifecycle.ts`
+  - phase 6 complete: canvas chrome/status shell and execution-driven redraw effects extracted into `CanvasChrome.tsx`, `CanvasStatusOverlay.tsx`, and `useCanvasExecutionEffects.ts`
+
+Queue status:
+- Reopened March 7, 2026 queue is complete.
+- Remaining `>1000` LOC files stay on the hotspot watchlist for future passes, but there are no unfinished tasks left in this tracker queue.
