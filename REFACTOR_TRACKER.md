@@ -169,7 +169,8 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/mcp-server/src/graphConnectionEdits.ts` | 0 | 143 | +143 |
 | `packages/mcp-server/src/mcpNodeTools.ts` | 0 | 547 | +547 |
 | `packages/mcp-server/src/mcpConnectionTools.ts` | 0 | 278 | +278 |
-| **Net** | **3759** | **3904** | **+145** |
+| `packages/mcp-server/src/mcpDrawingTools.ts` | 0 | 205 | +205 |
+| **Net** | **3759** | **3900** | **+141** |
 
 ## Current Hotspots
 
@@ -177,7 +178,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
 | R-002 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
-| R-003 | `packages/mcp-server/src/index.ts` | 1061 | The entry point is out of the urgent band, but it still mixes server bootstrap with graph, drawing, and runtime tool registration. |
+| R-003 | `packages/mcp-server/src/index.ts` | 884 | The entry point is under the large-file threshold now, but it still mixes server bootstrap with graph and runtime tool registration. |
 | R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
@@ -631,6 +632,9 @@ Delivered so far:
 - Added `packages/mcp-server/src/mcpConnectionTools.ts` for `connections_list`, `connection_add`, `connection_set`, `connection_replace`, and `connection_delete`.
 - Refactored `packages/mcp-server/src/index.ts` to register connection tools via the extracted module instead of embedding the connection registration block inline.
 - Reduced `packages/mcp-server/src/index.ts` from `1287` to `1061` in phase 7 while preserving connection-edit behavior and screenshot parity coverage.
+- Added `packages/mcp-server/src/mcpDrawingTools.ts` for `drawing_*` tool registrations and drawing-specific persistence workflows.
+- Refactored `packages/mcp-server/src/index.ts` to register drawing tools via the extracted module instead of embedding the drawing registration block inline.
+- Reduced `packages/mcp-server/src/index.ts` from `1061` to `884` in phase 8, moving the MCP entrypoint below the large-file threshold.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -663,5 +667,6 @@ Current status:
   - phase 5 complete: node-specific and connection-specific edit helpers extracted into `packages/mcp-server/src/graphNodeEdits.ts` and `packages/mcp-server/src/graphConnectionEdits.ts`
   - phase 6 complete: `node_*` tool registration extracted into `packages/mcp-server/src/mcpNodeTools.ts`
   - phase 7 complete: connection tool registration extracted into `packages/mcp-server/src/mcpConnectionTools.ts`
-  - next phase: extract graph, drawing, and runtime registration modules and keep reducing `index.ts` toward bootstrap plus registration composition only
+  - phase 8 complete: `drawing_*` tool registration extracted into `packages/mcp-server/src/mcpDrawingTools.ts`
+  - next phase: extract graph and runtime registration modules and keep reducing `index.ts` toward bootstrap plus registration composition only
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
