@@ -156,12 +156,20 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/backend/src/http/validate.ts` | 0 | 16 | +16 |
 | **Net** | **1260** | **1360** | **+100** |
 
+### T-013 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/mcp-server/src/index.ts` | 3759 | 3366 | -393 |
+| `packages/mcp-server/src/graphModel.ts` | 0 | 412 | +412 |
+| **Net** | **3759** | **3778** | **+19** |
+
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
-| R-002 | `packages/mcp-server/src/index.ts` | 3759 | Entry point is carrying DTOs, graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration. |
+| R-002 | `packages/mcp-server/src/index.ts` | 3366 | Entry point is still carrying graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration even after the first graph-model extraction. |
 | R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
 | R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
@@ -585,6 +593,28 @@ Verification result (latest):
 - `npm run test`: pass (`214` tests, `0` fail)
 - `npm run build`: pass
 
+### T-013 Modularize mcp-server by tool domain and shared contracts
+Status: IN PROGRESS
+
+Scope:
+- Extract reusable MCP graph-model/support modules out of `packages/mcp-server/src/index.ts`.
+- Keep MCP tool behavior and exported test helpers unchanged while shrinking the entrypoint.
+
+Out of scope:
+- Replacing local MCP graph contracts with shared backend/frontend contracts in this slice
+- Reorganizing all tool registrations by domain yet
+
+Delivered so far:
+- Added `packages/mcp-server/src/graphModel.ts` for MCP-local graph contracts, drawing-color normalization, projection cloning, projection-state normalization, and normalized graph hydration.
+- Refactored `packages/mcp-server/src/index.ts` to import graph-model types and normalization helpers from the new module instead of owning them inline.
+- Reduced `packages/mcp-server/src/index.ts` from `3759` to `3366` in phase 1 while preserving graph-edit behavior and screenshot parity coverage.
+
+Verification result (latest):
+- `npm run lint`: pass
+- `npx tsx --test packages/mcp-server/tests/graphEdits.test.ts packages/mcp-server/tests/screenshotParity.test.ts`: pass (`18` tests, `0` fail)
+- `npm run test`: pass (`214` tests, `0` fail)
+- `npm run build`: pass
+
 ## Current Focus
 
 Queue reopened after the March 7, 2026 size/architecture review.
@@ -601,6 +631,7 @@ Current status:
   - phase 1 complete: graph query traversal/response shaping extracted into `packages/backend/src/core/graphQuery.ts`
   - phase 2 complete: graph normalization and projection shaping extracted into `packages/backend/src/core/graphNormalization.ts`
   - phase 3 complete: structural graph validation extracted into `packages/backend/src/core/graphValidation.ts`
-- phase 4 complete: graph routes moved out of `app.ts` into `packages/backend/src/routes/graphRoutes.ts` with shared request validation middleware
+  - phase 4 complete: graph routes moved out of `app.ts` into `packages/backend/src/routes/graphRoutes.ts` with shared request validation middleware
 - `IN PROGRESS`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
+  - phase 1 complete: graph model/types/projection normalization extracted into `packages/mcp-server/src/graphModel.ts`
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
