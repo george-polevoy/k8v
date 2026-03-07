@@ -11,6 +11,7 @@ This tracker breaks refactor work into small, independent tasks so we can ship i
 3. Add or run relevant tests before marking a task `DONE`.
 4. Update docs (`FUNCTIONALITY.md`, `TEST_CASES.md`) only when behavior or coverage changes.
 5. Treat large source files as a default factoring signal: `>1000` LOC enters the queue and `>1500` LOC is urgent unless there is a clear justification.
+6. After a slice is verified and committed, continue directly to the next queued slice unless blocked by unrelated failures or explicit user reprioritization.
 
 ## LOC Tracking
 
@@ -119,6 +120,21 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/src/components/PythonEnvironmentSection.tsx` | 0 | 168 | +168 |
 | **Net** | **3422** | **3178** | **-244** |
 
+### T-011 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/frontend/src/store/graphStore.ts` | 1348 | 1042 | -306 |
+| `packages/frontend/src/store/graphStoreTypes.ts` | 0 | 44 | +44 |
+| `packages/frontend/src/store/graphStoreState.ts` | 0 | 229 | +229 |
+| `packages/frontend/src/store/graphApi.ts` | 0 | 49 | +49 |
+| `packages/frontend/src/store/graphLocalStorage.ts` | 0 | 36 | +36 |
+| `packages/frontend/src/store/recomputeStatusPolling.ts` | 0 | 76 | +76 |
+| `packages/frontend/src/App.tsx` | 74 | 84 | +10 |
+| `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` | 88 | 96 | +8 |
+| `packages/frontend/tests/e2e/support/browser.ts` | 56 | 75 | +19 |
+| **Net** | **1566** | **1731** | **+165** |
+
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
@@ -126,7 +142,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
 | R-002 | `packages/mcp-server/src/index.ts` | 3759 | Entry point is carrying DTOs, graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration. |
 | R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
-| R-004 | `packages/frontend/src/store/graphStore.ts` | 1348 | Store is still a god object spanning API I/O, optimistic updates, conflict recovery, polling, selection, and graphics cache state. |
+| R-004 | `packages/frontend/src/store/graphStore.ts` | 1042 | Reduced by T-011 phase 1, but optimistic persistence/conflict handling and multiple domain slices still live together. |
 | R-005 | `packages/backend/src/app.ts` | 1260 | Express transport is still mixed with graph normalization, validation, projection behavior, and query traversal logic. |
 | R-006 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
@@ -476,8 +492,47 @@ Verification result:
   - `tests/e2e/diagnosticsPanel.test.ts`
   - `tests/e2e/graphDeletion.test.ts`
   - `tests/e2e/graphConflictReload.test.ts`
-  - `tests/e2e/panelAccordion.test.ts`
+- `tests/e2e/panelAccordion.test.ts`
 - `npm run test:e2e`: currently hangs in `tests/e2e/annotationCard.test.ts` after its first two tests complete; this appears unrelated to T-010 and should be tracked separately
+
+### T-011 Split graphStore phase 1: API, storage, polling, and pure state helpers
+Status: IN PROGRESS
+
+Scope:
+- Extract non-Zustand responsibilities out of `packages/frontend/src/store/graphStore.ts`.
+- Keep the store API and UI behavior unchanged.
+
+Out of scope:
+- Full store-slice decomposition in this phase
+- Reworking optimistic persistence or conflict-recovery flow yet
+- Canvas architectural changes
+
+Delivered so far:
+- Added `packages/frontend/src/store/graphStoreTypes.ts` for exported store-facing types.
+- Added `packages/frontend/src/store/graphStoreState.ts` for pure graph normalization and execution-state helpers.
+- Added `packages/frontend/src/store/graphApi.ts` for backend REST access.
+- Added `packages/frontend/src/store/graphLocalStorage.ts` for current-graph persistence.
+- Added `packages/frontend/src/store/recomputeStatusPolling.ts` for recompute-status polling/backoff orchestration.
+- Refactored `packages/frontend/src/store/graphStore.ts` to consume those modules instead of owning those concerns inline.
+- Exposed a dev-only `window.__k8vGraphStore` handle in `packages/frontend/src/App.tsx` so browser tests can access the live app store instance without dynamic module-import ambiguity.
+- Updated browser test support in `packages/frontend/tests/e2e/support/browser.ts` and `packages/frontend/tests/e2e/nodePanelDraftStability.test.ts` to wait on user-visible graph readiness and use the live store handle.
+
+Remaining inside T-011:
+- Extract optimistic persistence/conflict recovery into a dedicated persistence helper/service.
+- Split the remaining Zustand store body into narrower graph/edit/selection/compute slices or slice-like modules.
+- Revisit `packages/frontend/tests/graphStore.test.ts` splitting once the store boundaries stabilize.
+
+Verification result (phase 1):
+- `npm run lint`: pass
+- `npx tsx --test packages/frontend/tests/graphStore.test.ts`: pass (`20` tests, `0` fail)
+- `npm run test`: pass (`211` tests, `0` fail)
+- `npm run build`: pass
+- Targeted frontend e2e: pass (`6` tests, `0` fail)
+  - `tests/e2e/nodePanelDraftStability.test.ts`
+  - `tests/e2e/diagnosticsPanel.test.ts`
+  - `tests/e2e/graphDeletion.test.ts`
+  - `tests/e2e/graphConflictReload.test.ts`
+  - `tests/e2e/panelAccordion.test.ts`
 
 ## Current Focus
 
@@ -485,7 +540,9 @@ Queue reopened after the March 7, 2026 size/architecture review.
 
 Current status:
 - `DONE`: `T-010` shared graph-management controller and sections
-- `NEXT`: `T-011` split `packages/frontend/src/store/graphStore.ts` into API client, polling/recompute service, optimistic-update/conflict helpers, and smaller Zustand slices
+- `IN PROGRESS`: `T-011` split `packages/frontend/src/store/graphStore.ts`
+  - phase 1 complete: API client, current-graph storage, recompute polling, and pure state helpers extracted
+  - next inside T-011: optimistic persistence/conflict helpers and narrower store slices
 - `FOLLOWING`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
 - `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks

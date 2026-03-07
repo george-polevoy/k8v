@@ -9,6 +9,14 @@ export async function launchBrowser(): Promise<Browser> {
 }
 
 export async function openCanvasForGraph(page: Page, graphId: string): Promise<void> {
+  const graphLoadResponse = page.waitForResponse((response) =>
+    response.request().method() === 'GET' &&
+    response.url().endsWith(`/api/graphs/${graphId}`) &&
+    response.ok()
+  , {
+    timeout: E2E_ASSERT_TIMEOUT_MS,
+  });
+
   await page.addInitScript((savedGraphId: string) => {
     window.localStorage.clear();
     window.localStorage.setItem('k8v-current-graph-id', savedGraphId);
@@ -21,6 +29,17 @@ export async function openCanvasForGraph(page: Page, graphId: string): Promise<v
   });
   await page.locator('canvas').first().waitFor({
     state: 'visible',
+    timeout: E2E_ASSERT_TIMEOUT_MS,
+  });
+  await graphLoadResponse;
+  await page.locator('[data-testid="graph-select"]').first().waitFor({
+    state: 'visible',
+    timeout: E2E_ASSERT_TIMEOUT_MS,
+  });
+  await page.waitForFunction((expectedGraphId: string) => {
+    const graphSelect = document.querySelector('[data-testid="graph-select"]');
+    return graphSelect instanceof HTMLSelectElement && graphSelect.value === expectedGraphId;
+  }, graphId, {
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
 }

@@ -5,6 +5,16 @@ import RightSidebar from './components/RightSidebar';
 import FloatingWindow from './components/FloatingWindow';
 import { useGraphStore } from './store/graphStore';
 
+declare global {
+  interface Window {
+    __k8vGraphStore?: typeof useGraphStore;
+  }
+}
+
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  window.__k8vGraphStore = useGraphStore;
+}
+
 function isCanvasOnlyMode(): boolean {
   if (typeof window === 'undefined') {
     return false;

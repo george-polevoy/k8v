@@ -41,10 +41,18 @@ test(
       await dialog.getByRole('button', { name: 'Create' }).click();
       await dialog.waitFor({ state: 'hidden', timeout: E2E_ASSERT_TIMEOUT_MS });
 
-      await page.evaluate(async (targetNodeName) => {
-        const { useGraphStore } = await import('/src/store/graphStore.ts');
-        const store = useGraphStore.getState();
-        const graph = store.graph;
+      await page.waitForFunction(() => {
+        const store = (window as Window & {
+          __k8vGraphStore?: { getState: () => { graph: unknown } };
+        }).__k8vGraphStore?.getState();
+        return Boolean(store?.graph);
+      }, { timeout: E2E_ASSERT_TIMEOUT_MS });
+
+      await page.evaluate((targetNodeName) => {
+        const store = (window as Window & {
+          __k8vGraphStore?: { getState: () => any };
+        }).__k8vGraphStore?.getState();
+        const graph = store?.graph;
         if (!graph) {
           throw new Error('Expected graph to be loaded before selecting node in draft stability test.');
         }
@@ -65,8 +73,9 @@ test(
       await nodeNameInput.fill(draftName);
 
       await page.evaluate(async () => {
-        const { useGraphStore } = await import('/src/store/graphStore.ts');
-        const store = useGraphStore.getState();
+        const store = (window as Window & {
+          __k8vGraphStore?: { getState: () => any };
+        }).__k8vGraphStore?.getState();
         const currentGraph = store.graph;
         if (!currentGraph) {
           throw new Error('Expected graph to be loaded before updating graph name in test.');

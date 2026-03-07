@@ -7,67 +7,51 @@ import {
   Connection,
   Position,
   ComputationResult,
-  GraphicsArtifact,
 } from '../types';
-import axios from 'axios';
-import { normalizeCanvasBackground } from '../utils/canvasBackground';
-import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
 import { normalizeHexColor } from '../utils/color';
 import {
-  applyProjectionToNodes,
   DEFAULT_GRAPH_PROJECTION_ID,
-  normalizeGraphProjectionState,
   withNodeCardSizeInProjection,
   withNodePositionInProjection,
 } from '../utils/projections';
+import { graphApi } from './graphApi';
+import {
+  clearCurrentGraphId,
+  clearCurrentGraphIdIfMatches,
+  readCurrentGraphId,
+  saveCurrentGraphId,
+} from './graphLocalStorage';
+import { createRecomputeStatusPollController } from './recomputeStatusPolling';
+import {
+  buildNodeGraphicsOutputMapForGraph,
+  buildNodeStateMapForGraph,
+  DEFAULT_DRAWING_COLOR,
+  DEFAULT_NODE_EXECUTION_STATE,
+  getNodeExecutionStateFromResult,
+  normalizeBackendNodeExecutionState,
+  normalizeGraph,
+  normalizeGraphicsOutput,
+  parseGraphSummariesResponse,
+  resolveErrorMessage,
+  type BackendRecomputeStatus,
+} from './graphStoreState';
+import type {
+  GraphSummary,
+  NodeExecutionState,
+  NodeGraphicsComputationDebug,
+  NodeGraphicsOutputMap,
+  PencilColor,
+  PencilThickness,
+} from './graphStoreTypes';
 
-const DEFAULT_DRAWING_COLOR = '#ffffff';
-const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
-const RECOMPUTE_POLL_BASE_INTERVAL_MS = 400;
-const RECOMPUTE_POLL_MAX_INTERVAL_MS = 5_000;
-
-export type PencilColor = string;
-export type PencilThickness = 1 | 3 | 9;
-
-export interface NodeExecutionState {
-  isPending: boolean;
-  isComputing: boolean;
-  hasError: boolean;
-  isStale: boolean;
-  errorMessage: string | null;
-  lastRunAt: number | null;
-}
-
-export interface NodeGraphicsComputationDebug {
-  nodeId: string;
-  nodeType: string;
-  hasGraphicsOutput: boolean;
-  isRenderableGraphics: boolean;
-  graphicsId: string | null;
-  mimeType: string | null;
-  levelCount: number;
-  levelPixels: number[];
-  viewportScale: number;
-  projectionWidth: number | null;
-  projectedWidthOnScreen: number | null;
-  devicePixelRatio: number;
-  estimatedMaxPixels: number | null;
-  stableMaxPixels: number | null;
-  selectedLevel: number | null;
-  selectedLevelPixels: number | null;
-  shouldLoadProjectedGraphicsByViewport: boolean;
-  canReloadProjectedGraphics: boolean;
-  shouldLoadProjectedGraphics: boolean;
-  requestUrl: string | null;
-}
-
-export type NodeGraphicsOutputMap = Record<string, GraphicsArtifact | null>;
-
-export interface GraphSummary {
-  id: string;
-  name: string;
-  updatedAt: number;
-}
+export type {
+  GraphSummary,
+  NodeExecutionState,
+  NodeGraphicsComputationDebug,
+  NodeGraphicsOutputMap,
+  PencilColor,
+  PencilThickness,
+} from './graphStoreTypes';
 
 interface GraphStore {
   graph: Graph | null;
@@ -117,205 +101,17 @@ interface GraphStore {
   drawingCreateRequestId: number;
 }
 
-const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
-  isPending: false,
-  isComputing: false,
-  hasError: false,
-  isStale: false,
-  errorMessage: null,
-  lastRunAt: null,
-};
-
-interface BackendNodeExecutionState {
-  isPending?: boolean;
-  isComputing?: boolean;
-  hasError?: boolean;
-  isStale?: boolean;
-  errorMessage?: string | null;
-  lastRunAt?: number | null;
-}
-
-interface BackendRecomputeStatus {
-  graphId?: string;
-  statusVersion?: number;
-  nodeStates?: Record<string, BackendNodeExecutionState>;
-}
-
-function isErrorTextOutput(textOutput: unknown): boolean {
-  return typeof textOutput === 'string' && /^\s*error:/i.test(textOutput.trim());
-}
-
-function resolveErrorMessage(error: any, fallback: string): string {
-  if (typeof error?.response?.data?.error === 'string' && error.response.data.error.trim()) {
-    return error.response.data.error;
-  }
-  if (typeof error?.message === 'string' && error.message.trim()) {
-    return error.message;
-  }
-  return fallback;
-}
-
-function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
-  const hasError = isErrorTextOutput(result?.textOutput);
-  return {
-    isPending: false,
-    isComputing: false,
-    hasError,
-    isStale: false,
-    errorMessage: hasError ? result.textOutput : null,
-    lastRunAt: typeof result?.timestamp === 'number' ? result.timestamp : Date.now(),
-  };
-}
-
-function normalizeGraphExecutionTimeoutMs(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
-}
-
-function normalizeGraph(graph: Graph): Graph {
-  const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
-  const projectionState = normalizeGraphProjectionState(
-    graph.nodes,
-    graph.projections,
-    graph.activeProjectionId,
-    graph.canvasBackground
-  );
-  const activeProjection = projectionState.projections.find(
-    (projection) => projection.id === projectionState.activeProjectionId
-  ) ?? projectionState.projections[0];
-  const projectedNodes = activeProjection ? applyProjectionToNodes(graph.nodes, activeProjection) : graph.nodes;
-
-  return {
-    ...graph,
-    nodes: projectedNodes,
-    canvasBackground: normalizeCanvasBackground(
-      activeProjection?.canvasBackground ?? graph.canvasBackground
-    ),
-    projections: projectionState.projections,
-    activeProjectionId: projectionState.activeProjectionId,
-    executionTimeoutMs: normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs),
-    connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
-    pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
-    drawings: drawings.map((drawing) => ({
-      ...drawing,
-      paths: (drawing.paths ?? []).map((path) => ({
-        ...path,
-        color: normalizeHexColor(path.color, DEFAULT_DRAWING_COLOR),
-      })),
-    })),
-  };
-}
-
-function buildNodeStateMapForGraph(
-  graph: Graph,
-  previous: Record<string, NodeExecutionState>
-): Record<string, NodeExecutionState> {
-  const nextStates: Record<string, NodeExecutionState> = {};
-  for (const node of graph.nodes) {
-    nextStates[node.id] = {
-      ...DEFAULT_NODE_EXECUTION_STATE,
-      ...(previous[node.id] ?? {}),
-    };
-  }
-  return nextStates;
-}
-
-function normalizeGraphicsOutput(graphics: unknown): GraphicsArtifact | null {
-  if (!graphics || typeof graphics !== 'object') {
-    return null;
-  }
-
-  const maybeGraphics = graphics as Partial<GraphicsArtifact>;
-  if (typeof maybeGraphics.id !== 'string' || !maybeGraphics.id.trim()) {
-    return null;
-  }
-
-  if (typeof maybeGraphics.mimeType !== 'string' || !maybeGraphics.mimeType.trim()) {
-    return null;
-  }
-
-  if (!Array.isArray(maybeGraphics.levels) || maybeGraphics.levels.length === 0) {
-    return null;
-  }
-
-  const normalizedLevels = maybeGraphics.levels
-    .filter((level) =>
-      level &&
-      typeof level.level === 'number' &&
-      Number.isFinite(level.level) &&
-      typeof level.width === 'number' &&
-      Number.isFinite(level.width) &&
-      level.width > 0 &&
-      typeof level.height === 'number' &&
-      Number.isFinite(level.height) &&
-      level.height > 0 &&
-      typeof level.pixelCount === 'number' &&
-      Number.isFinite(level.pixelCount) &&
-      level.pixelCount > 0
-    )
-    .map((level) => ({
-      level: Math.max(0, Math.floor(level.level)),
-      width: Math.max(1, Math.floor(level.width)),
-      height: Math.max(1, Math.floor(level.height)),
-      pixelCount: Math.max(1, Math.floor(level.pixelCount)),
-    }))
-    .sort((left, right) => left.level - right.level);
-
-  if (normalizedLevels.length === 0) {
-    return null;
-  }
-
-  return {
-    id: maybeGraphics.id.trim(),
-    mimeType: maybeGraphics.mimeType.trim().toLowerCase(),
-    levels: normalizedLevels,
-  };
-}
-
-function buildNodeGraphicsOutputMapForGraph(
-  graph: Graph,
-  previous: NodeGraphicsOutputMap
-): NodeGraphicsOutputMap {
-  const nextGraphicsOutputs: NodeGraphicsOutputMap = {};
-  for (const node of graph.nodes) {
-    nextGraphicsOutputs[node.id] = previous[node.id] ?? null;
-  }
-  return nextGraphicsOutputs;
-}
-
-function normalizeBackendNodeExecutionState(
-  value: BackendNodeExecutionState | undefined,
-  fallback: NodeExecutionState
-): NodeExecutionState {
-  if (!value || typeof value !== 'object') {
-    return fallback;
-  }
-
-  return {
-    isPending: Boolean(value.isPending),
-    isComputing: Boolean(value.isComputing),
-    hasError: Boolean(value.hasError),
-    isStale: Boolean(value.isStale),
-    errorMessage: typeof value.errorMessage === 'string' ? value.errorMessage : null,
-    lastRunAt: typeof value.lastRunAt === 'number' ? value.lastRunAt : fallback.lastRunAt,
-  };
-}
-
 export const useGraphStore = create<GraphStore>((set, get) => {
   let latestUpdateRequestId = 0;
-  let recomputePollGeneration = 0;
-  let recomputePollTimer: ReturnType<typeof setTimeout> | null = null;
-  let recomputePollFailureCount = 0;
 
   const hydrateNodeExecutionStates = async (graph: Graph) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
       try {
-        const response = await axios.get(`/api/nodes/${node.id}/result`);
+        const response = await graphApi.fetchNodeResult(node.id);
         return {
           nodeId: node.id,
-          executionState: getNodeExecutionStateFromResult(response.data),
-          graphicsOutput: normalizeGraphicsOutput(response.data?.graphics),
+          executionState: getNodeExecutionStateFromResult(response),
+          graphicsOutput: normalizeGraphicsOutput((response as { graphics?: unknown })?.graphics),
         };
       } catch (error: any) {
         if (error?.response?.status === 404) {
@@ -359,11 +155,11 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     const snapshots = await Promise.all(uniqueNodeIds.map(async (nodeId) => {
       try {
-        const response = await axios.get(`/api/nodes/${nodeId}/result`);
+        const response = await graphApi.fetchNodeResult(nodeId);
         return {
           nodeId,
-          executionState: getNodeExecutionStateFromResult(response.data),
-          graphicsOutput: normalizeGraphicsOutput(response.data?.graphics),
+          executionState: getNodeExecutionStateFromResult(response),
+          graphicsOutput: normalizeGraphicsOutput((response as { graphics?: unknown })?.graphics),
         };
       } catch (error: any) {
         if (error?.response?.status === 404) {
@@ -446,60 +242,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }
   };
 
-  const pollRecomputeStatus = async (graphId: string, generation: number) => {
-    let nextPollDelayMs = RECOMPUTE_POLL_BASE_INTERVAL_MS;
-    try {
-      const response = await axios.get(`/api/graphs/${graphId}/recompute-status`);
-      if (generation !== recomputePollGeneration) {
-        return;
-      }
-      recomputePollFailureCount = 0;
-
+  const recomputeStatusPolling = createRecomputeStatusPollController<BackendRecomputeStatus>({
+    fetchStatus: graphApi.fetchRecomputeStatus,
+    onStatus: (graphId, status) => {
       const currentGraph = get().graph;
       if (!currentGraph || currentGraph.id !== graphId) {
         return;
       }
 
-      applyBackendRecomputeStatus(currentGraph, response.data as BackendRecomputeStatus);
-    } catch {
-      // Slow down retries while the backend is unavailable to reduce request and proxy log spam.
-      recomputePollFailureCount = Math.min(recomputePollFailureCount + 1, 8);
-      nextPollDelayMs = Math.min(
-        RECOMPUTE_POLL_BASE_INTERVAL_MS * (2 ** (recomputePollFailureCount - 1)),
-        RECOMPUTE_POLL_MAX_INTERVAL_MS
-      );
-    } finally {
-      const shouldScheduleNextPoll =
-        generation === recomputePollGeneration &&
-        get().graph?.id === graphId;
-      if (shouldScheduleNextPoll) {
-        recomputePollTimer = setTimeout(() => {
-          void pollRecomputeStatus(graphId, generation);
-        }, nextPollDelayMs);
-      }
-    }
-  };
-
-  const stopRecomputeStatusPolling = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    recomputePollGeneration += 1;
-    recomputePollFailureCount = 0;
-    if (recomputePollTimer) {
-      clearTimeout(recomputePollTimer);
-      recomputePollTimer = null;
-    }
-  };
-
-  const startRecomputeStatusPolling = (graphId: string) => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    stopRecomputeStatusPolling();
-    const generation = recomputePollGeneration;
-    void pollRecomputeStatus(graphId, generation);
-  };
+      applyBackendRecomputeStatus(currentGraph, status);
+    },
+    shouldContinue: (graphId) => get().graph?.id === graphId,
+  });
 
   const upsertGraphSummary = (summary: GraphSummary) => {
     set((state) => {
@@ -535,8 +289,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     loadGraph: async (id: string) => {
       set({ isLoading: true, error: null });
       try {
-        const response = await axios.get(`/api/graphs/${id}`);
-        const graph = normalizeGraph(response.data as Graph);
+        const graph = normalizeGraph(await graphApi.fetchGraph(id));
         set({
           graph,
           selectedNodeId: null,
@@ -551,12 +304,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           updatedAt: graph.updatedAt,
         });
         await hydrateNodeExecutionStates(graph);
-        startRecomputeStatusPolling(graph.id);
-        try {
-          localStorage.setItem('k8v-current-graph-id', id);
-        } catch (storageError) {
-          console.warn('Could not save to localStorage:', storageError);
-        }
+        recomputeStatusPolling.start(graph.id);
+        saveCurrentGraphId(graph.id);
       } catch (error: any) {
         if (error?.response?.status === 404) {
           removeGraphSummary(id);
@@ -572,8 +321,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         set({ isLoading: true, error: null });
       }
       try {
-        const response = await axios.post('/api/graphs', { name });
-        const newGraph = normalizeGraph(response.data as Graph);
+        const newGraph = normalizeGraph(await graphApi.createGraph(name));
         set({
           graph: newGraph,
           selectedNodeId: null,
@@ -588,12 +336,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           name: newGraph.name,
           updatedAt: newGraph.updatedAt,
         });
-        startRecomputeStatusPolling(newGraph.id);
-        try {
-          localStorage.setItem('k8v-current-graph-id', newGraph.id);
-        } catch (storageError) {
-          console.warn('Could not save to localStorage:', storageError);
-        }
+        recomputeStatusPolling.start(newGraph.id);
+        saveCurrentGraphId(newGraph.id);
         console.log('Graph created successfully:', newGraph.id);
       } catch (error: any) {
         console.error('Error creating graph:', error);
@@ -608,16 +352,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: deletingCurrentGraph, error: null });
 
       try {
-        await axios.delete(`/api/graphs/${id}`);
+        await graphApi.deleteGraph(id);
         removeGraphSummary(id);
-
-        try {
-          if (localStorage.getItem('k8v-current-graph-id') === id) {
-            localStorage.removeItem('k8v-current-graph-id');
-          }
-        } catch (storageError) {
-          console.warn('Could not update localStorage after graph deletion:', storageError);
-        }
+        clearCurrentGraphIdIfMatches(id);
 
         if (deletingCurrentGraph) {
           await get().loadLatestGraph();
@@ -635,8 +372,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     loadLatestGraph: async () => {
       set({ isLoading: true, error: null });
       try {
-        const response = await axios.get('/api/graphs/latest');
-        const graph = normalizeGraph(response.data as Graph);
+        const graph = normalizeGraph(await graphApi.fetchLatestGraph());
         set({
           graph,
           selectedNodeId: null,
@@ -651,12 +387,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           updatedAt: graph.updatedAt,
         });
         await hydrateNodeExecutionStates(graph);
-        startRecomputeStatusPolling(graph.id);
-        try {
-          localStorage.setItem('k8v-current-graph-id', graph.id);
-        } catch (storageError) {
-          console.warn('Could not save to localStorage:', storageError);
-        }
+        recomputeStatusPolling.start(graph.id);
+        saveCurrentGraphId(graph.id);
       } catch (error: any) {
         if (error.response?.status === 404) {
           set({ isLoading: false });
@@ -670,17 +402,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     refreshGraphSummaries: async () => {
       try {
-        const response = await axios.get('/api/graphs');
-        const nextSummaries = Array.isArray(response.data?.graphs)
-          ? (response.data.graphs as GraphSummary[])
-              .filter((summary) =>
-                summary &&
-                typeof summary.id === 'string' &&
-                typeof summary.name === 'string' &&
-                typeof summary.updatedAt === 'number'
-              )
-              .sort((left, right) => right.updatedAt - left.updatedAt)
-          : [];
+        const nextSummaries = parseGraphSummariesResponse(await graphApi.listGraphs());
         set({ graphSummaries: nextSummaries });
       } catch (error: any) {
         set({ error: resolveErrorMessage(error, 'Failed to list graphs') });
@@ -692,13 +414,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       await get().refreshGraphSummaries();
       try {
-        let savedGraphId: string | null = null;
-        try {
-          savedGraphId = localStorage.getItem('k8v-current-graph-id');
-          console.log('Saved graph ID:', savedGraphId);
-        } catch (storageError) {
-          console.warn('localStorage not available, skipping saved graph ID:', storageError);
-        }
+        const savedGraphId = readCurrentGraphId();
+        console.log('Saved graph ID:', savedGraphId);
 
         if (savedGraphId) {
           try {
@@ -710,11 +427,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           } catch (error: any) {
             console.log('Failed to load saved graph:', error.message);
             if (error.response?.status === 404) {
-              try {
-                localStorage.removeItem('k8v-current-graph-id');
-              } catch {
-                // Ignore localStorage errors
-              }
+              clearCurrentGraphId();
               try {
                 console.log('Trying to load latest graph...');
                 await get().loadLatestGraph();
@@ -729,11 +442,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             }
 
             console.log('Other error, creating new graph...');
-            try {
-              localStorage.removeItem('k8v-current-graph-id');
-            } catch {
-              // Ignore localStorage errors
-            }
+            clearCurrentGraphId();
             await get().createGraph('Untitled Graph');
             set({ isLoading: false });
             return;
@@ -781,15 +490,13 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       });
 
       try {
-        const response = await axios.put(`/api/graphs/${graph.id}`, {
+        const persistedGraph = normalizeGraph(await graphApi.updateGraph(graph.id, {
           ...updatedGraph,
           ifMatchUpdatedAt,
-        });
+        }));
         if (requestId !== latestUpdateRequestId) {
           return;
         }
-
-        const persistedGraph = normalizeGraph(response.data as Graph);
 
         set((state) => ({
           graph: persistedGraph,
@@ -818,13 +525,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           name: persistedGraph.name,
           updatedAt: persistedGraph.updatedAt,
         });
-
-        try {
-          localStorage.setItem('k8v-current-graph-id', persistedGraph.id);
-        } catch (storageError) {
-          console.warn('Could not save to localStorage:', storageError);
-        }
-        startRecomputeStatusPolling(persistedGraph.id);
+        saveCurrentGraphId(persistedGraph.id);
+        recomputeStatusPolling.start(persistedGraph.id);
       } catch (error: any) {
         if (requestId !== latestUpdateRequestId) {
           return;
@@ -832,12 +534,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
         if (error?.response?.status === 409) {
           try {
-            const latestResponse = await axios.get(`/api/graphs/${graph.id}`);
+            const latestGraph = normalizeGraph(await graphApi.fetchGraph(graph.id));
             if (requestId !== latestUpdateRequestId) {
               return;
             }
-
-            const latestGraph = normalizeGraph(latestResponse.data as Graph);
             set((state) => ({
               graph: latestGraph,
               selectedNodeId:
@@ -866,13 +566,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
               name: latestGraph.name,
               updatedAt: latestGraph.updatedAt,
             });
-
-            try {
-              localStorage.setItem('k8v-current-graph-id', latestGraph.id);
-            } catch (storageError) {
-              console.warn('Could not save to localStorage:', storageError);
-            }
-            startRecomputeStatusPolling(latestGraph.id);
+            saveCurrentGraphId(latestGraph.id);
+            recomputeStatusPolling.start(latestGraph.id);
             return;
           } catch (reloadError: any) {
             if (requestId !== latestUpdateRequestId) {
@@ -1199,8 +894,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }));
 
       try {
-        const response = await axios.post(`/api/graphs/${graph.id}/compute`, { nodeId });
-        const result = response.data as ComputationResult;
+        const result = await graphApi.computeGraph(graph.id, nodeId) as ComputationResult;
         const activeGraph = get().graph;
         if (!activeGraph || activeGraph.id !== graph.id) {
           return;
@@ -1228,7 +922,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           };
         });
 
-        startRecomputeStatusPolling(graph.id);
+        recomputeStatusPolling.start(graph.id);
       } catch (error: any) {
         const message = resolveErrorMessage(error, 'Failed to compute node');
         set((state) => ({
@@ -1273,8 +967,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       });
 
       try {
-        const response = await axios.post(`/api/graphs/${graph.id}/compute`, {});
-        const results = Array.isArray(response.data) ? response.data : [];
+        const response = await graphApi.computeGraph(graph.id);
+        const results = Array.isArray(response) ? response : [];
         const activeGraph = get().graph;
         if (!activeGraph || activeGraph.id !== graph.id) {
           return;
@@ -1316,7 +1010,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
             resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
           };
         });
-        startRecomputeStatusPolling(graph.id);
+        recomputeStatusPolling.start(graph.id);
       } catch (error: any) {
         const message = resolveErrorMessage(error, 'Failed to compute graph');
         set((state) => {
