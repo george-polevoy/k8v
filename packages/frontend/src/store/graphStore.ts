@@ -7,12 +7,6 @@ import {
   Connection,
   Position,
 } from '../types';
-import { normalizeHexColor } from '../utils/color';
-import {
-  DEFAULT_GRAPH_PROJECTION_ID,
-  withNodeCardSizeInProjection,
-  withNodePositionInProjection,
-} from '../utils/projections';
 import { graphApi } from './graphApi';
 import {
   clearCurrentGraphId,
@@ -30,6 +24,7 @@ import {
   createGraphComputationController,
   type GraphStoreComputationState,
 } from './graphStoreComputation';
+import { createGraphEditingController } from './graphStoreEditing';
 import {
   DEFAULT_DRAWING_COLOR,
   normalizeGraph,
@@ -37,6 +32,7 @@ import {
   resolveErrorMessage,
   type BackendRecomputeStatus,
 } from './graphStoreState';
+import { createGraphStoreUiController } from './graphStoreUi';
 import type {
   GraphSummary,
   NodeGraphicsComputationDebug,
@@ -144,6 +140,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     getState: () => get(),
     setState: (partial) => set(partial as Parameters<typeof set>[0]),
     syncPersistedGraph,
+  });
+
+  const graphEditing = createGraphEditingController({
+    getState: () => get(),
+    setState: (partial) => set(partial as Parameters<typeof set>[0]),
+  });
+
+  const graphUi = createGraphStoreUiController({
+    getState: () => get(),
+    setState: (partial) => set(partial as Parameters<typeof set>[0]),
   });
 
   return {
@@ -331,280 +337,26 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     updateGraph: graphPersistence.updateGraph,
 
-    addNode: (node: GraphNode) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        nodes: [...graph.nodes, node],
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    updateNode: (nodeId: string, updates: Partial<GraphNode>) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedNodes = graph.nodes.map((node) =>
-        node.id === nodeId ? { ...node, ...updates, version: Date.now().toString() } : node
-      );
-
-      const updatedGraph = {
-        ...graph,
-        nodes: updatedNodes,
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    updateNodePosition: (nodeId: string, position: Position) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-      const updatedNodes = graph.nodes.map((node) =>
-        node.id === nodeId ? { ...node, position } : node
-      );
-      const updatedProjections = (graph.projections ?? []).map((projection) =>
-        projection.id === activeProjectionId
-          ? withNodePositionInProjection(projection, nodeId, position)
-          : projection
-      );
-
-      const updatedGraph = {
-        ...graph,
-        nodes: updatedNodes,
-        projections: updatedProjections,
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    updateNodeCardSize: (nodeId: string, width: number, height: number) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedNodes = graph.nodes.map((node) => {
-        if (node.id !== nodeId) {
-          return node;
-        }
-
-        return {
-          ...node,
-          config: {
-            ...node.config,
-            config: {
-              ...(node.config.config ?? {}),
-              cardWidth: width,
-              cardHeight: height,
-            },
-          },
-        };
-      });
-      const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-      const updatedProjections = (graph.projections ?? []).map((projection) =>
-        projection.id === activeProjectionId
-          ? withNodeCardSizeInProjection(projection, nodeId, { width, height })
-          : projection
-      );
-
-      const updatedGraph = {
-        ...graph,
-        nodes: updatedNodes,
-        projections: updatedProjections,
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    deleteNode: (nodeId: string) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedNodes = graph.nodes.filter((node) => node.id !== nodeId);
-      const updatedConnections = graph.connections.filter(
-        (conn) => conn.sourceNodeId !== nodeId && conn.targetNodeId !== nodeId
-      );
-
-      const updatedGraph = {
-        ...graph,
-        nodes: updatedNodes,
-        connections: updatedConnections,
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    addConnection: (connection: Connection) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        connections: [...graph.connections, connection],
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    deleteConnection: (connectionId: string) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        connections: graph.connections.filter((conn) => conn.id !== connectionId),
-        updatedAt: Date.now(),
-      };
-      get().updateGraph(updatedGraph);
-    },
-
-    deleteConnections: (connectionIds: string[]) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const connectionIdSet = new Set(connectionIds);
-      const validConnections = graph.connections.filter((conn) => connectionIdSet.has(conn.id));
-
-      if (validConnections.length === 0) {
-        console.warn('No valid connections found to delete:', connectionIds);
-        return;
-      }
-
-      if (validConnections.length !== connectionIds.length) {
-        console.warn(
-          `Some connection IDs were not found. Requested: ${connectionIds.length}, Found: ${validConnections.length}`
-        );
-      }
-
-      const updatedGraph = {
-        ...graph,
-        connections: graph.connections.filter((conn) => !connectionIdSet.has(conn.id)),
-        updatedAt: Date.now(),
-      };
-
-      get().updateGraph(updatedGraph);
-    },
-
-    selectNode: (nodeId: string | null) => {
-      if (get().selectedNodeId === nodeId && get().selectedDrawingId === null) return;
-      set({ selectedNodeId: nodeId, selectedDrawingId: null, selectedNodeGraphicsDebug: null });
-    },
-
-    selectDrawing: (drawingId: string | null) => {
-      if (get().selectedDrawingId === drawingId && get().selectedNodeId === null) return;
-      set({ selectedDrawingId: drawingId, selectedNodeId: null, selectedNodeGraphicsDebug: null });
-    },
-
-    setSelectedNodeGraphicsDebug: (debug: NodeGraphicsComputationDebug | null) => {
-      set({ selectedNodeGraphicsDebug: debug });
-    },
-
-    addDrawing: (drawing: GraphDrawing) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        drawings: [...(graph.drawings ?? []), drawing],
-        updatedAt: Date.now(),
-      };
-      void get().updateGraph(updatedGraph);
-    },
-
-    updateDrawing: (drawingId: string, updates: Partial<GraphDrawing>) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        drawings: (graph.drawings ?? []).map((drawing) =>
-          drawing.id === drawingId
-            ? {
-                ...drawing,
-                ...updates,
-              }
-            : drawing
-        ),
-        updatedAt: Date.now(),
-      };
-      void get().updateGraph(updatedGraph);
-    },
-
-    updateDrawingPosition: (drawingId: string, position: Position) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        drawings: (graph.drawings ?? []).map((drawing) =>
-          drawing.id === drawingId
-            ? {
-                ...drawing,
-                position,
-              }
-            : drawing
-        ),
-        updatedAt: Date.now(),
-      };
-      void get().updateGraph(updatedGraph);
-    },
-
-    deleteDrawing: (drawingId: string) => {
-      const { graph, selectedDrawingId } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        drawings: (graph.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
-        updatedAt: Date.now(),
-      };
-
-      if (selectedDrawingId === drawingId) {
-        set({ selectedDrawingId: null });
-      }
-
-      void get().updateGraph(updatedGraph);
-    },
-
-    addDrawingPath: (drawingId: string, path: DrawingPath) => {
-      const { graph } = get();
-      if (!graph) return;
-
-      const updatedGraph = {
-        ...graph,
-        drawings: (graph.drawings ?? []).map((drawing) =>
-          drawing.id === drawingId
-            ? {
-                ...drawing,
-                paths: [...drawing.paths, path],
-              }
-            : drawing
-        ),
-        updatedAt: Date.now(),
-      };
-      void get().updateGraph(updatedGraph);
-    },
-
-    requestCreateDrawing: () => {
-      set((state) => ({
-        drawingCreateRequestId: state.drawingCreateRequestId + 1,
-      }));
-    },
-
-    setDrawingEnabled: (enabled: boolean) => {
-      set({ drawingEnabled: enabled });
-    },
-
-    setDrawingColor: (color: PencilColor) => {
-      set({ drawingColor: normalizeHexColor(color, DEFAULT_DRAWING_COLOR) });
-    },
-
-    setDrawingThickness: (thickness: PencilThickness) => {
-      set({ drawingThickness: thickness });
-    },
+    addNode: graphEditing.addNode,
+    updateNode: graphEditing.updateNode,
+    updateNodePosition: graphEditing.updateNodePosition,
+    updateNodeCardSize: graphEditing.updateNodeCardSize,
+    deleteNode: graphEditing.deleteNode,
+    addConnection: graphEditing.addConnection,
+    deleteConnection: graphEditing.deleteConnection,
+    deleteConnections: graphEditing.deleteConnections,
+    selectNode: graphUi.selectNode,
+    selectDrawing: graphUi.selectDrawing,
+    setSelectedNodeGraphicsDebug: graphUi.setSelectedNodeGraphicsDebug,
+    addDrawing: graphEditing.addDrawing,
+    updateDrawing: graphEditing.updateDrawing,
+    updateDrawingPosition: graphEditing.updateDrawingPosition,
+    deleteDrawing: graphEditing.deleteDrawing,
+    addDrawingPath: graphEditing.addDrawingPath,
+    requestCreateDrawing: graphUi.requestCreateDrawing,
+    setDrawingEnabled: graphUi.setDrawingEnabled,
+    setDrawingColor: graphUi.setDrawingColor,
+    setDrawingThickness: graphUi.setDrawingThickness,
 
     computeNode: graphComputation.computeNode,
 
