@@ -400,6 +400,74 @@ test('updateGraph reloads latest graph when backend reports conflict', async () 
   }
 });
 
+test('updateGraph keeps the latest persisted graph when responses resolve out of order', async () => {
+  const originalPut = axios.put;
+
+  const initialGraph: Graph = {
+    id: 'g-latest-wins',
+    name: 'Graph baseline',
+    nodes: [],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 100,
+  };
+
+  const pendingResponses: Array<{ resolve: (value: { data: Graph }) => void }> = [];
+  const putPayloads: any[] = [];
+
+  (axios as any).put = async (_url: string, body: any) => {
+    putPayloads.push(body);
+    return await new Promise<{ data: Graph }>((resolve) => {
+      pendingResponses.push({ resolve });
+    });
+  };
+
+  useGraphStore.setState({
+    graph: initialGraph,
+    selectedNodeId: null,
+    selectedDrawingId: null,
+    isLoading: false,
+    error: null,
+    nodeExecutionStates: {},
+    nodeGraphicsOutputs: {},
+  });
+
+  try {
+    const firstUpdate = useGraphStore.getState().updateGraph({ name: 'Graph first optimistic' });
+    const secondUpdate = useGraphStore.getState().updateGraph({ name: 'Graph second optimistic' });
+
+    assert.equal(pendingResponses.length, 2);
+    assert.equal(useGraphStore.getState().graph?.name, 'Graph second optimistic');
+
+    pendingResponses[1].resolve({
+      data: {
+        ...initialGraph,
+        name: 'Graph second persisted',
+        updatedAt: 202,
+      },
+    });
+    pendingResponses[0].resolve({
+      data: {
+        ...initialGraph,
+        name: 'Graph first persisted',
+        updatedAt: 201,
+      },
+    });
+
+    await Promise.all([firstUpdate, secondUpdate]);
+
+    const state = useGraphStore.getState();
+    assert.equal(putPayloads.length, 2);
+    assert.equal(putPayloads[0].ifMatchUpdatedAt, 100);
+    assert.equal(putPayloads[1].ifMatchUpdatedAt, 100);
+    assert.equal(state.graph?.name, 'Graph second persisted');
+    assert.equal(state.graph?.updatedAt, 202);
+    assert.equal(state.error, null);
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
 test('updateNodePosition persists position to active projection nodePositions', async () => {
   const originalPut = axios.put;
   let capturedPayload: any = null;

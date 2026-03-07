@@ -11,7 +11,17 @@ declare global {
   }
 }
 
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
+const importMetaWithEnv = import.meta as ImportMeta & {
+  env?: {
+    DEV?: boolean;
+  };
+};
+
+const shouldExposeGraphStore =
+  typeof window !== 'undefined' &&
+  (typeof importMetaWithEnv.env?.DEV === 'boolean' ? importMetaWithEnv.env.DEV : true);
+
+if (shouldExposeGraphStore) {
   window.__k8vGraphStore = useGraphStore;
 }
 

@@ -23,6 +23,11 @@ import {
 } from './graphLocalStorage';
 import { createRecomputeStatusPollController } from './recomputeStatusPolling';
 import {
+  buildGraphStateUpdate,
+  createGraphUpdatePersistenceController,
+  type GraphStorePersistenceState,
+} from './graphStorePersistence';
+import {
   buildNodeGraphicsOutputMapForGraph,
   buildNodeStateMapForGraph,
   DEFAULT_DRAWING_COLOR,
@@ -39,7 +44,6 @@ import type {
   GraphSummary,
   NodeExecutionState,
   NodeGraphicsComputationDebug,
-  NodeGraphicsOutputMap,
   PencilColor,
   PencilThickness,
 } from './graphStoreTypes';
@@ -53,16 +57,9 @@ export type {
   PencilThickness,
 } from './graphStoreTypes';
 
-interface GraphStore {
-  graph: Graph | null;
+interface GraphStore extends GraphStorePersistenceState {
   graphSummaries: GraphSummary[];
-  selectedNodeId: string | null;
-  selectedDrawingId: string | null;
-  isLoading: boolean;
-  error: string | null;
   resultRefreshKey: number;
-  nodeExecutionStates: Record<string, NodeExecutionState>;
-  nodeGraphicsOutputs: NodeGraphicsOutputMap;
   selectedNodeGraphicsDebug: NodeGraphicsComputationDebug | null;
   drawingEnabled: boolean;
   drawingColor: PencilColor;
@@ -102,8 +99,6 @@ interface GraphStore {
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
-  let latestUpdateRequestId = 0;
-
   const hydrateNodeExecutionStates = async (graph: Graph) => {
     const nodeStateEntries = await Promise.all(graph.nodes.map(async (node) => {
       try {
@@ -270,6 +265,23 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }));
   };
 
+  const syncPersistedGraph = (graph: Graph) => {
+    upsertGraphSummary({
+      id: graph.id,
+      name: graph.name,
+      updatedAt: graph.updatedAt,
+    });
+    saveCurrentGraphId(graph.id);
+    recomputeStatusPolling.start(graph.id);
+  };
+
+  const graphPersistence = createGraphUpdatePersistenceController({
+    api: graphApi,
+    getState: () => get(),
+    setState: (partial) => set(partial as Parameters<typeof set>[0]),
+    syncPersistedGraph,
+  });
+
   return {
     graph: null,
     graphSummaries: [],
@@ -290,22 +302,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const graph = normalizeGraph(await graphApi.fetchGraph(id));
-        set({
+        set(buildGraphStateUpdate({
           graph,
-          selectedNodeId: null,
-          selectedDrawingId: null,
+          nodeExecutionStates: get().nodeExecutionStates,
+          nodeGraphicsOutputs: get().nodeGraphicsOutputs,
+          error: null,
           isLoading: false,
-          nodeExecutionStates: buildNodeStateMapForGraph(graph, get().nodeExecutionStates),
-          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
-        });
-        upsertGraphSummary({
-          id: graph.id,
-          name: graph.name,
-          updatedAt: graph.updatedAt,
-        });
+          selectionMode: 'reset',
+        }));
         await hydrateNodeExecutionStates(graph);
-        recomputeStatusPolling.start(graph.id);
-        saveCurrentGraphId(graph.id);
+        syncPersistedGraph(graph);
       } catch (error: any) {
         if (error?.response?.status === 404) {
           removeGraphSummary(id);
@@ -322,22 +328,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       try {
         const newGraph = normalizeGraph(await graphApi.createGraph(name));
-        set({
+        set(buildGraphStateUpdate({
           graph: newGraph,
-          selectedNodeId: null,
-          selectedDrawingId: null,
-          isLoading: false,
+          nodeExecutionStates: {},
+          nodeGraphicsOutputs: {},
           error: null,
-          nodeExecutionStates: buildNodeStateMapForGraph(newGraph, {}),
-          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(newGraph, {}),
-        });
-        upsertGraphSummary({
-          id: newGraph.id,
-          name: newGraph.name,
-          updatedAt: newGraph.updatedAt,
-        });
-        recomputeStatusPolling.start(newGraph.id);
-        saveCurrentGraphId(newGraph.id);
+          isLoading: false,
+          selectionMode: 'reset',
+        }));
+        syncPersistedGraph(newGraph);
         console.log('Graph created successfully:', newGraph.id);
       } catch (error: any) {
         console.error('Error creating graph:', error);
@@ -373,22 +372,16 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const graph = normalizeGraph(await graphApi.fetchLatestGraph());
-        set({
+        set(buildGraphStateUpdate({
           graph,
-          selectedNodeId: null,
-          selectedDrawingId: null,
+          nodeExecutionStates: get().nodeExecutionStates,
+          nodeGraphicsOutputs: get().nodeGraphicsOutputs,
+          error: null,
           isLoading: false,
-          nodeExecutionStates: buildNodeStateMapForGraph(graph, get().nodeExecutionStates),
-          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, get().nodeGraphicsOutputs),
-        });
-        upsertGraphSummary({
-          id: graph.id,
-          name: graph.name,
-          updatedAt: graph.updatedAt,
-        });
+          selectionMode: 'reset',
+        }));
         await hydrateNodeExecutionStates(graph);
-        recomputeStatusPolling.start(graph.id);
-        saveCurrentGraphId(graph.id);
+        syncPersistedGraph(graph);
       } catch (error: any) {
         if (error.response?.status === 404) {
           set({ isLoading: false });
@@ -472,132 +465,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
     },
 
-    updateGraph: async (updates: Partial<Graph>) => {
-      const { graph, nodeExecutionStates, nodeGraphicsOutputs } = get();
-      if (!graph) return;
-
-      const updatedGraph = normalizeGraph({ ...graph, ...updates } as Graph);
-      const requestId = latestUpdateRequestId + 1;
-      latestUpdateRequestId = requestId;
-      const ifMatchUpdatedAt = graph.updatedAt;
-
-      set({
-        graph: updatedGraph,
-        isLoading: false,
-        error: null,
-        nodeExecutionStates: buildNodeStateMapForGraph(updatedGraph, nodeExecutionStates),
-        nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(updatedGraph, nodeGraphicsOutputs),
-      });
-
-      try {
-        const persistedGraph = normalizeGraph(await graphApi.updateGraph(graph.id, {
-          ...updatedGraph,
-          ifMatchUpdatedAt,
-        }));
-        if (requestId !== latestUpdateRequestId) {
-          return;
-        }
-
-        set((state) => ({
-          graph: persistedGraph,
-          selectedNodeId:
-            state.selectedNodeId && persistedGraph.nodes.some((node) => node.id === state.selectedNodeId)
-              ? state.selectedNodeId
-              : null,
-          selectedDrawingId:
-            state.selectedDrawingId &&
-            persistedGraph.drawings?.some((drawing) => drawing.id === state.selectedDrawingId)
-              ? state.selectedDrawingId
-              : null,
-          isLoading: false,
-          error: null,
-          nodeExecutionStates: buildNodeStateMapForGraph(
-            persistedGraph,
-            state.nodeExecutionStates
-          ),
-          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
-            persistedGraph,
-            state.nodeGraphicsOutputs
-          ),
-        }));
-        upsertGraphSummary({
-          id: persistedGraph.id,
-          name: persistedGraph.name,
-          updatedAt: persistedGraph.updatedAt,
-        });
-        saveCurrentGraphId(persistedGraph.id);
-        recomputeStatusPolling.start(persistedGraph.id);
-      } catch (error: any) {
-        if (requestId !== latestUpdateRequestId) {
-          return;
-        }
-
-        if (error?.response?.status === 409) {
-          try {
-            const latestGraph = normalizeGraph(await graphApi.fetchGraph(graph.id));
-            if (requestId !== latestUpdateRequestId) {
-              return;
-            }
-            set((state) => ({
-              graph: latestGraph,
-              selectedNodeId:
-                state.selectedNodeId && latestGraph.nodes.some((node) => node.id === state.selectedNodeId)
-                  ? state.selectedNodeId
-                  : null,
-              selectedDrawingId:
-                state.selectedDrawingId &&
-                latestGraph.drawings?.some((drawing) => drawing.id === state.selectedDrawingId)
-                  ? state.selectedDrawingId
-                  : null,
-              error: 'Graph changed remotely. Reloaded latest graph state.',
-              isLoading: false,
-              nodeExecutionStates: buildNodeStateMapForGraph(
-                latestGraph,
-                state.nodeExecutionStates
-              ),
-              nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(
-                latestGraph,
-                state.nodeGraphicsOutputs
-              ),
-            }));
-
-            upsertGraphSummary({
-              id: latestGraph.id,
-              name: latestGraph.name,
-              updatedAt: latestGraph.updatedAt,
-            });
-            saveCurrentGraphId(latestGraph.id);
-            recomputeStatusPolling.start(latestGraph.id);
-            return;
-          } catch (reloadError: any) {
-            if (requestId !== latestUpdateRequestId) {
-              return;
-            }
-            const reloadMessage = resolveErrorMessage(
-              reloadError,
-              'Graph changed remotely and latest graph could not be reloaded'
-            );
-            set({
-              graph,
-              error: reloadMessage,
-              isLoading: false,
-              nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
-              nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
-            });
-            return;
-          }
-        }
-
-        const serverMessage = resolveErrorMessage(error, 'Failed to update graph');
-        set({
-          graph,
-          error: serverMessage,
-          isLoading: false,
-          nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
-          nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
-        });
-      }
-    },
+    updateGraph: graphPersistence.updateGraph,
 
     addNode: (node: GraphNode) => {
       const { graph } = get();
