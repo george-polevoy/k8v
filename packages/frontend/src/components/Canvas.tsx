@@ -109,6 +109,7 @@ import {
   type MinimapTransform,
   type ProjectionTransitionState,
 } from './useCanvasViewport';
+import { useCanvasGraphEffects } from './useCanvasGraphEffects';
 import { useMcpScreenshotBridge } from './useMcpScreenshotBridge';
 import { normalizeAnnotationConfig } from '../utils/annotation';
 
@@ -2535,112 +2536,42 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     updateTextResolutionForScale,
   ]);
 
-  useEffect(() => {
-    renderGraphRef.current = renderGraph;
-  }, [renderGraph]);
-
-  useEffect(() => {
-    const previousGraph = graphRef.current;
-    const shouldAnimateProjectionSwitch = Boolean(
-      previousGraph &&
-      graph &&
-      previousGraph.id === graph.id &&
-      previousGraph.activeProjectionId &&
-      graph.activeProjectionId &&
-      previousGraph.activeProjectionId !== graph.activeProjectionId
-    );
-    if (shouldAnimateProjectionSwitch) {
-      startProjectionTransition(previousGraph, graph);
-    }
-
-    graphRef.current = graph;
-
-    const nextGraphId = graph?.id ?? null;
-    if (lastGraphIdRef.current !== nextGraphId) {
-      lastGraphIdRef.current = nextGraphId;
-      viewportInitializedRef.current = false;
-      projectionTransitionRef.current = null;
-    }
-
-    if (
-      selectedConnectionIdRef.current &&
-      !graph?.connections.some((connection) => connection.id === selectedConnectionIdRef.current)
-    ) {
-      selectedConnectionIdRef.current = null;
-    }
-
-    if (
-      selectedDrawingIdRef.current &&
-      !graph?.drawings?.some((drawing) => drawing.id === selectedDrawingIdRef.current)
-    ) {
-      selectedDrawingIdRef.current = null;
-      selectDrawing(null);
-    }
-
-    renderGraphRef.current();
-  }, [graph, renderGraph, selectDrawing, startProjectionTransition]);
-
-  useEffect(() => {
-    if (drawingCreateRequestId <= handledDrawingCreateRequestRef.current) {
-      return;
-    }
-
-    if (!canvasReady) {
-      return;
-    }
-
-    const app = appRef.current;
-    const viewport = viewportRef.current;
-    const currentGraph = graphRef.current;
-    if (!app || !viewport || !currentGraph) {
-      return;
-    }
-
-    const worldPoint = viewport.toLocal(new Point(app.screen.width / 2, app.screen.height / 2));
-    const drawing: GraphDrawing = {
-      id: uuidv4(),
-      name: getNextDrawingName(currentGraph.drawings ?? []),
-      position: {
-        x: snapToPixel(worldPoint.x),
-        y: snapToPixel(worldPoint.y),
-      },
-      paths: [],
-    };
-
-    handledDrawingCreateRequestRef.current = drawingCreateRequestId;
-    addDrawing(drawing);
-    selectDrawing(drawing.id);
-  }, [addDrawing, canvasReady, drawingCreateRequestId, selectDrawing, graph]);
-
-  useEffect(() => {
-    renderGraphRef.current();
-  }, [selectedDrawingId, selectedNodeId, renderGraph]);
-
-  useEffect(() => {
-    const app = appRef.current;
-    if (!app) {
-      return;
-    }
-
-    if (drawingEnabled) {
-      panStateRef.current = null;
-      nodeDragStateRef.current = null;
-      nodeResizeStateRef.current = null;
-      hoveredNodeResizeHandleRef.current = null;
-      nodeCardDraftSizesRef.current.clear();
-      nodeCardDraftPositionsRef.current.clear();
-      numericSliderDragStateRef.current = null;
-      hoveredNumericSliderNodeIdRef.current = null;
-      drawingDragStateRef.current = null;
-      if (connectionDragStateRef.current) {
-        endConnectionDrag(false);
-      }
-    }
-
-    drawFreehandStrokes();
-    renderGraphRef.current();
-    applyCanvasCursor();
-  }, [applyCanvasCursor, drawingEnabled, drawFreehandStrokes, endConnectionDrag]);
+  useCanvasGraphEffects({
+    graph,
+    selectedNodeId,
+    selectedDrawingId,
+    drawingCreateRequestId,
+    drawingEnabled,
+    canvasReady,
+    renderGraph,
+    renderGraphRef,
+    graphRef,
+    lastGraphIdRef,
+    viewportInitializedRef,
+    projectionTransitionRef,
+    selectedConnectionIdRef,
+    selectedDrawingIdRef,
+    handledDrawingCreateRequestRef,
+    appRef,
+    viewportRef,
+    panStateRef,
+    nodeDragStateRef,
+    nodeResizeStateRef,
+    hoveredNodeResizeHandleRef,
+    nodeCardDraftSizesRef,
+    nodeCardDraftPositionsRef,
+    numericSliderDragStateRef,
+    hoveredNumericSliderNodeIdRef,
+    drawingDragStateRef,
+    connectionDragStateRef,
+    addDrawing,
+    selectDrawing,
+    startProjectionTransition,
+    getNextDrawingName,
+    endConnectionDrag,
+    drawFreehandStrokes,
+    applyCanvasCursor,
+  });
 
   useEffect(() => {
     const host = canvasHostRef.current;
