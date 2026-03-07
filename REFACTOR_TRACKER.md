@@ -160,16 +160,17 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 
 | File | Before LOC | Current LOC | Delta |
 | --- | ---: | ---: | ---: |
-| `packages/mcp-server/src/index.ts` | 3759 | 3366 | -393 |
+| `packages/mcp-server/src/index.ts` | 3759 | 3283 | -476 |
 | `packages/mcp-server/src/graphModel.ts` | 0 | 412 | +412 |
-| **Net** | **3759** | **3778** | **+19** |
+| `packages/mcp-server/src/mcpHttp.ts` | 0 | 92 | +92 |
+| **Net** | **3759** | **3787** | **+28** |
 
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
 | --- | --- | ---: | --- |
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
-| R-002 | `packages/mcp-server/src/index.ts` | 3366 | Entry point is still carrying graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration even after the first graph-model extraction. |
+| R-002 | `packages/mcp-server/src/index.ts` | 3283 | Entry point is still carrying graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration even after the first two support-module extractions. |
 | R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
 | R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
@@ -607,7 +608,9 @@ Out of scope:
 Delivered so far:
 - Added `packages/mcp-server/src/graphModel.ts` for MCP-local graph contracts, drawing-color normalization, projection cloning, projection-state normalization, and normalized graph hydration.
 - Refactored `packages/mcp-server/src/index.ts` to import graph-model types and normalization helpers from the new module instead of owning them inline.
-- Reduced `packages/mcp-server/src/index.ts` from `3759` to `3366` in phase 1 while preserving graph-edit behavior and screenshot parity coverage.
+- Added `packages/mcp-server/src/mcpHttp.ts` for MCP backend/frontend URL resolution, JSON/binary fetch helpers, and the standard text-result response wrapper.
+- Refactored `packages/mcp-server/src/index.ts` to reuse the extracted MCP transport helpers instead of carrying fetch/URL boilerplate inline.
+- Reduced `packages/mcp-server/src/index.ts` from `3366` to `3283` in phase 2 while preserving graph-edit behavior and screenshot parity coverage.
 
 Verification result (latest):
 - `npm run lint`: pass
@@ -634,4 +637,5 @@ Current status:
   - phase 4 complete: graph routes moved out of `app.ts` into `packages/backend/src/routes/graphRoutes.ts` with shared request validation middleware
 - `IN PROGRESS`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
   - phase 1 complete: graph model/types/projection normalization extracted into `packages/mcp-server/src/graphModel.ts`
+  - phase 2 complete: MCP transport/result helpers extracted into `packages/mcp-server/src/mcpHttp.ts`
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
