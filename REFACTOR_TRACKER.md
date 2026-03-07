@@ -144,6 +144,14 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | `packages/frontend/tests/e2e/support/browser.ts` | 56 | 75 | +19 |
 | **Net** | **3049** | **3511** | **+462** |
 
+### T-012 LOC Delta (before vs current)
+
+| File | Before LOC | Current LOC | Delta |
+| --- | ---: | ---: | ---: |
+| `packages/backend/src/app.ts` | 1260 | 952 | -308 |
+| `packages/backend/src/core/graphQuery.ts` | 0 | 365 | +365 |
+| **Net** | **1260** | **1317** | **+57** |
+
 ## Current Hotspots
 
 | ID | Area | Current LOC | Why Refactor |
@@ -151,8 +159,7 @@ Baseline snapshot was taken from `HEAD` before refactor edits in this branch/wor
 | R-001 | `packages/frontend/src/components/Canvas.tsx` | 3808 | Still owns Pixi lifecycle, render passes, interactions, overlays, minimap, and MCP screenshot bridge behavior in one component. |
 | R-002 | `packages/mcp-server/src/index.ts` | 3759 | Entry point is carrying DTOs, graph-edit orchestration, screenshot rendering, retry/state helpers, and tool registration. |
 | R-003 | `packages/frontend/src/components/NodePanel.tsx` | 1576 | Reduced by T-010, but it still mixes node editing, drawing editing, diagnostics, and an embedded graph-management entry point. |
-| R-004 | `packages/backend/src/app.ts` | 1260 | Express transport is still mixed with graph normalization, validation, projection behavior, and query traversal logic. |
-| R-005 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
+| R-004 | `packages/frontend/src/components/GraphPanel.tsx` | 1000 | Shared graph-admin scaffolding is extracted, but graph-specific settings still need section-level decomposition. |
 
 ## Large Test Watchlist
 
@@ -543,6 +550,30 @@ Verification result (latest):
 - `npm run test`: pass (`214` tests, `0` fail)
 - `npm run build`: pass
 
+### T-012 Extract backend graph services/routes from app.ts
+Status: IN PROGRESS
+
+Scope:
+- Extract backend graph-domain behavior from `packages/backend/src/app.ts`.
+- Keep route contracts and validation behavior unchanged while shrinking the transport layer.
+
+Out of scope:
+- Frontend/API contract changes
+- MCP server modularization
+- Execution-engine behavior changes
+
+Delivered so far:
+- Added `packages/backend/src/core/graphQuery.ts` for graph query field resolution, adjacency construction, traversal, starting-vertex detection, and response shaping.
+- Refactored `packages/backend/src/app.ts` to import the shared graph-query field lists for request schema validation instead of redefining them inline.
+- Refactored `/api/graphs/:id/query` in `packages/backend/src/app.ts` to delegate execution to `executeGraphQuery`, preserving 400 responses for validation failures via `GraphQueryValidationError`.
+- Reduced `packages/backend/src/app.ts` below the hotspot threshold while keeping the query route behavior covered by the existing backend integration tests.
+
+Verification result (latest):
+- `npm run lint`: pass
+- `npx tsx --test packages/backend/tests/app.test.ts`: pass (`47` tests, `0` fail)
+- `npm run test`: pass (`214` tests, `0` fail)
+- `npm run build`: pass
+
 ## Current Focus
 
 Queue reopened after the March 7, 2026 size/architecture review.
@@ -554,7 +585,8 @@ Current status:
   - phase 2 complete: optimistic persistence/conflict handling extracted into `graphStorePersistence.ts`
   - phase 3 complete: compute and hydration flow extracted into `graphStoreComputation.ts`
   - phase 4 complete: graph-edit/drawing mutations and UI-only state extracted into dedicated controllers
-- phase 5 complete: `graphStore.test.ts` split by domain with shared test utilities
+  - phase 5 complete: `graphStore.test.ts` split by domain with shared test utilities
 - `IN PROGRESS`: `T-012` extract graph services/routes from `packages/backend/src/app.ts`
+  - phase 1 complete: graph query traversal/response shaping extracted into `packages/backend/src/core/graphQuery.ts`
 - `FOLLOWING`: `T-013` modularize `packages/mcp-server/src/index.ts` by tool domain and shared contracts
 - `FOLLOWING`: `T-014` continue the Canvas architectural split with lifecycle, interaction, renderer, and MCP-bridge hooks
