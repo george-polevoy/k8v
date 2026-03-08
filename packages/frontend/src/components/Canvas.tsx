@@ -137,6 +137,7 @@ const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
 const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
 const NODE_TITLE_TEXT_STYLE = { fontFamily: 'Arial', fontSize: 14, fontWeight: 'bold' as const, fill: 0x0f172a };
 const VIEWPORT_INTERACTION_SETTLE_MS = 180;
+const VIEWPORT_GRAPHICS_SETTLE_MS = 420;
 
 interface CanvasProps {
   enableMcpScreenshotBridge?: boolean;
@@ -146,6 +147,8 @@ interface CanvasDebugCounters {
   fullRenderCount?: number;
   viewportSyncCount?: number;
   viewportDeferredRenderCount?: number;
+  projectedTextureRefreshDeferredCount?: number;
+  projectedTextureRefreshImmediateCount?: number;
 }
 
 function incrementCanvasDebugCounter(counter: keyof CanvasDebugCounters): void {
@@ -273,6 +276,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const annotationOverlayViewportRef = useRef<HTMLDivElement | null>(null);
   const viewportSyncRafRef = useRef<number | null>(null);
   const viewportSettledRenderTimeoutRef = useRef<number | null>(null);
+  const viewportGraphicsSettledRenderTimeoutRef = useRef<number | null>(null);
+  const lastViewportInteractionAtRef = useRef(Number.NEGATIVE_INFINITY);
   const viewportScaleSensitiveRefreshRequestedRef = useRef(false);
   const drawConnectionsRef = useRef<() => void>(() => {});
   const drawFreehandStrokesRef = useRef<() => void>(() => {});
@@ -307,6 +312,16 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     });
   }, []);
 
+  const scheduleViewportGraphicsSettledRender = useCallback((delayMs: number) => {
+    if (viewportGraphicsSettledRenderTimeoutRef.current !== null) {
+      window.clearTimeout(viewportGraphicsSettledRenderTimeoutRef.current);
+    }
+    viewportGraphicsSettledRenderTimeoutRef.current = window.setTimeout(() => {
+      viewportGraphicsSettledRenderTimeoutRef.current = null;
+      requestViewportDrivenGraphRefresh();
+    }, Math.max(delayMs, 0));
+  }, [requestViewportDrivenGraphRefresh]);
+
   const syncAnnotationOverlayTransform = useCallback(() => {
     const nextTransform = resolveAnnotationOverlayTransform(viewportRef.current);
     const previousTransform = annotationOverlayTransformRef.current;
@@ -328,6 +343,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
 
   const requestViewportInteractionRefresh = useCallback((options?: { scaleSensitive?: boolean }) => {
     requestCanvasAnimationLoop();
+    lastViewportInteractionAtRef.current = performance.now();
 
     if (options?.scaleSensitive) {
       viewportScaleSensitiveRefreshRequestedRef.current = true;
@@ -359,7 +375,25 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       incrementCanvasDebugCounter('viewportDeferredRenderCount');
       requestViewportDrivenGraphRefresh();
     }, VIEWPORT_INTERACTION_SETTLE_MS);
-  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, syncAnnotationOverlayTransform]);
+
+    scheduleViewportGraphicsSettledRender(VIEWPORT_GRAPHICS_SETTLE_MS);
+  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, scheduleViewportGraphicsSettledRender, syncAnnotationOverlayTransform]);
+
+  const requestProjectedGraphicsTextureRefresh = useCallback(() => {
+    requestCanvasAnimationLoop();
+
+    const elapsedSinceViewportInteraction = performance.now() - lastViewportInteractionAtRef.current;
+    if (elapsedSinceViewportInteraction < VIEWPORT_GRAPHICS_SETTLE_MS) {
+      incrementCanvasDebugCounter('projectedTextureRefreshDeferredCount');
+      scheduleViewportGraphicsSettledRender(
+        VIEWPORT_GRAPHICS_SETTLE_MS - elapsedSinceViewportInteraction
+      );
+      return;
+    }
+
+    incrementCanvasDebugCounter('projectedTextureRefreshImmediateCount');
+    requestViewportDrivenGraphRefresh();
+  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, scheduleViewportGraphicsSettledRender]);
 
   useEffect(() => {
     return () => {
@@ -373,6 +407,11 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       if (viewportSettledRenderTimeoutRef.current !== null) {
         window.clearTimeout(viewportSettledRenderTimeoutRef.current);
         viewportSettledRenderTimeoutRef.current = null;
+      }
+
+      if (viewportGraphicsSettledRenderTimeoutRef.current !== null) {
+        window.clearTimeout(viewportGraphicsSettledRenderTimeoutRef.current);
+        viewportGraphicsSettledRenderTimeoutRef.current = null;
       }
     };
   }, []);
@@ -482,8 +521,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     nodeGraphicsTextureBindingsRef,
     nodePendingGraphicsTextureBindingsRef,
     lastSmokeEmitAtRef,
-    renderGraphRef,
     requestCanvasAnimationLoop,
+    requestNodeGraphicsTextureRefresh: requestProjectedGraphicsTextureRefresh,
     updateNode,
     addConnection,
     config: {
@@ -589,6 +628,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     const viewportScale = viewportContainer
       ? Math.max(Math.abs(viewportContainer.scale.x || 1), 0.0001)
       : 1;
+    const viewportGraphicsInteractionRecentlyActive =
+      (performance.now() - lastViewportInteractionAtRef.current) < VIEWPORT_GRAPHICS_SETTLE_MS;
     if (viewportSettledRenderTimeoutRef.current !== null) {
       window.clearTimeout(viewportSettledRenderTimeoutRef.current);
       viewportSettledRenderTimeoutRef.current = null;
@@ -721,7 +762,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         pixelRatio: PIXEL_RATIO,
         canEvaluateViewportGraphics,
         viewportWorldBounds,
-        canReloadProjectedGraphics: !isProjectionTransitionActive,
+        canReloadProjectedGraphics: !isProjectionTransitionActive && !viewportGraphicsInteractionRecentlyActive,
         fallbackAspectRatio: NODE_GRAPHICS_FALLBACK_ASPECT_RATIO,
       });
       const projectedWidthOnScreen = graphicsProjectionPlan.projectedWidthOnScreen;
@@ -770,6 +811,10 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       let projectedGraphicsHeight = expectedProjectedGraphicsHeight;
       let projectedGraphicsTexture: Texture | null = null;
       if (shouldProjectGraphics && graphicsOutput) {
+        const boundSource = nodeGraphicsTextureBindingsRef.current.get(node.id);
+        const boundTexture = boundSource
+          ? (graphicsTextureCacheRef.current.get(boundSource)?.texture ?? null)
+          : null;
         if (shouldLoadProjectedGraphics) {
           const source = buildGraphicsImageUrl(
             graphicsOutput,
@@ -778,15 +823,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           requestUrl = source;
           projectedGraphicsTexture = getNodeGraphicsTextureForNode(node.id, source);
           activeNodeGraphicsTextureIds.add(node.id);
-        } else if (isProjectionTransitionActive) {
-          const boundSource = nodeGraphicsTextureBindingsRef.current.get(node.id);
-          if (boundSource) {
-            const cachedTexture = graphicsTextureCacheRef.current.get(boundSource)?.texture;
-            if (cachedTexture) {
-              projectedGraphicsTexture = cachedTexture;
-              activeNodeGraphicsTextureIds.add(node.id);
-            }
-          }
+        } else if ((isProjectionTransitionActive || shouldLoadProjectedGraphicsByViewport) && boundTexture) {
+          projectedGraphicsTexture = boundTexture;
+          activeNodeGraphicsTextureIds.add(node.id);
         }
 
         if (projectedGraphicsTexture) {

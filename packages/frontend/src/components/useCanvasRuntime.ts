@@ -99,8 +99,8 @@ interface UseCanvasRuntimeParams {
   nodeGraphicsTextureBindingsRef: MutableRefObject<Map<string, string>>;
   nodePendingGraphicsTextureBindingsRef: MutableRefObject<Map<string, string>>;
   lastSmokeEmitAtRef: MutableRefObject<Map<string, number>>;
-  renderGraphRef: MutableRefObject<() => void>;
   requestCanvasAnimationLoop: () => void;
+  requestNodeGraphicsTextureRefresh: () => void;
   updateNode: (nodeId: string, updates: Record<string, unknown>) => void;
   addConnection: (connection: { id: string; sourceNodeId: string; sourcePort: string; targetNodeId: string; targetPort: string }) => void;
   config: {
@@ -175,8 +175,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     nodeGraphicsTextureBindingsRef,
     nodePendingGraphicsTextureBindingsRef,
     lastSmokeEmitAtRef,
-    renderGraphRef,
     requestCanvasAnimationLoop,
+    requestNodeGraphicsTextureRefresh,
     updateNode,
     addConnection,
     config,
@@ -339,11 +339,6 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     nodePendingGraphicsTextureBindingsRef,
     pendingGraphicsTextureLoadsRef,
   ]);
-
-  const requestNodeGraphicsTextureRefresh = useCallback(() => {
-    requestCanvasAnimationLoop();
-    renderGraphRef.current();
-  }, [renderGraphRef, requestCanvasAnimationLoop]);
 
   const getNodeGraphicsTextureForNode = useCallback((nodeId: string, source: string): Texture => {
     return getNodeGraphicsTextureForNodeInCache(

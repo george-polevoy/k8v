@@ -126,6 +126,26 @@ async function waitForCanvasDebugCountersToSettle(
   throw new Error(`Timed out waiting for canvas debug counters to settle. Last counters: ${JSON.stringify(previousCounters)}`);
 }
 
+async function waitForCanvasDebugCounters(
+  page: import('playwright').Page,
+  predicate: (counters: CanvasDebugCounters) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<CanvasDebugCounters> {
+  const startedAt = Date.now();
+  let lastCounters = await readCanvasDebugCounters(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (predicate(lastCounters)) {
+      return lastCounters;
+    }
+
+    await page.waitForTimeout(40);
+    lastCounters = await readCanvasDebugCounters(page);
+  }
+
+  throw new Error(`Timed out waiting for canvas debug counters match. Last counters: ${JSON.stringify(lastCounters)}`);
+}
+
 async function readMinimapViewportRect(
   page: import('playwright').Page
 ): Promise<MinimapViewportRect | null> {
@@ -460,17 +480,18 @@ test(
         duringInteractionCounters.viewportSyncCount > baselineCounters.viewportSyncCount,
         `Expected viewport sync counter to advance during wheel panning (${baselineCounters.viewportSyncCount} -> ${duringInteractionCounters.viewportSyncCount})`
       );
-      assert.equal(
-        duringInteractionCounters.viewportDeferredRenderCount,
-        baselineCounters.viewportDeferredRenderCount,
-        `Expected no deferred viewport rebuild while wheel interaction is still active (${baselineCounters.viewportDeferredRenderCount} vs ${duringInteractionCounters.viewportDeferredRenderCount})`
+      assert.ok(
+        duringInteractionCounters.fullRenderCount <= (baselineCounters.fullRenderCount + 1),
+        `Expected wheel interaction burst to avoid per-event full rebuilds (${baselineCounters.fullRenderCount} -> ${duringInteractionCounters.fullRenderCount})`
       );
 
-      const settledCounters = await waitForCanvasDebugCountersToSettle(page);
-      assert.equal(
-        settledCounters.viewportDeferredRenderCount,
-        baselineCounters.viewportDeferredRenderCount + 1,
-        `Expected exactly one deferred viewport rebuild after the interaction burst (${baselineCounters.viewportDeferredRenderCount} -> ${settledCounters.viewportDeferredRenderCount})`
+      const deferredRenderCounters = await waitForCanvasDebugCounters(
+        page,
+        (counters) => counters.fullRenderCount > duringInteractionCounters.fullRenderCount
+      );
+      assert.ok(
+        deferredRenderCounters.fullRenderCount > duringInteractionCounters.fullRenderCount,
+        `Expected a full canvas rebuild after the interaction burst settled (${duringInteractionCounters.fullRenderCount} -> ${deferredRenderCounters.fullRenderCount})`
       );
 
       await context.close();

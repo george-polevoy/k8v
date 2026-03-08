@@ -28,6 +28,143 @@ interface CanvasBox {
   height: number;
 }
 
+interface CanvasDebugCounters {
+  fullRenderCount: number;
+  viewportSyncCount: number;
+  viewportDeferredRenderCount: number;
+  projectedTextureRefreshDeferredCount: number;
+  projectedTextureRefreshImmediateCount: number;
+}
+
+async function installCanvasDebugCounters(page: import('playwright').Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as Window & {
+      __k8vCanvasDebug?: {
+        fullRenderCount?: number;
+        viewportSyncCount?: number;
+        viewportDeferredRenderCount?: number;
+        projectedTextureRefreshDeferredCount?: number;
+        projectedTextureRefreshImmediateCount?: number;
+      };
+    }).__k8vCanvasDebug = {
+      fullRenderCount: 0,
+      viewportSyncCount: 0,
+      viewportDeferredRenderCount: 0,
+      projectedTextureRefreshDeferredCount: 0,
+      projectedTextureRefreshImmediateCount: 0,
+    };
+  });
+}
+
+async function readCanvasDebugCounters(page: import('playwright').Page): Promise<CanvasDebugCounters> {
+  return page.evaluate(() => {
+    const counters = (window as Window & {
+      __k8vCanvasDebug?: {
+        fullRenderCount?: number;
+        viewportSyncCount?: number;
+        viewportDeferredRenderCount?: number;
+        projectedTextureRefreshDeferredCount?: number;
+        projectedTextureRefreshImmediateCount?: number;
+      };
+    }).__k8vCanvasDebug;
+    return {
+      fullRenderCount: counters?.fullRenderCount ?? 0,
+      viewportSyncCount: counters?.viewportSyncCount ?? 0,
+      viewportDeferredRenderCount: counters?.viewportDeferredRenderCount ?? 0,
+      projectedTextureRefreshDeferredCount: counters?.projectedTextureRefreshDeferredCount ?? 0,
+      projectedTextureRefreshImmediateCount: counters?.projectedTextureRefreshImmediateCount ?? 0,
+    };
+  });
+}
+
+async function waitForCanvasDebugCountersToSettle(
+  page: import('playwright').Page,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<CanvasDebugCounters> {
+  const startedAt = Date.now();
+  let previousCounters = await readCanvasDebugCounters(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    await page.waitForTimeout(180);
+    const nextCounters = await readCanvasDebugCounters(page);
+    if (
+      nextCounters.fullRenderCount === previousCounters.fullRenderCount &&
+      nextCounters.viewportSyncCount === previousCounters.viewportSyncCount &&
+      nextCounters.viewportDeferredRenderCount === previousCounters.viewportDeferredRenderCount
+    ) {
+      return nextCounters;
+    }
+    previousCounters = nextCounters;
+  }
+
+  throw new Error(`Timed out waiting for canvas debug counters to settle. Last counters: ${JSON.stringify(previousCounters)}`);
+}
+
+async function waitForCanvasDebugCounters(
+  page: import('playwright').Page,
+  predicate: (counters: CanvasDebugCounters) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<CanvasDebugCounters> {
+  const startedAt = Date.now();
+  let lastCounters = await readCanvasDebugCounters(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (predicate(lastCounters)) {
+      return lastCounters;
+    }
+
+    await page.waitForTimeout(40);
+    lastCounters = await readCanvasDebugCounters(page);
+  }
+
+  throw new Error(`Timed out waiting for canvas debug counters match. Last counters: ${JSON.stringify(lastCounters)}`);
+}
+
+async function installProjectedGraphicsRequestCapture(page: import('playwright').Page): Promise<string[]> {
+  const capturedUrls: string[] = [];
+  await page.route('**/api/graphics/*/image*', async (route) => {
+    capturedUrls.push(route.request().url());
+    if (capturedUrls.length > 200) {
+      capturedUrls.splice(0, capturedUrls.length - 200);
+    }
+    await route.continue();
+  });
+  return capturedUrls;
+}
+
+async function waitForProjectedGraphicsRequest(
+  capturedUrls: string[],
+  predicate: (urls: string[]) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<string[]> {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (predicate(capturedUrls)) {
+      return [...capturedUrls];
+    }
+    await delay(80);
+  }
+
+  throw new Error(`Timed out waiting for projected graphics request. Captured: ${JSON.stringify(capturedUrls)}`);
+}
+
+async function waitForProjectedGraphicsRequestChange(
+  capturedUrls: string[],
+  previousUrl: string,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<string> {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const nextUrl = capturedUrls[capturedUrls.length - 1] ?? '';
+    if (nextUrl && nextUrl !== previousUrl) {
+      return nextUrl;
+    }
+    await delay(80);
+  }
+
+  throw new Error(`Timed out waiting for projected graphics URL to change from ${previousUrl}`);
+}
+
 function toAutotestGraphName(name: string): string {
   return name.startsWith(AUTOTEST_GRAPH_PREFIX)
     ? name
@@ -49,7 +186,7 @@ function createSolidPngDataUrl(width: number, height: number): string {
 async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId: string }> {
   const nodeId = `gfx-node-${Date.now()}`;
   const pngDataUrl = createSolidPngDataUrl(1024, 1024);
-  const code = `outputGraphics(${JSON.stringify(pngDataUrl)}); outputs.output = 1;`;
+  const code = `outputPng(${JSON.stringify(pngDataUrl)})\noutputs.output = 1`;
 
   const createResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
     method: 'POST',
@@ -68,7 +205,7 @@ async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId:
           },
           config: {
             type: 'inline_code',
-            runtime: 'javascript_vm',
+            runtime: 'python_process',
             code,
           },
           version: `${Date.now()}`,
@@ -202,6 +339,181 @@ test(
       assert.ok(finalImageSrc, 'output image src should be present');
       const finalImageUrl = new URL(finalImageSrc, E2E_FRONTEND_URL);
       assert.equal(finalImageUrl.searchParams.get('maxPixels'), '262144');
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'projected graphics do not swap mip levels during active viewport zooming',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createGraphWithGraphicsNode();
+    await waitForNodeGraphics(nodeId);
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      const page = await context.newPage();
+      const projectedGraphicsUrls = await installProjectedGraphicsRequestCapture(page);
+
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox();
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const centerX = canvasBox.x + (canvasBox.width / 2);
+      const centerY = canvasBox.y + (canvasBox.height / 2);
+
+      await waitForProjectedGraphicsRequest(
+        projectedGraphicsUrls,
+        (urls) => urls.length > 0
+      );
+
+      const initialProjectedUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
+      assert.ok(initialProjectedUrl, 'Expected an initial projected graphics URL');
+
+      for (let step = 0; step < 4; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 0,
+            deltaY: 180,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: centerX, y: centerY });
+      }
+
+      const zoomedOutUrl = await waitForProjectedGraphicsRequestChange(projectedGraphicsUrls, initialProjectedUrl);
+
+      for (let step = 0; step < 6; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 0,
+            deltaY: -40,
+            ctrlKey: true,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: centerX, y: centerY });
+        await delay(30);
+      }
+
+      await delay(140);
+      const duringZoomUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
+      assert.equal(
+        duringZoomUrl,
+        zoomedOutUrl,
+        `Expected projected graphics URL to remain stable during active zoom burst (${zoomedOutUrl} vs ${duringZoomUrl})`
+      );
+
+      const settledUrl = await waitForProjectedGraphicsRequestChange(projectedGraphicsUrls, zoomedOutUrl);
+      assert.notEqual(
+        settledUrl,
+        zoomedOutUrl,
+        'Expected projected graphics URL to update after viewport zooming settled'
+      );
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'projected graphics texture load does not trigger a full rerender during active viewport motion',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createGraphWithGraphicsNode();
+    await waitForNodeGraphics(nodeId);
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      const page = await context.newPage();
+      let delayedProjectedRequestCount = 0;
+
+      await page.route('**/api/graphics/*/image*', async (route) => {
+        delayedProjectedRequestCount += 1;
+        if (delayedProjectedRequestCount === 1) {
+          await delay(1_000);
+        }
+        await route.continue();
+      });
+      await installCanvasDebugCounters(page);
+
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox();
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const centerX = canvasBox.x + (canvasBox.width / 2);
+      const centerY = canvasBox.y + (canvasBox.height / 2);
+
+      const baselineCounters = await waitForCanvasDebugCountersToSettle(page);
+
+      for (let step = 0; step < 18; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 14,
+            deltaY: 10,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: centerX, y: centerY });
+        await page.waitForTimeout(50);
+      }
+
+      const duringInteractionCounters = await readCanvasDebugCounters(page);
+      assert.equal(
+        duringInteractionCounters.projectedTextureRefreshImmediateCount,
+        baselineCounters.projectedTextureRefreshImmediateCount,
+        `Expected no immediate projected texture refresh while wheel motion is still active (${baselineCounters.projectedTextureRefreshImmediateCount} vs ${duringInteractionCounters.projectedTextureRefreshImmediateCount})`
+      );
+      assert.ok(
+        duringInteractionCounters.projectedTextureRefreshDeferredCount >
+          baselineCounters.projectedTextureRefreshDeferredCount,
+        `Expected the delayed projected texture refresh to be deferred during active wheel motion (${baselineCounters.projectedTextureRefreshDeferredCount} -> ${duringInteractionCounters.projectedTextureRefreshDeferredCount})`
+      );
+
+      const refreshedCounters = await waitForCanvasDebugCounters(
+        page,
+        (counters) => counters.fullRenderCount > duringInteractionCounters.fullRenderCount
+      );
+      assert.ok(
+        refreshedCounters.fullRenderCount > duringInteractionCounters.fullRenderCount,
+        'Expected the delayed projected texture to trigger a rerender after viewport motion settled'
+      );
 
       await context.close();
     } finally {
