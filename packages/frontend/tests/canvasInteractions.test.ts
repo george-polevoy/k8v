@@ -171,10 +171,9 @@ test('resolveWheelInteractionPlan computes zoom scale and keeps pointer anchored
 
   assert.equal(plan.kind, 'zoom');
   assert.ok(plan.scale > 0.8 && plan.scale < 0.9);
-  assert.deepEqual(
-    { x: plan.x, y: plan.y },
-    { x: 165, y: 124 }
-  );
+  const expectedScale = Math.exp(-0.14);
+  assert.ok(Math.abs(plan.x - (200 - 40 * expectedScale)) < 0.000001);
+  assert.ok(Math.abs(plan.y - (150 - 30 * expectedScale)) < 0.000001);
 });
 
 test('isCanvasDeletionShortcutBlocked only blocks editable non-canvas elements', () => {

@@ -78,7 +78,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
       return;
     }
 
-    settings.ROUND_PIXELS = true;
+    settings.ROUND_PIXELS = false;
 
     const app = new Application({
       antialias: true,

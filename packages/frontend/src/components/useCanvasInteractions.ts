@@ -152,13 +152,12 @@ interface UseCanvasInteractionsParams {
   selectedDrawingIdRef: MutableRefObject<string | null>;
   selectedNodeIdRef: MutableRefObject<string | null>;
   requestCanvasAnimationLoop: () => void;
-  requestViewportInteractionRefresh: () => void;
+  requestViewportInteractionRefresh: (options?: { scaleSensitive?: boolean }) => void;
   requestViewportDrivenGraphRefresh: () => void;
   drawConnections: () => void;
   drawFreehandStrokes: () => void;
   drawMinimap: () => void;
   drawEffects: () => void;
-  updateTextResolutionForScale: (scale: number) => void;
   updateNumericSliderFromPointer: (nodeId: string, pointerX: number, pointerY: number) => void;
   refreshCanvasBackgroundTexture: () => void;
   syncNodePortPositions: (nodeId: string, position: Position, visual: NodeVisualLike) => void;
@@ -214,7 +213,6 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     drawFreehandStrokes,
     drawMinimap,
     drawEffects,
-    updateTextResolutionForScale,
     updateNumericSliderFromPointer,
     refreshCanvasBackgroundTexture,
     syncNodePortPositions,
@@ -761,24 +759,18 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
 
     if (wheelPlan.kind === 'zoom') {
       viewport.scale.set(wheelPlan.scale);
-      updateTextResolutionForScale(wheelPlan.scale);
-      drawConnections();
-      drawFreehandStrokes();
     }
 
     viewport.position.set(wheelPlan.x, wheelPlan.y);
-    drawMinimap();
-    requestViewportInteractionRefresh();
+    requestViewportInteractionRefresh({
+      scaleSensitive: wheelPlan.kind === 'zoom',
+    });
   }, [
     appRef,
     config.maxZoom,
     config.minZoom,
     config.zoomSensitivity,
-    drawConnections,
-    drawFreehandStrokes,
-    drawMinimap,
     requestViewportInteractionRefresh,
-    updateTextResolutionForScale,
     viewportRef,
   ]);
 

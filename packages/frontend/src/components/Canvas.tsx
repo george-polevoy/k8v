@@ -169,8 +169,8 @@ function resolveAnnotationOverlayTransform(viewport: Container | null): Annotati
   }
 
   return {
-    x: snapToPixel(viewport.position.x),
-    y: snapToPixel(viewport.position.y),
+    x: viewport.position.x,
+    y: viewport.position.y,
     scale: Math.max(Math.abs(viewport.scale.x || 1), 0.0001),
   };
 }
@@ -273,6 +273,11 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const annotationOverlayViewportRef = useRef<HTMLDivElement | null>(null);
   const viewportSyncRafRef = useRef<number | null>(null);
   const viewportSettledRenderTimeoutRef = useRef<number | null>(null);
+  const viewportScaleSensitiveRefreshRequestedRef = useRef(false);
+  const drawConnectionsRef = useRef<() => void>(() => {});
+  const drawFreehandStrokesRef = useRef<() => void>(() => {});
+  const drawMinimapRef = useRef<() => void>(() => {});
+  const updateTextResolutionForScaleRef = useRef<(scale: number) => void>(() => {});
   const [canvasReady, setCanvasReady] = useState(false);
   const [annotationOverlays, setAnnotationOverlays] = useState<AnnotationOverlayEntry[]>([]);
   selectedNodeIdRef.current = selectedNodeId;
@@ -321,12 +326,26 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     }
   }, []);
 
-  const requestViewportInteractionRefresh = useCallback(() => {
+  const requestViewportInteractionRefresh = useCallback((options?: { scaleSensitive?: boolean }) => {
     requestCanvasAnimationLoop();
+
+    if (options?.scaleSensitive) {
+      viewportScaleSensitiveRefreshRequestedRef.current = true;
+    }
 
     if (viewportSyncRafRef.current === null) {
       viewportSyncRafRef.current = window.requestAnimationFrame(() => {
         viewportSyncRafRef.current = null;
+        if (viewportScaleSensitiveRefreshRequestedRef.current) {
+          const viewport = viewportRef.current;
+          if (viewport) {
+            updateTextResolutionForScaleRef.current(viewport.scale.x);
+          }
+          drawConnectionsRef.current();
+          drawFreehandStrokesRef.current();
+          viewportScaleSensitiveRefreshRequestedRef.current = false;
+        }
+        drawMinimapRef.current();
         incrementCanvasDebugCounter('viewportSyncCount');
         syncAnnotationOverlayTransform();
       });
@@ -348,6 +367,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         window.cancelAnimationFrame(viewportSyncRafRef.current);
         viewportSyncRafRef.current = null;
       }
+
+      viewportScaleSensitiveRefreshRequestedRef.current = false;
 
       if (viewportSettledRenderTimeoutRef.current !== null) {
         window.clearTimeout(viewportSettledRenderTimeoutRef.current);
@@ -481,6 +502,11 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     },
   });
 
+  drawMinimapRef.current = drawMinimap;
+  drawConnectionsRef.current = drawConnections;
+  drawFreehandStrokesRef.current = drawFreehandStrokes;
+  updateTextResolutionForScaleRef.current = updateTextResolutionForScale;
+
   const {
     finishInteraction,
     handleStagePointerDown,
@@ -522,7 +548,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawFreehandStrokes,
     drawMinimap,
     drawEffects,
-    updateTextResolutionForScale,
     updateNumericSliderFromPointer,
     refreshCanvasBackgroundTexture,
     syncNodePortPositions,
@@ -568,6 +593,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       window.clearTimeout(viewportSettledRenderTimeoutRef.current);
       viewportSettledRenderTimeoutRef.current = null;
     }
+    viewportScaleSensitiveRefreshRequestedRef.current = false;
     syncAnnotationOverlayTransform();
     const projectionTransitionFrame = resolveProjectionTransitionFrame(
       projectionTransitionRef.current,

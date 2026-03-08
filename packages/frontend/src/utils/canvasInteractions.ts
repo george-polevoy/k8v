@@ -90,8 +90,8 @@ export function computeSnappedDragPosition(input: DragPositionInput): Position2D
 
 export function computeSnappedPanPosition(input: PanPositionInput): Position2D {
   return {
-    x: snapToPixel(input.viewportX + (input.pointerX - input.startPointerX)),
-    y: snapToPixel(input.viewportY + (input.pointerY - input.startPointerY)),
+    x: input.viewportX + (input.pointerX - input.startPointerX),
+    y: input.viewportY + (input.pointerY - input.startPointerY),
   };
 }
 
@@ -148,16 +148,16 @@ export function resolveWheelInteractionPlan(input: WheelInteractionPlanInput): W
   if (input.modifierScrollDelta) {
     return {
       kind: 'pan',
-      x: snapToPixel(input.currentX + input.modifierScrollDelta.x),
-      y: snapToPixel(input.currentY + input.modifierScrollDelta.y),
+      x: input.currentX + input.modifierScrollDelta.x,
+      y: input.currentY + input.modifierScrollDelta.y,
     };
   }
 
   if (input.shouldPan) {
     return {
       kind: 'pan',
-      x: snapToPixel(input.currentX - input.deltaX),
-      y: snapToPixel(input.currentY - input.deltaY),
+      x: input.currentX - input.deltaX,
+      y: input.currentY - input.deltaY,
     };
   }
 
@@ -166,8 +166,8 @@ export function resolveWheelInteractionPlan(input: WheelInteractionPlanInput): W
   return {
     kind: 'zoom',
     scale: nextScale,
-    x: snapToPixel(input.pointerX - input.worldBeforeX * nextScale),
-    y: snapToPixel(input.pointerY - input.worldBeforeY * nextScale),
+    x: input.pointerX - input.worldBeforeX * nextScale,
+    y: input.pointerY - input.worldBeforeY * nextScale,
   };
 }
 
