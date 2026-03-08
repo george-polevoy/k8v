@@ -152,6 +152,7 @@ interface UseCanvasInteractionsParams {
   selectedDrawingIdRef: MutableRefObject<string | null>;
   selectedNodeIdRef: MutableRefObject<string | null>;
   requestCanvasAnimationLoop: () => void;
+  requestViewportInteractionRefresh: () => void;
   requestViewportDrivenGraphRefresh: () => void;
   drawConnections: () => void;
   drawFreehandStrokes: () => void;
@@ -207,6 +208,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     selectedDrawingIdRef,
     selectedNodeIdRef,
     requestCanvasAnimationLoop,
+    requestViewportInteractionRefresh,
     requestViewportDrivenGraphRefresh,
     drawConnections,
     drawFreehandStrokes,
@@ -675,7 +677,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     });
     viewport.position.set(nextPanPosition.x, nextPanPosition.y);
     drawMinimap();
-    requestViewportDrivenGraphRefresh();
+    requestViewportInteractionRefresh();
   }, [
     activeDrawingPathRef,
     applyCanvasCursor,
@@ -701,7 +703,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     panStateRef,
     renderGraphRef,
     requestCanvasAnimationLoop,
-    requestViewportDrivenGraphRefresh,
+    requestViewportInteractionRefresh,
     setInputPortHighlight,
     syncNodePortPositions,
     updateNumericSliderFromPointer,
@@ -760,20 +762,22 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     if (wheelPlan.kind === 'zoom') {
       viewport.scale.set(wheelPlan.scale);
       updateTextResolutionForScale(wheelPlan.scale);
+      drawConnections();
       drawFreehandStrokes();
     }
 
     viewport.position.set(wheelPlan.x, wheelPlan.y);
     drawMinimap();
-    requestViewportDrivenGraphRefresh();
+    requestViewportInteractionRefresh();
   }, [
     appRef,
     config.maxZoom,
     config.minZoom,
     config.zoomSensitivity,
+    drawConnections,
     drawFreehandStrokes,
     drawMinimap,
-    requestViewportDrivenGraphRefresh,
+    requestViewportInteractionRefresh,
     updateTextResolutionForScale,
     viewportRef,
   ]);

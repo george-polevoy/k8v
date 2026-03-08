@@ -2,14 +2,13 @@ import type { PointerEventHandler, ReactNode, RefObject } from 'react';
 import AnnotationMarkdown from './AnnotationMarkdown';
 import type {
   AnnotationOverlayEntry,
-  AnnotationOverlayTransform,
 } from './canvasShared';
 
 interface CanvasChromeProps {
   canvasHostRef: RefObject<HTMLDivElement>;
   minimapCanvasRef: RefObject<HTMLCanvasElement>;
   annotationOverlays: AnnotationOverlayEntry[];
-  annotationOverlayTransform: AnnotationOverlayTransform;
+  annotationOverlayViewportRef: RefObject<HTMLDivElement>;
   handleMinimapPointerDown: PointerEventHandler<HTMLCanvasElement>;
   overlay: ReactNode;
   minimapWidth: number;
@@ -20,7 +19,7 @@ export function CanvasChrome({
   canvasHostRef,
   minimapCanvasRef,
   annotationOverlays,
-  annotationOverlayTransform,
+  annotationOverlayViewportRef,
   handleMinimapPointerDown,
   overlay,
   minimapWidth,
@@ -45,11 +44,12 @@ export function CanvasChrome({
         }}
       >
         <div
+          ref={annotationOverlayViewportRef}
           style={{
             position: 'absolute',
             left: 0,
             top: 0,
-            transform: `translate(${annotationOverlayTransform.x}px, ${annotationOverlayTransform.y}px) scale(${annotationOverlayTransform.scale})`,
+            transform: 'translate(0px, 0px) scale(1)',
             transformOrigin: '0 0',
             width: '1px',
             height: '1px',

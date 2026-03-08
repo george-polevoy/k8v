@@ -19,6 +19,12 @@ interface CanvasBox {
   height: number;
 }
 
+interface CanvasDebugCounters {
+  fullRenderCount: number;
+  viewportSyncCount: number;
+  viewportDeferredRenderCount: number;
+}
+
 async function installMinimapViewportCaptureHook(page: import('playwright').Page): Promise<void> {
   await page.evaluate(() => {
     type StrokeRectRecord = {
@@ -62,6 +68,62 @@ async function installMinimapViewportCaptureHook(page: import('playwright').Page
     };
     windowWithHook.__k8vMinimapStrokeRectPatched = true;
   });
+}
+
+async function installCanvasDebugCounters(page: import('playwright').Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as Window & {
+      __k8vCanvasDebug?: {
+        fullRenderCount?: number;
+        viewportSyncCount?: number;
+        viewportDeferredRenderCount?: number;
+      };
+    }).__k8vCanvasDebug = {
+      fullRenderCount: 0,
+      viewportSyncCount: 0,
+      viewportDeferredRenderCount: 0,
+    };
+  });
+}
+
+async function readCanvasDebugCounters(page: import('playwright').Page): Promise<CanvasDebugCounters> {
+  return page.evaluate(() => {
+    const counters = (window as Window & {
+      __k8vCanvasDebug?: {
+        fullRenderCount?: number;
+        viewportSyncCount?: number;
+        viewportDeferredRenderCount?: number;
+      };
+    }).__k8vCanvasDebug;
+    return {
+      fullRenderCount: counters?.fullRenderCount ?? 0,
+      viewportSyncCount: counters?.viewportSyncCount ?? 0,
+      viewportDeferredRenderCount: counters?.viewportDeferredRenderCount ?? 0,
+    };
+  });
+}
+
+async function waitForCanvasDebugCountersToSettle(
+  page: import('playwright').Page,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<CanvasDebugCounters> {
+  const startedAt = Date.now();
+  let previousCounters = await readCanvasDebugCounters(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    await page.waitForTimeout(180);
+    const nextCounters = await readCanvasDebugCounters(page);
+    if (
+      nextCounters.fullRenderCount === previousCounters.fullRenderCount &&
+      nextCounters.viewportSyncCount === previousCounters.viewportSyncCount &&
+      nextCounters.viewportDeferredRenderCount === previousCounters.viewportDeferredRenderCount
+    ) {
+      return nextCounters;
+    }
+    previousCounters = nextCounters;
+  }
+
+  throw new Error(`Timed out waiting for canvas debug counters to settle. Last counters: ${JSON.stringify(previousCounters)}`);
 }
 
 async function readMinimapViewportRect(
@@ -338,6 +400,77 @@ test(
       assert.ok(
         afterDeepZoomOutRect.width > (initialRect.width * 6),
         `Expected deep zoom-out range well beyond previous minimum (${initialRect.width} -> ${afterDeepZoomOutRect.width})`
+      );
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'viewport wheel interactions coalesce deferred rebuilds until motion settles',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId } = await createNumericInputGraph();
+    const browser = await launchBrowser();
+
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1400, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      const page = await context.newPage();
+
+      await installCanvasDebugCounters(page);
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox() as CanvasBox | null;
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const cursorX = canvasBox.x + (canvasBox.width / 2);
+      const cursorY = canvasBox.y + (canvasBox.height / 2);
+      await page.mouse.move(cursorX, cursorY);
+
+      const baselineCounters = await waitForCanvasDebugCountersToSettle(page);
+
+      for (let step = 0; step < 6; step += 1) {
+        await page.evaluate(({ x, y }) => {
+          const mainCanvas = document.querySelector('canvas');
+          if (!(mainCanvas instanceof HTMLCanvasElement)) {
+            throw new Error('Main canvas not found');
+          }
+          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaX: 12,
+            deltaY: 9,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }, { x: cursorX, y: cursorY });
+        await page.waitForTimeout(30);
+      }
+
+      await page.waitForTimeout(70);
+      const duringInteractionCounters = await readCanvasDebugCounters(page);
+      assert.ok(
+        duringInteractionCounters.viewportSyncCount > baselineCounters.viewportSyncCount,
+        `Expected viewport sync counter to advance during wheel panning (${baselineCounters.viewportSyncCount} -> ${duringInteractionCounters.viewportSyncCount})`
+      );
+      assert.equal(
+        duringInteractionCounters.viewportDeferredRenderCount,
+        baselineCounters.viewportDeferredRenderCount,
+        `Expected no deferred viewport rebuild while wheel interaction is still active (${baselineCounters.viewportDeferredRenderCount} vs ${duringInteractionCounters.viewportDeferredRenderCount})`
+      );
+
+      const settledCounters = await waitForCanvasDebugCountersToSettle(page);
+      assert.equal(
+        settledCounters.viewportDeferredRenderCount,
+        baselineCounters.viewportDeferredRenderCount + 1,
+        `Expected exactly one deferred viewport rebuild after the interaction burst (${baselineCounters.viewportDeferredRenderCount} -> ${settledCounters.viewportDeferredRenderCount})`
       );
 
       await context.close();
