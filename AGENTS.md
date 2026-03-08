@@ -42,18 +42,6 @@ packages/
 
 ## Development Patterns
 
-### Creating New Node Types
-1. Add type to `packages/backend/src/types/index.ts` (`NodeType` enum)
-2. Add type to `packages/frontend/src/types.ts` (`NodeType` enum)
-3. Add execution logic in `packages/backend/src/core/NodeExecutor.ts`
-4. Update `packages/frontend/src/utils/nodeFactory.ts` if needed
-
-### Adding New Runtime (Execution Engine)
-1. Create runtime implementation in `packages/backend/src/core/execution/`
-2. Implement the `ExecutionRuntime` interface (see `EXECUTION_ENGINE.md`)
-3. Register it in runtime factory/registry
-4. Update `NodeExecutor` to use runtime selection
-
 ## Security Rules
 
 User code should execute in sandboxed runtimes, not in-process eval.
