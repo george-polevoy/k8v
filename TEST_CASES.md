@@ -65,6 +65,7 @@ Last reviewed: March 10, 2026.
 - `A-FE-30` `packages/frontend/tests/annotationConnections.test.ts`: annotation connection helpers normalize edge anchors, snap arbitrary edge hits, and identify annotation-linked presentation edges.
 - `A-FE-31` `packages/frontend/tests/graphStoreEditing.test.ts`: node multi-selection state preserves selected node IDs across set/toggle flows and reconciles remaining selection when a selected node is deleted.
 - `A-FE-32` `packages/frontend/tests/nodeCardAppearance.test.ts`: node card appearance helpers normalize default/custom background and border colors for generic nodes while preserving annotation-specific color config.
+- `A-FE-33` `packages/frontend/tests/connectionArrows.test.ts`: connection arrowhead sizing keeps the background arrow as outline padding around the foreground arrow instead of scaling the whole triangle with background stroke width.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -278,7 +279,7 @@ Last reviewed: March 10, 2026.
 | Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
-| Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `M-CANVAS-28` | Automated + Manual |
+| Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |

@@ -39,6 +39,7 @@ import {
   type SmokePuff,
 } from '../utils/canvasEffects';
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
+import { resolveConnectionArrowHeadLayout } from '../utils/connectionArrows';
 import { hexColorToNumber } from '../utils/color';
 import { normalizeNumericInputConfig, snapNumericInputValue } from '../utils/numericInput';
 import type {
@@ -497,10 +498,11 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     const selectedForegroundColor = blendPixiColors(foregroundColor, 0x2563eb, 0.55);
     const selectedBackgroundColor = blendPixiColors(backgroundColor, 0x93c5fd, 0.45);
     const nodeById = buildGraphNodeMap(currentGraph.nodes);
-    const backgroundArrowLength = Math.max(backgroundLineWidth * 5.5, 12 / viewportScale);
-    const backgroundArrowWidth = Math.max(backgroundLineWidth * 4, 10 / viewportScale);
-    const foregroundArrowLength = Math.max(foregroundLineWidth * 5, 9 / viewportScale);
-    const foregroundArrowWidth = Math.max(foregroundLineWidth * 3.5, 7 / viewportScale);
+    const arrowHeadLayout = resolveConnectionArrowHeadLayout({
+      foregroundLineWidth,
+      backgroundLineWidth,
+      viewportScale,
+    });
 
     for (const connection of currentGraph.connections) {
       const sourceVisual = nodeVisualsRef.current.get(connection.sourceNodeId);
@@ -568,8 +570,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
           geometry,
           resolvedBackgroundColor,
           resolvedBackgroundAlpha,
-          backgroundArrowLength,
-          backgroundArrowWidth
+          arrowHeadLayout.background.length,
+          arrowHeadLayout.background.width
         );
       }
       edges.lineStyle(
@@ -586,8 +588,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
           geometry,
           resolvedForegroundColor,
           resolvedForegroundAlpha,
-          foregroundArrowLength,
-          foregroundArrowWidth
+          arrowHeadLayout.foreground.length,
+          arrowHeadLayout.foreground.width
         );
       }
     }
@@ -652,8 +654,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         dragGeometry,
         selectedBackgroundColor,
         config.connectionWireSelectedBackgroundAlpha,
-        backgroundArrowLength,
-        backgroundArrowWidth
+        arrowHeadLayout.background.length,
+        arrowHeadLayout.background.width
       );
     }
     edges.lineStyle(
@@ -670,8 +672,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         dragGeometry,
         selectedForegroundColor,
         config.connectionWireSelectedForegroundAlpha,
-        foregroundArrowLength,
-        foregroundArrowWidth
+        arrowHeadLayout.foreground.length,
+        arrowHeadLayout.foreground.width
       );
     }
   }, [
