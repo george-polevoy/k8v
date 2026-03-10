@@ -30,6 +30,7 @@ Last reviewed: March 6, 2026.
 - `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas remains full viewport while toolbar/sidebar floating windows stay draggable and inside viewport bounds across window resize.
 - `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
+- `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: annotation cards create persisted presentation-only arrows from arbitrary card edges to standard node ports and other annotation edges.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -59,6 +60,7 @@ Last reviewed: March 6, 2026.
 - `A-FE-27` `packages/frontend/tests/graphStore.test.ts`: `loadGraph` normalizes missing graph `executionTimeoutMs` to the 30-second default.
 - `A-FE-28` `packages/frontend/tests/nodeFactory.test.ts`: annotation node factory defaults (`text`, `backgroundColor`, `borderColor`, `fontColor`, `fontSize`) and node type.
 - `A-FE-29` `packages/frontend/tests/connectionStroke.test.ts`: connection-stroke normalization enforces defaults, 2x width ratio, and foreground/background brightness separation.
+- `A-FE-30` `packages/frontend/tests/annotationConnections.test.ts`: annotation connection helpers normalize edge anchors, snap arbitrary edge hits, and identify annotation-linked presentation edges.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -123,6 +125,8 @@ Last reviewed: March 6, 2026.
 - `A-BE-62` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `starting_vertices` returns only nodes without downstream/outgoing connections.
 - `A-BE-63` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` rejects traversal requests whose `startNodeIds` are missing from the graph.
 - `A-BE-64` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` always includes `sourceNodeId`/`targetNodeId` in connections even when `connectionFields` omits them.
+- `A-BE-65` `packages/backend/tests/app.test.ts`: annotation-linked connections round-trip persisted edge anchors and are excluded from DAG validation.
+- `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -173,6 +177,7 @@ Last reviewed: March 6, 2026.
 - `M-CANVAS-25`: Two-finger trackpad scroll pans the viewport while pinch zoom and mouse-wheel zoom still zoom in/out.
 - `M-CANVAS-26`: Annotation cards render markdown text + TeX/LaTeX math on canvas and support all-side resize handles.
 - `M-CANVAS-27`: Connection lines stay visible across mixed bright/dark canvas backgrounds via dual layered strokes.
+- `M-CANVAS-28`: Annotation cards can draw incoming/outgoing arrows from any card edge without affecting executable graph behavior.
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
@@ -264,6 +269,7 @@ Last reviewed: March 6, 2026.
 | Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
+| Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `M-CANVAS-28` | Automated + Manual |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
@@ -313,7 +319,7 @@ Last reviewed: March 6, 2026.
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |
 | Reject updates on legacy cyclic graphs | `A-BE-07` | Automated |
 | NodeExecutor supports inline/library/subgraph/external/numeric I/O | `A-BE-10`, `A-BE-11`, `A-BE-12`, `A-BE-34`, `A-BE-35` | Automated |
-| Annotation nodes are non-executable presentation nodes | `A-BE-52`, `A-BE-53` | Automated |
+| Annotation nodes are non-executable presentation nodes and annotation-linked edges stay out of DAG validation/execution | `A-BE-52`, `A-BE-53`, `A-BE-65`, `A-BE-66` | Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
@@ -325,6 +331,6 @@ Last reviewed: March 6, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, and toolbar add-node dialog layering (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, and toolbar add-node dialog layering (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

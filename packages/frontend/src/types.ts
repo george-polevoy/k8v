@@ -91,12 +91,21 @@ export interface GraphNode {
   lastComputed?: number;
 }
 
+export type ConnectionAnchorSide = 'top' | 'right' | 'bottom' | 'left';
+
+export interface ConnectionAnchor {
+  side: ConnectionAnchorSide;
+  offset: number;
+}
+
 export interface Connection {
   id: string;
   sourceNodeId: string;
   sourcePort: string;
+  sourceAnchor?: ConnectionAnchor;
   targetNodeId: string;
   targetPort: string;
+  targetAnchor?: ConnectionAnchor;
 }
 
 export interface DrawingPath {

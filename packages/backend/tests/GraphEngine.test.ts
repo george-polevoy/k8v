@@ -195,3 +195,84 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('GraphEngine ignores annotation-linked cycles when computing executable nodes', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-annotation-cycle-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const dataStore = new DataStore(dbPath, dataDir);
+  const graphEngine = new GraphEngine(dataStore, new NodeExecutor(dataStore));
+  const now = Date.now();
+  const graph: Graph = {
+    id: 'graph-annotation-cycle',
+    name: 'Annotation Cycle Graph',
+    createdAt: now,
+    updatedAt: now,
+    pythonEnvs: [],
+    drawings: [],
+    nodes: [
+      {
+        id: 'annotation-node',
+        type: NodeType.ANNOTATION,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Annotation',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: NodeType.ANNOTATION,
+          config: {
+            text: 'Visual note',
+            backgroundColor: '#fef3c7',
+            borderColor: '#334155',
+            fontColor: '#1f2937',
+          },
+        },
+        version: 'annotation-v1',
+      },
+      {
+        id: 'compute-node',
+        type: NodeType.INLINE_CODE,
+        position: { x: 320, y: 0 },
+        metadata: {
+          name: 'Compute',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: NodeType.INLINE_CODE,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'compute-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'annotation-to-compute',
+        sourceNodeId: 'annotation-node',
+        sourcePort: '__annotation__',
+        sourceAnchor: { side: 'bottom', offset: 0.25 },
+        targetNodeId: 'compute-node',
+        targetPort: 'input',
+      },
+      {
+        id: 'compute-to-annotation',
+        sourceNodeId: 'compute-node',
+        sourcePort: 'output',
+        targetNodeId: 'annotation-node',
+        targetPort: '__annotation__',
+        targetAnchor: { side: 'top', offset: 0.75 },
+      },
+    ],
+  };
+
+  try {
+    const result = await graphEngine.computeNode(graph, 'compute-node');
+    assert.equal(result.outputs.output, 1);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});

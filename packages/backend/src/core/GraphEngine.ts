@@ -1,6 +1,10 @@
 import { Graph, GraphNode, ComputationResult } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { NodeExecutor } from './NodeExecutor.js';
+import {
+  buildGraphNodeMap,
+  filterComputationalConnections,
+} from './annotationConnections.js';
 
 /**
  * Graph computation engine with deterministic recomputation
@@ -107,7 +111,10 @@ export class GraphEngine {
    * Get all nodes that this node depends on
    */
   private getDependencies(graph: Graph, nodeId: string): string[] {
-    const connections = graph.connections.filter(c => c.targetNodeId === nodeId);
+    const connections = filterComputationalConnections(
+      graph.connections,
+      buildGraphNodeMap(graph.nodes)
+    ).filter((connection) => connection.targetNodeId === nodeId);
     return connections.map(c => c.sourceNodeId);
   }
 
@@ -116,7 +123,10 @@ export class GraphEngine {
    */
   private async getNodeInputs(graph: Graph, nodeId: string): Promise<Record<string, any>> {
     const inputs: Record<string, any> = {};
-    const connections = graph.connections.filter(c => c.targetNodeId === nodeId);
+    const connections = filterComputationalConnections(
+      graph.connections,
+      buildGraphNodeMap(graph.nodes)
+    ).filter((connection) => connection.targetNodeId === nodeId);
 
     for (const connection of connections) {
       const sourceResult = await this.dataStore.getResult(connection.sourceNodeId);

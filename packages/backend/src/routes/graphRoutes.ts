@@ -14,6 +14,11 @@ import {
   normalizeConnectionStrokeValue,
   normalizeGraphProjections,
 } from '../core/graphNormalization.js';
+import {
+  buildGraphNodeMap,
+  getConnectionSignature,
+  isAnnotationLinkedConnection,
+} from '../core/annotationConnections.js';
 import { validateGraphStructure } from '../core/graphValidation.js';
 import { validate } from '../http/validate.js';
 import {
@@ -116,17 +121,22 @@ function isTruthyQueryFlag(value: unknown): boolean {
   return false;
 }
 
-function connectionSignature(connection: Connection): string {
-  return `${connection.sourceNodeId}:${connection.sourcePort}->${connection.targetNodeId}:${connection.targetPort}`;
-}
-
 function collectInboundConnectionChangedNodeIds(
+  previousNodes: GraphNode[],
   previousConnections: Connection[],
+  nextNodes: GraphNode[],
   nextConnections: Connection[]
 ): Set<string> {
+  const combinedNodeMap = buildGraphNodeMap([
+    ...previousNodes,
+    ...nextNodes,
+  ]);
   const previousByTarget = new Map<string, Set<string>>();
   for (const connection of previousConnections) {
-    const signature = connectionSignature(connection);
+    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+      continue;
+    }
+    const signature = getConnectionSignature(connection);
     const existing = previousByTarget.get(connection.targetNodeId);
     if (existing) {
       existing.add(signature);
@@ -137,7 +147,10 @@ function collectInboundConnectionChangedNodeIds(
 
   const nextByTarget = new Map<string, Set<string>>();
   for (const connection of nextConnections) {
-    const signature = connectionSignature(connection);
+    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+      continue;
+    }
+    const signature = getConnectionSignature(connection);
     const existing = nextByTarget.get(connection.targetNodeId);
     if (existing) {
       existing.add(signature);
@@ -311,7 +324,7 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
       const mergedConnectionStroke = req.body.connectionStroke ?? existing.connectionStroke;
       const inboundConnectionChangedNodeIds = req.body.connections
-        ? collectInboundConnectionChangedNodeIds(existing.connections, mergedConnections)
+        ? collectInboundConnectionChangedNodeIds(existing.nodes, existing.connections, mergedNodes, mergedConnections)
         : new Set<string>();
       const projectionState = normalizeGraphProjections(
         mergedNodes,

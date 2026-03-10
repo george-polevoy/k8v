@@ -1,8 +1,13 @@
 import { DEFAULT_RUNTIME_ID, PYTHON_RUNTIME_ID } from './execution/types.js';
 import { DEFAULT_GRAPH_PROJECTION_ID, type Graph } from '../types/index.js';
+import {
+  buildGraphNodeMap,
+  filterComputationalConnections,
+} from './annotationConnections.js';
 
 export function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const nodeById = buildGraphNodeMap(graph.nodes);
   const drawingIds = new Set<string>();
   const pythonEnvNames = new Set<string>();
   const projectionIds = new Set<string>();
@@ -82,7 +87,7 @@ export function validateGraphStructure(graph: Graph): string | null {
   for (const nodeId of nodeIds) {
     adjacency.set(nodeId, []);
   }
-  for (const connection of graph.connections) {
+  for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
     adjacency.get(connection.sourceNodeId)?.push(connection.targetNodeId);
   }
 

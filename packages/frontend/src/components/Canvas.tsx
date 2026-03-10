@@ -5,6 +5,7 @@ import {
   Container,
   FederatedPointerEvent,
   Graphics,
+  Point,
   Rectangle,
   Sprite,
   Text,
@@ -22,6 +23,7 @@ import {
 } from '../types';
 import { resolveGraphCanvasBackground } from '../utils/canvasBackground';
 import {
+  clamp,
   interpolateCanvasBackground,
   makePortKey,
   snapToPixel,
@@ -99,10 +101,15 @@ import { useCanvasRuntime } from './useCanvasRuntime';
 import { usePixiCanvasLifecycle } from './usePixiCanvasLifecycle';
 import { useCanvasExecutionEffects } from './useCanvasExecutionEffects';
 import { normalizeAnnotationConfig } from '../utils/annotation';
+import {
+  ANNOTATION_CONNECTION_PORT,
+  resolveConnectionAnchorPoint,
+} from '../utils/annotationConnections';
 
 const ANNOTATION_TEXT_INSET_X = 8;
 const ANNOTATION_TEXT_INSET_Y = 8;
 const ANNOTATION_TEXT_INSET_BOTTOM = 8;
+const ANNOTATION_CONNECTION_EDGE_HIT_WIDTH = 14;
 const PORT_RADIUS = 4;
 const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
 const MIN_ZOOM = 0.1;
@@ -607,6 +614,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     renderGraphRef,
     config: {
       portRadius: PORT_RADIUS,
+      annotationEdgeHitWidth: ANNOTATION_CONNECTION_EDGE_HIT_WIDTH,
       nodeDragStartThreshold: NODE_DRAG_START_THRESHOLD,
       drawSmoothingStep: DRAW_SMOOTHING_STEP,
       zoomSensitivity: ZOOM_SENSITIVITY,
@@ -976,7 +984,10 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           drawInputPortMarker(marker, true);
           const dragState = connectionDragStateRef.current;
           if (dragState) {
-            dragState.hoveredInputKey = portKey;
+            dragState.hoveredTarget = {
+              type: 'input-port',
+              portKey,
+            };
             drawConnections();
           }
         });
@@ -991,8 +1002,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           }
           drawInputPortMarker(marker, false);
           const dragState = connectionDragStateRef.current;
-          if (dragState && dragState.hoveredInputKey === portKey) {
-            dragState.hoveredInputKey = null;
+          if (dragState?.hoveredTarget?.type === 'input-port' && dragState.hoveredTarget.portKey === portKey) {
+            dragState.hoveredTarget = null;
             drawConnections();
           }
         });
@@ -1068,7 +1079,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             startY: sourcePosition.y + y,
             pointerX: event.global.x,
             pointerY: event.global.y,
-            hoveredInputKey: null,
+            hoveredTarget: null,
           };
           drawOutputPortMarker(marker, true);
           selectedNodeIdRef.current = node.id;
@@ -1094,6 +1105,75 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           label.position.set(width - 10, y - 7);
           container.addChild(label);
         }
+      }
+
+      if (node.type === NodeType.ANNOTATION) {
+        const edgeHitWidth = ANNOTATION_CONNECTION_EDGE_HIT_WIDTH;
+        const createAnnotationConnectionEdge = (
+          side: 'top' | 'right' | 'bottom' | 'left',
+          x: number,
+          y: number,
+          edgeWidth: number,
+          edgeHeight: number
+        ) => {
+          const edge = new Graphics();
+          edge.beginFill(0x000000, 0.001);
+          edge.drawRect(x, y, edgeWidth, edgeHeight);
+          edge.endFill();
+          edge.eventMode = 'static';
+          edge.cursor = 'crosshair';
+          edge.on('pointerdown', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            if (event.button !== 0) {
+              return;
+            }
+            event.stopPropagation();
+            const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+            canvas?.focus({ preventScroll: true });
+
+            const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
+            const localPoint = container.toLocal(new Point(event.global.x, event.global.y));
+            const anchor = {
+              side,
+              offset: clamp(
+                side === 'top' || side === 'bottom'
+                  ? localPoint.x / Math.max(width, 1)
+                  : localPoint.y / Math.max(height, 1),
+                0,
+                1
+              ),
+            };
+            const startPoint = resolveConnectionAnchorPoint(currentPosition, width, height, anchor);
+
+            connectionDragStateRef.current = {
+              sourceNodeId: node.id,
+              sourcePort: ANNOTATION_CONNECTION_PORT,
+              sourcePortKey: null,
+              sourceAnchor: anchor,
+              startX: startPoint.x,
+              startY: startPoint.y,
+              pointerX: event.global.x,
+              pointerY: event.global.y,
+              hoveredTarget: null,
+            };
+            selectedConnectionIdRef.current = null;
+            selectedNodeIdRef.current = node.id;
+            selectNode(node.id);
+            drawConnections();
+          });
+          edge.on('pointertap', (event: FederatedPointerEvent) => {
+            event.stopPropagation();
+          });
+          container.addChild(edge);
+        };
+
+        const halfEdgeHitWidth = edgeHitWidth * 0.5;
+        createAnnotationConnectionEdge('top', 0, -halfEdgeHitWidth, width, edgeHitWidth);
+        createAnnotationConnectionEdge('right', width - halfEdgeHitWidth, 0, edgeHitWidth, height);
+        createAnnotationConnectionEdge('bottom', 0, height - halfEdgeHitWidth, width, edgeHitWidth);
+        createAnnotationConnectionEdge('left', -halfEdgeHitWidth, 0, edgeHitWidth, height);
       }
 
       if (isNumericInputNode) {

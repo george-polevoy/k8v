@@ -4,11 +4,21 @@ import { v4 as uuidv4 } from 'uuid';
 import type { NodeExecutionState } from '../store/graphStore';
 import type {
   CanvasBackgroundSettings,
+  Connection,
+  ConnectionAnchorSide,
   DrawingPath,
   Graph,
   Position,
 } from '../types';
 import { NodeType } from '../types';
+import {
+  ANNOTATION_CONNECTION_PORT,
+  areConnectionAnchorsEqual,
+  buildGraphNodeMap,
+  isAnnotationConnection,
+  isAnnotationNode,
+  resolveConnectionAnchorPoint,
+} from '../utils/annotationConnections';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
 import { normalizeCanvasBackground, resolveGraphCanvasBackground } from '../utils/canvasBackground';
 import { makePortKey, parsePortKey } from '../utils/canvasHelpers';
@@ -48,6 +58,7 @@ import {
   createsCycle,
   distanceSquaredToBezier,
   drawBezierConnection,
+  drawConnectionArrowHead,
   drawInputPortMarker,
   drawNumericSliderVisual,
   drawOutputPortMarker,
@@ -102,7 +113,7 @@ interface UseCanvasRuntimeParams {
   requestCanvasAnimationLoop: () => void;
   requestNodeGraphicsTextureRefresh: () => void;
   updateNode: (nodeId: string, updates: Record<string, unknown>) => void;
-  addConnection: (connection: { id: string; sourceNodeId: string; sourcePort: string; targetNodeId: string; targetPort: string }) => void;
+  addConnection: (connection: Connection) => void;
   config: {
     edgeHitWidth: number;
     connectionWireScreenWidth: number;
@@ -131,6 +142,27 @@ function blendPixiColors(baseColor: number, targetColor: number, amount: number)
   const blendedG = Math.round(baseG + ((targetG - baseG) * clampedAmount));
   const blendedB = Math.round(baseB + ((targetB - baseB) * clampedAmount));
   return (blendedR << 16) | (blendedG << 8) | blendedB;
+}
+
+function resolveConnectionSide(
+  anchorSide: ConnectionAnchorSide | undefined,
+  fallback: ConnectionAnchorSide
+): ConnectionAnchorSide {
+  return anchorSide ?? fallback;
+}
+
+function resolveFreePointerEndSide(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number
+): ConnectionAnchorSide {
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+    return deltaX >= 0 ? 'left' : 'right';
+  }
+  return deltaY >= 0 ? 'top' : 'bottom';
 }
 
 export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
@@ -423,6 +455,11 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     );
     const selectedForegroundColor = blendPixiColors(foregroundColor, 0x2563eb, 0.55);
     const selectedBackgroundColor = blendPixiColors(backgroundColor, 0x93c5fd, 0.45);
+    const nodeById = buildGraphNodeMap(currentGraph.nodes);
+    const backgroundArrowLength = Math.max(backgroundLineWidth * 5.5, 12 / viewportScale);
+    const backgroundArrowWidth = Math.max(backgroundLineWidth * 4, 10 / viewportScale);
+    const foregroundArrowLength = Math.max(foregroundLineWidth * 5, 9 / viewportScale);
+    const foregroundArrowWidth = Math.max(foregroundLineWidth * 3.5, 7 / viewportScale);
 
     for (const connection of currentGraph.connections) {
       const sourceVisual = nodeVisualsRef.current.get(connection.sourceNodeId);
@@ -434,31 +471,84 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         continue;
       }
 
+      const sourceNode = nodeById.get(connection.sourceNodeId);
+      const targetNode = nodeById.get(connection.targetNodeId);
+      const sourceIsAnnotation = isAnnotationNode(sourceNode);
+      const targetIsAnnotation = isAnnotationNode(targetNode);
+      const sourceAnchor = connection.sourceAnchor ?? { side: 'right' as const, offset: 0.5 };
+      const targetAnchor = connection.targetAnchor ?? { side: 'left' as const, offset: 0.5 };
       const sourceY = sourceVisual.outputPortOffsets.get(connection.sourcePort) ?? sourceVisual.height / 2;
       const targetY = targetVisual.inputPortOffsets.get(connection.targetPort) ?? targetVisual.height / 2;
-      const startX = sourcePosition.x + sourceVisual.width;
-      const startY = sourcePosition.y + sourceY;
-      const endX = targetPosition.x;
-      const endY = targetPosition.y + targetY;
-      const geometry = getBezierGeometry(connection.id, startX, startY, endX, endY);
+      const sourcePoint = sourceIsAnnotation
+        ? resolveConnectionAnchorPoint(sourcePosition, sourceVisual.width, sourceVisual.height, sourceAnchor)
+        : {
+            x: sourcePosition.x + sourceVisual.width,
+            y: sourcePosition.y + sourceY,
+          };
+      const targetPoint = targetIsAnnotation
+        ? resolveConnectionAnchorPoint(targetPosition, targetVisual.width, targetVisual.height, targetAnchor)
+        : {
+            x: targetPosition.x,
+            y: targetPosition.y + targetY,
+          };
+      const startSide = resolveConnectionSide(sourceIsAnnotation ? sourceAnchor.side : undefined, 'right');
+      const endSide = resolveConnectionSide(targetIsAnnotation ? targetAnchor.side : undefined, 'left');
+      const geometry = getBezierGeometry(
+        connection.id,
+        sourcePoint.x,
+        sourcePoint.y,
+        targetPoint.x,
+        targetPoint.y,
+        startSide,
+        endSide
+      );
       connectionGeometriesRef.current.set(connection.id, geometry);
       const isSelectedConnection = selectedConnectionIdRef.current === connection.id;
+      const shouldDrawArrowHead = isAnnotationConnection(connection, nodeById);
+      const resolvedBackgroundColor = isSelectedConnection ? selectedBackgroundColor : backgroundColor;
+      const resolvedBackgroundAlpha = isSelectedConnection
+        ? config.connectionWireSelectedBackgroundAlpha
+        : config.connectionWireBackgroundAlpha;
+      const resolvedForegroundColor = isSelectedConnection ? selectedForegroundColor : foregroundColor;
+      const resolvedForegroundAlpha = isSelectedConnection
+        ? config.connectionWireSelectedForegroundAlpha
+        : config.connectionWireForegroundAlpha;
       edges.lineStyle(
         backgroundLineWidth,
-        isSelectedConnection ? selectedBackgroundColor : backgroundColor,
-        isSelectedConnection ? config.connectionWireSelectedBackgroundAlpha : config.connectionWireBackgroundAlpha,
+        resolvedBackgroundColor,
+        resolvedBackgroundAlpha,
         0.5,
         false
       );
-      drawBezierConnection(edges, startX, startY, endX, endY);
+      drawBezierConnection(edges, geometry.startX, geometry.startY, geometry.endX, geometry.endY, startSide, endSide);
+      if (shouldDrawArrowHead) {
+        drawConnectionArrowHead(
+          edges,
+          geometry,
+          resolvedBackgroundColor,
+          resolvedBackgroundAlpha,
+          backgroundArrowLength,
+          backgroundArrowWidth
+        );
+      }
       edges.lineStyle(
         foregroundLineWidth,
-        isSelectedConnection ? selectedForegroundColor : foregroundColor,
-        isSelectedConnection ? config.connectionWireSelectedForegroundAlpha : config.connectionWireForegroundAlpha,
+        resolvedForegroundColor,
+        resolvedForegroundAlpha,
         0.5,
         false
       );
-      drawBezierConnection(edges, startX, startY, endX, endY);
+      drawBezierConnection(edges, geometry.startX, geometry.startY, geometry.endX, geometry.endY, startSide, endSide);
+      if (shouldDrawArrowHead) {
+        drawConnectionArrowHead(
+          edges,
+          geometry,
+          resolvedForegroundColor,
+          resolvedForegroundAlpha,
+          foregroundArrowLength,
+          foregroundArrowWidth
+        );
+      }
     }
 
     const dragState = connectionDragStateRef.current;
@@ -468,21 +558,44 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
 
     let endX = dragState.startX;
     let endY = dragState.startY;
+    let endSide = resolveFreePointerEndSide(dragState.startX, dragState.startY, endX, endY);
+    const startSide = resolveConnectionSide(dragState.sourceAnchor?.side, 'right');
+    const hoveredTarget = dragState.hoveredTarget;
 
-    if (dragState.hoveredInputKey) {
-      const hoveredPosition = inputPortPositionsRef.current.get(dragState.hoveredInputKey);
+    if (hoveredTarget?.type === 'input-port') {
+      const hoveredPosition = inputPortPositionsRef.current.get(hoveredTarget.portKey);
       if (hoveredPosition) {
         endX = hoveredPosition.x;
         endY = hoveredPosition.y;
+        endSide = 'left';
       }
+    } else if (hoveredTarget?.type === 'annotation') {
+      endX = hoveredTarget.point.x;
+      endY = hoveredTarget.point.y;
+      endSide = hoveredTarget.anchor.side;
     } else {
       const viewport = viewportRef.current;
       if (viewport) {
         const worldPoint = viewport.toLocal(new Point(dragState.pointerX, dragState.pointerY));
         endX = worldPoint.x;
         endY = worldPoint.y;
+        endSide = resolveFreePointerEndSide(dragState.startX, dragState.startY, endX, endY);
       }
     }
+
+    const dragGeometry = getBezierGeometry(
+      'drag-preview',
+      dragState.startX,
+      dragState.startY,
+      endX,
+      endY,
+      startSide,
+      endSide
+    );
+    const drawPreviewArrowHead =
+      dragState.sourcePort === ANNOTATION_CONNECTION_PORT ||
+      Boolean(dragState.sourceAnchor) ||
+      hoveredTarget?.type === 'annotation';
 
     edges.lineStyle(
       backgroundLineWidth,
@@ -491,7 +604,17 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       0.5,
       false
     );
-    drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
+    drawBezierConnection(edges, dragGeometry.startX, dragGeometry.startY, dragGeometry.endX, dragGeometry.endY, startSide, endSide);
+    if (drawPreviewArrowHead) {
+      drawConnectionArrowHead(
+        edges,
+        dragGeometry,
+        selectedBackgroundColor,
+        config.connectionWireSelectedBackgroundAlpha,
+        backgroundArrowLength,
+        backgroundArrowWidth
+      );
+    }
     edges.lineStyle(
       foregroundLineWidth,
       selectedForegroundColor,
@@ -499,7 +622,17 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       0.5,
       false
     );
-    drawBezierConnection(edges, dragState.startX, dragState.startY, endX, endY);
+    drawBezierConnection(edges, dragGeometry.startX, dragGeometry.startY, dragGeometry.endX, dragGeometry.endY, startSide, endSide);
+    if (drawPreviewArrowHead) {
+      drawConnectionArrowHead(
+        edges,
+        dragGeometry,
+        selectedForegroundColor,
+        config.connectionWireSelectedForegroundAlpha,
+        foregroundArrowLength,
+        foregroundArrowWidth
+      );
+    }
   }, [
     config.connectionWireBackgroundAlpha,
     config.connectionWireForegroundAlpha,
@@ -591,8 +724,9 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       return;
     }
 
+    const nodeById = buildGraphNodeMap(currentGraph.nodes);
     for (const connection of currentGraph.connections) {
-      if (connection.targetNodeId === nodeId) {
+      if (connection.targetNodeId === nodeId && !isAnnotationConnection(connection, nodeById)) {
         enqueueLightningForConnection(connection.id);
       }
     }
@@ -661,18 +795,41 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       return;
     }
 
-    const previousHoveredInput = dragState.hoveredInputKey;
+    const previousHoveredTarget = dragState.hoveredTarget;
     const previousSourceOutput = dragState.sourcePortKey;
 
-    if (commit && previousHoveredInput) {
+    if (commit && previousHoveredTarget) {
       const currentGraph = graphRef.current;
-      const { nodeId: targetNodeId, portName: targetPort } = parsePortKey(previousHoveredInput);
-      if (currentGraph && targetPort) {
+      if (currentGraph) {
+        let targetNodeId = '';
+        let targetPort = '';
+        let targetAnchor = undefined;
+
+        if (previousHoveredTarget.type === 'input-port') {
+          const parsed = parsePortKey(previousHoveredTarget.portKey);
+          targetNodeId = parsed.nodeId;
+          targetPort = parsed.portName;
+        } else if (previousHoveredTarget.type === 'annotation') {
+          targetNodeId = previousHoveredTarget.nodeId;
+          targetPort = ANNOTATION_CONNECTION_PORT;
+          targetAnchor = previousHoveredTarget.anchor;
+        }
+
+        if (!targetPort) {
+          connectionDragStateRef.current = null;
+          hoveredInputPortKeyRef.current = null;
+          hoveredOutputPortKeyRef.current = null;
+          drawConnections();
+          return;
+        }
+
         const alreadyExists = currentGraph.connections.some((connection) =>
           connection.sourceNodeId === dragState.sourceNodeId &&
           connection.sourcePort === dragState.sourcePort &&
+          areConnectionAnchorsEqual(connection.sourceAnchor, dragState.sourceAnchor) &&
           connection.targetNodeId === targetNodeId &&
-          connection.targetPort === targetPort
+          connection.targetPort === targetPort &&
+          areConnectionAnchorsEqual(connection.targetAnchor, targetAnchor)
         );
 
         const introducesCycle = createsCycle(
@@ -687,8 +844,10 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
             id: uuidv4(),
             sourceNodeId: dragState.sourceNodeId,
             sourcePort: dragState.sourcePort,
+            sourceAnchor: dragState.sourceAnchor,
             targetNodeId,
             targetPort,
+            targetAnchor,
           });
         }
       }
@@ -697,7 +856,9 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     connectionDragStateRef.current = null;
     hoveredInputPortKeyRef.current = null;
     hoveredOutputPortKeyRef.current = null;
-    setInputPortHighlight(previousHoveredInput || '', false);
+    if (previousHoveredTarget?.type === 'input-port') {
+      setInputPortHighlight(previousHoveredTarget.portKey, false);
+    }
     setOutputPortHighlight(previousSourceOutput || '', false);
     drawConnections();
   }, [

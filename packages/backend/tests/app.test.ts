@@ -298,6 +298,58 @@ test('annotation nodes are accepted and are non-executable via node compute endp
   }
 });
 
+test('annotation-linked connections preserve anchors and are excluded from DAG validation', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const inlineNode = createPassThroughNode('node-1');
+    const annotationNode = createAnnotationNode('annotation-1');
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [inlineNode, annotationNode],
+      connections: [
+        {
+          id: 'c1',
+          sourceNodeId: 'annotation-1',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'bottom',
+            offset: 0.25,
+          },
+          targetNodeId: 'node-1',
+          targetPort: 'input',
+        },
+        {
+          id: 'c2',
+          sourceNodeId: 'node-1',
+          sourcePort: 'output',
+          targetNodeId: 'annotation-1',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'top',
+            offset: 0.75,
+          },
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    assert.equal(createdGraph.connections.length, 2);
+    const annotationToInline = createdGraph.connections.find((connection: any) => connection.id === 'c1');
+    const inlineToAnnotation = createdGraph.connections.find((connection: any) => connection.id === 'c2');
+    assert.deepEqual(annotationToInline?.sourceAnchor, {
+      side: 'bottom',
+      offset: 0.25,
+    });
+    assert.deepEqual(inlineToAnnotation?.targetAnchor, {
+      side: 'top',
+      offset: 0.75,
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs/:id/compute performs manual recompute even when node version is unchanged', async () => {
   const ctx = await setupTestServer();
 

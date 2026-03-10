@@ -13,10 +13,13 @@ import type {
 } from '../store/graphStore';
 import type {
   CanvasBackgroundSettings,
+  ConnectionAnchor,
+  ConnectionAnchorSide,
   DrawingPath,
   GraphDrawing,
   GraphNode,
   GraphicsArtifact,
+  Position,
 } from '../types';
 import { NodeType } from '../types';
 import { deriveGradientStops } from '../utils/canvasBackground';
@@ -25,6 +28,10 @@ import type { ConnectionGeometry } from '../utils/canvasEffects';
 import type { WorldBounds } from '../utils/canvasNodeRender';
 import { hexColorToNumber } from '../utils/color';
 import { isRenderableGraphicsArtifact } from '../utils/graphics';
+import {
+  buildGraphNodeMap,
+  isAnnotationConnection,
+} from '../utils/annotationConnections';
 import {
   formatNumericInputValue,
   snapNumericInputValue,
@@ -121,15 +128,30 @@ export interface AnnotationOverlayTransform {
   scale: number;
 }
 
+export interface AnnotationConnectionTarget {
+  type: 'annotation';
+  nodeId: string;
+  anchor: ConnectionAnchor;
+  point: Position;
+}
+
+export interface InputPortConnectionTarget {
+  type: 'input-port';
+  portKey: string;
+}
+
+export type HoveredConnectionTarget = AnnotationConnectionTarget | InputPortConnectionTarget | null;
+
 export interface ConnectionDragState {
   sourceNodeId: string;
   sourcePort: string;
-  sourcePortKey: string;
+  sourcePortKey: string | null;
+  sourceAnchor?: ConnectionAnchor;
   startX: number;
   startY: number;
   pointerX: number;
   pointerY: number;
-  hoveredInputKey: string | null;
+  hoveredTarget: HoveredConnectionTarget;
 }
 
 export interface ActiveDrawingPath {
@@ -586,15 +608,17 @@ export function drawBezierConnection(
   startX: number,
   startY: number,
   endX: number,
-  endY: number
+  endY: number,
+  startSide: ConnectionAnchorSide = 'right',
+  endSide: ConnectionAnchorSide = 'left'
 ): void {
-  const controlOffset = Math.max(Math.abs(endX - startX) * 0.4, 60);
+  const geometry = getBezierGeometry('preview', startX, startY, endX, endY, startSide, endSide);
   graphics.moveTo(startX, startY);
   graphics.bezierCurveTo(
-    startX + controlOffset,
-    startY,
-    endX - controlOffset,
-    endY,
+    geometry.c1X,
+    geometry.c1Y,
+    geometry.c2X,
+    geometry.c2Y,
     endX,
     endY
   );
@@ -605,20 +629,78 @@ export function getBezierGeometry(
   startX: number,
   startY: number,
   endX: number,
-  endY: number
+  endY: number,
+  startSide: ConnectionAnchorSide = 'right',
+  endSide: ConnectionAnchorSide = 'left'
 ): ConnectionGeometry {
-  const controlOffset = Math.max(Math.abs(endX - startX) * 0.4, 60);
+  const controlOffset = Math.max(Math.hypot(endX - startX, endY - startY) * 0.35, 60);
+  const startControl = resolveBezierControlPoint(startX, startY, startSide, controlOffset);
+  const endControl = resolveBezierControlPoint(endX, endY, endSide, controlOffset);
   return {
     id,
     startX,
     startY,
-    c1X: startX + controlOffset,
-    c1Y: startY,
-    c2X: endX - controlOffset,
-    c2Y: endY,
+    c1X: startControl.x,
+    c1Y: startControl.y,
+    c2X: endControl.x,
+    c2Y: endControl.y,
     endX,
     endY,
   };
+}
+
+function resolveBezierControlPoint(
+  x: number,
+  y: number,
+  side: ConnectionAnchorSide,
+  offset: number
+): Position {
+  switch (side) {
+    case 'top':
+      return { x, y: y - offset };
+    case 'bottom':
+      return { x, y: y + offset };
+    case 'left':
+      return { x: x - offset, y };
+    case 'right':
+    default:
+      return { x: x + offset, y };
+  }
+}
+
+export function drawConnectionArrowHead(
+  graphics: Graphics,
+  geometry: ConnectionGeometry,
+  color: number,
+  alpha: number,
+  length: number,
+  width: number
+): void {
+  const directionX = geometry.endX - geometry.c2X;
+  const directionY = geometry.endY - geometry.c2Y;
+  const magnitude = Math.hypot(directionX, directionY);
+  if (magnitude < 1e-6) {
+    return;
+  }
+
+  const unitX = directionX / magnitude;
+  const unitY = directionY / magnitude;
+  const perpendicularX = -unitY;
+  const perpendicularY = unitX;
+  const baseX = geometry.endX - (unitX * length);
+  const baseY = geometry.endY - (unitY * length);
+  const halfWidth = width * 0.5;
+
+  graphics.beginFill(color, alpha);
+  graphics.drawPolygon([
+    geometry.endX,
+    geometry.endY,
+    baseX + (perpendicularX * halfWidth),
+    baseY + (perpendicularY * halfWidth),
+    baseX - (perpendicularX * halfWidth),
+    baseY - (perpendicularY * halfWidth),
+  ]);
+  graphics.endFill();
 }
 
 function pointOnBezier(geometry: ConnectionGeometry, t: number): { x: number; y: number } {
@@ -701,6 +783,14 @@ export function createsCycle(
   targetNodeId: string,
   connections: Array<{ sourceNodeId: string; targetNodeId: string }>
 ): boolean {
+  const nodeById = buildGraphNodeMap(nodes);
+  if (
+    nodeById.get(sourceNodeId)?.type === NodeType.ANNOTATION ||
+    nodeById.get(targetNodeId)?.type === NodeType.ANNOTATION
+  ) {
+    return false;
+  }
+
   if (sourceNodeId === targetNodeId) {
     return true;
   }
@@ -711,6 +801,20 @@ export function createsCycle(
   }
 
   for (const connection of connections) {
+    if (
+      isAnnotationConnection(
+        {
+          id: '',
+          sourceNodeId: connection.sourceNodeId,
+          sourcePort: '',
+          targetNodeId: connection.targetNodeId,
+          targetPort: '',
+        },
+        nodeById
+      )
+    ) {
+      continue;
+    }
     const next = adjacency.get(connection.sourceNodeId);
     if (next) {
       next.push(connection.targetNodeId);

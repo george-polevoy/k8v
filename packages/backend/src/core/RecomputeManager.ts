@@ -1,6 +1,12 @@
-import { ComputationResult, Connection, Graph, GraphNode, NodeType } from '../types/index.js';
+import { ComputationResult, Graph, GraphNode, NodeType } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { GraphEngine } from './GraphEngine.js';
+import {
+  buildGraphNodeMap,
+  filterComputationalConnections,
+  getConnectionSignature,
+  isAnnotationLinkedConnection,
+} from './annotationConnections.js';
 
 const DEFAULT_RECOMPUTE_CONCURRENCY = 1;
 const MAX_RECOMPUTE_CONCURRENCY = 32;
@@ -70,10 +76,6 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return 'Recomputation failed';
-}
-
-function connectionSignature(connection: Connection): string {
-  return `${connection.sourceNodeId}:${connection.sourcePort}->${connection.targetNodeId}:${connection.targetPort}`;
 }
 
 function getAutoRecomputeEnabled(node: GraphNode): boolean {
@@ -297,6 +299,7 @@ export class RecomputeManager {
     }
 
     const nodeSet = new Set(orderedNodeIds);
+    const nodeById = buildGraphNodeMap(graph.nodes);
     const outgoing = new Map<string, string[]>();
     const remainingDependencyCount = new Map<string, number>();
     const blockedByErrorCount = new Map<string, number>();
@@ -309,7 +312,7 @@ export class RecomputeManager {
       blockedByErrorCount.set(nodeId, 0);
     }
 
-    for (const connection of graph.connections) {
+    for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
       if (!nodeSet.has(connection.sourceNodeId) || !nodeSet.has(connection.targetNodeId)) {
         continue;
       }
@@ -567,6 +570,7 @@ export class RecomputeManager {
 
   private topologicalSortNodeIds(graph: Graph): string[] {
     const nodeOrder = new Map(graph.nodes.map((node, index) => [node.id, index]));
+    const nodeById = buildGraphNodeMap(graph.nodes);
     const inDegree = new Map<string, number>();
     const outgoing = new Map<string, string[]>();
 
@@ -575,7 +579,7 @@ export class RecomputeManager {
       outgoing.set(node.id, []);
     }
 
-    for (const connection of graph.connections) {
+    for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
       if (!inDegree.has(connection.sourceNodeId) || !inDegree.has(connection.targetNodeId)) {
         continue;
       }
@@ -621,12 +625,13 @@ export class RecomputeManager {
 
   private buildOutgoingAdjacency(graph: Graph): Map<string, string[]> {
     const outgoing = new Map<string, string[]>();
+    const nodeById = buildGraphNodeMap(graph.nodes);
 
     for (const node of graph.nodes) {
       outgoing.set(node.id, []);
     }
 
-    for (const connection of graph.connections) {
+    for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
       outgoing.get(connection.sourceNodeId)?.push(connection.targetNodeId);
     }
 
@@ -682,6 +687,10 @@ export class RecomputeManager {
   private collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph): string[] {
     const previousNodeMap = new Map(previousGraph.nodes.map((node) => [node.id, node]));
     const nextNodeMap = new Map(nextGraph.nodes.map((node) => [node.id, node]));
+    const combinedNodeMap = buildGraphNodeMap([
+      ...previousGraph.nodes,
+      ...nextGraph.nodes,
+    ]);
     const rootNodeIds = new Set<string>();
 
     for (const nextNode of nextGraph.nodes) {
@@ -691,11 +700,22 @@ export class RecomputeManager {
       }
     }
 
-    const previousConnections = new Set(previousGraph.connections.map(connectionSignature));
-    const nextConnections = new Set(nextGraph.connections.map(connectionSignature));
+    const previousConnections = new Set(
+      previousGraph.connections
+        .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
+        .map(getConnectionSignature)
+    );
+    const nextConnections = new Set(
+      nextGraph.connections
+        .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
+        .map(getConnectionSignature)
+    );
 
     for (const connection of nextGraph.connections) {
-      const signature = connectionSignature(connection);
+      if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+        continue;
+      }
+      const signature = getConnectionSignature(connection);
       if (previousConnections.has(signature)) {
         continue;
       }
@@ -705,7 +725,10 @@ export class RecomputeManager {
     }
 
     for (const connection of previousGraph.connections) {
-      const signature = connectionSignature(connection);
+      if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+        continue;
+      }
+      const signature = getConnectionSignature(connection);
       if (nextConnections.has(signature)) {
         continue;
       }

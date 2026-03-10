@@ -8,11 +8,14 @@ import {
 } from 'pixi.js';
 import { v4 as uuidv4 } from 'uuid';
 import type {
+  ConnectionAnchor,
   DrawingPath,
   Graph,
   GraphNode,
   Position,
 } from '../types';
+import { NodeType } from '../types';
+import { resolveAnnotationEdgeDropTarget } from '../utils/annotationConnections';
 import {
   DEFAULT_GRAPH_PROJECTION_ID,
   withNodeCardSizeInProjection,
@@ -72,12 +75,24 @@ interface NodeResizeStateLike {
 interface ConnectionDragStateLike {
   sourceNodeId: string;
   sourcePort: string;
-  sourcePortKey: string;
+  sourcePortKey: string | null;
+  sourceAnchor?: ConnectionAnchor;
   startX: number;
   startY: number;
   pointerX: number;
   pointerY: number;
-  hoveredInputKey: string | null;
+  hoveredTarget:
+    | {
+        type: 'input-port';
+        portKey: string;
+      }
+    | {
+        type: 'annotation';
+        nodeId: string;
+        anchor: ConnectionAnchor;
+        point: Position;
+      }
+    | null;
 }
 
 interface ActiveDrawingPathLike {
@@ -118,6 +133,7 @@ interface DrawingVisualLike {
 
 interface UseCanvasInteractionsConfig {
   portRadius: number;
+  annotationEdgeHitWidth: number;
   nodeDragStartThreshold: number;
   drawSmoothingStep: number;
   zoomSensitivity: number;
@@ -527,25 +543,69 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       if (viewport) {
         const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
         const hoverRadius = (config.portRadius + 8) / Math.max(viewport.scale.x, 0.1);
-        let nextHoveredKey: string | null = null;
+        let nextHoveredTarget: ConnectionDragStateLike['hoveredTarget'] = null;
 
         for (const [portKey, portPosition] of inputPortPositionsRef.current.entries()) {
           const dx = worldPoint.x - portPosition.x;
           const dy = worldPoint.y - portPosition.y;
           if ((dx * dx) + (dy * dy) <= hoverRadius * hoverRadius) {
-            nextHoveredKey = portKey;
+            nextHoveredTarget = {
+              type: 'input-port',
+              portKey,
+            };
             break;
           }
         }
 
-        if (connectionDrag.hoveredInputKey !== nextHoveredKey) {
-          if (connectionDrag.hoveredInputKey) {
-            setInputPortHighlight(connectionDrag.hoveredInputKey, false);
+        if (!nextHoveredTarget) {
+          for (const [nodeId, nodeVisual] of nodeVisualsRef.current.entries()) {
+            if (nodeVisual.node.type !== NodeType.ANNOTATION) {
+              continue;
+            }
+
+            const nodePosition = nodePositionsRef.current.get(nodeId);
+            if (!nodePosition) {
+              continue;
+            }
+
+            const dropTarget = resolveAnnotationEdgeDropTarget(
+              nodePosition,
+              nodeVisual.width,
+              nodeVisual.height,
+              worldPoint,
+              config.annotationEdgeHitWidth / Math.max(viewport.scale.x, 0.1)
+            );
+            if (!dropTarget) {
+              continue;
+            }
+
+            nextHoveredTarget = {
+              type: 'annotation',
+              nodeId,
+              anchor: dropTarget.anchor,
+              point: dropTarget.point,
+            };
+            break;
           }
-          if (nextHoveredKey) {
-            setInputPortHighlight(nextHoveredKey, true);
+        }
+
+        const previousHoveredInput = connectionDrag.hoveredTarget?.type === 'input-port'
+          ? connectionDrag.hoveredTarget.portKey
+          : null;
+        const nextHoveredInput = nextHoveredTarget?.type === 'input-port'
+          ? nextHoveredTarget.portKey
+          : null;
+
+        if (previousHoveredInput !== nextHoveredInput) {
+          if (previousHoveredInput) {
+            setInputPortHighlight(previousHoveredInput, false);
           }
-          connectionDrag.hoveredInputKey = nextHoveredKey;
+          if (nextHoveredInput) {
+            setInputPortHighlight(nextHoveredInput, true);
+          }
+          connectionDrag.hoveredTarget = nextHoveredTarget;
+        } else {
+          connectionDrag.hoveredTarget = nextHoveredTarget;
         }
       }
 
@@ -681,6 +741,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     applyCanvasCursor,
     config.drawSmoothingStep,
     config.nodeDragStartThreshold,
+    config.annotationEdgeHitWidth,
     config.portRadius,
     connectionDragStateRef,
     drawConnections,

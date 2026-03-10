@@ -50,6 +50,28 @@ interface AnnotationNodePayload {
   version: string;
 }
 
+interface InlineNodePayload {
+  id: string;
+  type: 'inline_code';
+  position: { x: number; y: number };
+  metadata: {
+    name: string;
+    inputs: Array<{ name: string; schema: { type: 'number' } }>;
+    outputs: Array<{ name: string; schema: { type: 'number' } }>;
+  };
+  config: {
+    type: 'inline_code';
+    code: string;
+    runtime: 'javascript_vm';
+  };
+  version: string;
+}
+
+interface ConnectionAnchorPayload {
+  side: 'top' | 'right' | 'bottom' | 'left';
+  offset: number;
+}
+
 interface GraphResponse {
   id: string;
   canvasBackground?: {
@@ -83,6 +105,21 @@ interface GraphResponse {
         text?: unknown;
         fontSize?: unknown;
       };
+    };
+  }>;
+  connections?: Array<{
+    id?: string;
+    sourceNodeId?: string;
+    sourcePort?: string;
+    sourceAnchor?: {
+      side?: unknown;
+      offset?: unknown;
+    };
+    targetNodeId?: string;
+    targetPort?: string;
+    targetAnchor?: {
+      side?: unknown;
+      offset?: unknown;
     };
   }>;
 }
@@ -303,6 +340,186 @@ export async function createAnnotationGraph(options?: {
   const graph = await expectJsonResponse(response, 'Create annotation graph') as GraphResponse;
   assert.ok(graph.id, 'Create annotation graph response should include graph id');
   return { graphId: graph.id, nodeId };
+}
+
+export async function createAnnotationArrowGraph(): Promise<{
+  graphId: string;
+  leftAnnotationId: string;
+  inlineNodeId: string;
+  rightAnnotationId: string;
+}> {
+  const leftAnnotationId = randomUUID();
+  const inlineNodeId = randomUUID();
+  const rightAnnotationId = randomUUID();
+
+  const leftAnnotation: AnnotationNodePayload = {
+    id: leftAnnotationId,
+    type: 'annotation',
+    position: { x: 100, y: 100 },
+    metadata: {
+      name: 'Left Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: 'Left note',
+        backgroundColor: '#fef3c7',
+        borderColor: '#334155',
+        fontColor: '#1f2937',
+        cardWidth: 320,
+        cardHeight: 200,
+      },
+    },
+    version: Date.now().toString(),
+  };
+
+  const inlineNode: InlineNodePayload = {
+    id: inlineNodeId,
+    type: 'inline_code',
+    position: { x: 500, y: 166 },
+    metadata: {
+      name: 'Pass Through',
+      inputs: [{ name: 'input', schema: { type: 'number' } }],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = inputs.input ?? 0;',
+      runtime: 'javascript_vm',
+    },
+    version: Date.now().toString(),
+  };
+
+  const rightAnnotation: AnnotationNodePayload = {
+    id: rightAnnotationId,
+    type: 'annotation',
+    position: { x: 820, y: 100 },
+    metadata: {
+      name: 'Right Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: 'Right note',
+        backgroundColor: '#fef3c7',
+        borderColor: '#334155',
+        fontColor: '#1f2937',
+        cardWidth: 320,
+        cardHeight: 200,
+      },
+    },
+    version: Date.now().toString(),
+  };
+
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: toAutotestGraphName(`e2e_annotation_arrows_${Date.now()}`),
+      nodes: [leftAnnotation, inlineNode, rightAnnotation],
+      connections: [],
+      drawings: [],
+    }),
+  });
+
+  const graph = await expectJsonResponse(response, 'Create annotation arrow graph') as GraphResponse;
+  assert.ok(graph.id, 'Create annotation arrow graph response should include graph id');
+  return {
+    graphId: graph.id,
+    leftAnnotationId,
+    inlineNodeId,
+    rightAnnotationId,
+  };
+}
+
+export interface GraphConnectionSnapshot {
+  id: string;
+  sourceNodeId: string;
+  sourcePort: string;
+  sourceAnchor?: ConnectionAnchorPayload;
+  targetNodeId: string;
+  targetPort: string;
+  targetAnchor?: ConnectionAnchorPayload;
+}
+
+function normalizeConnectionAnchor(
+  anchor: { side?: unknown; offset?: unknown } | undefined
+): ConnectionAnchorPayload | undefined {
+  if (!anchor) {
+    return undefined;
+  }
+
+  const side = anchor.side;
+  const offset = anchor.offset;
+  if (
+    (side !== 'top' && side !== 'right' && side !== 'bottom' && side !== 'left') ||
+    typeof offset !== 'number' ||
+    !Number.isFinite(offset)
+  ) {
+    throw new Error(`Invalid connection anchor: ${JSON.stringify(anchor)}`);
+  }
+
+  return { side, offset };
+}
+
+export async function getGraphConnections(graphId: string): Promise<GraphConnectionSnapshot[]> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const connections = Array.isArray(graph.connections) ? graph.connections : [];
+
+  return connections.map((connection) => {
+    if (
+      typeof connection.id !== 'string' ||
+      typeof connection.sourceNodeId !== 'string' ||
+      typeof connection.sourcePort !== 'string' ||
+      typeof connection.targetNodeId !== 'string' ||
+      typeof connection.targetPort !== 'string'
+    ) {
+      throw new Error(`Graph ${graphId} returned an invalid connection payload: ${JSON.stringify(connection)}`);
+    }
+
+    return {
+      id: connection.id,
+      sourceNodeId: connection.sourceNodeId,
+      sourcePort: connection.sourcePort,
+      sourceAnchor: normalizeConnectionAnchor(connection.sourceAnchor),
+      targetNodeId: connection.targetNodeId,
+      targetPort: connection.targetPort,
+      targetAnchor: normalizeConnectionAnchor(connection.targetAnchor),
+    };
+  });
+}
+
+export async function waitForGraphConnections(
+  graphId: string,
+  predicate: (connections: GraphConnectionSnapshot[]) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<GraphConnectionSnapshot[]> {
+  const startedAt = Date.now();
+  let lastConnections: GraphConnectionSnapshot[] = [];
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastConnections = await getGraphConnections(graphId);
+    if (predicate(lastConnections)) {
+      return lastConnections;
+    }
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for graph connections in graph ${graphId}. Last value: ${JSON.stringify(lastConnections)}`
+  );
 }
 
 export async function getNumericNodeValue(graphId: string, nodeId: string): Promise<number> {

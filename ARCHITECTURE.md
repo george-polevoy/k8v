@@ -59,6 +59,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Infinite canvas rendered with Pixi.js
 - Viewport navigation supports mouse-wheel zoom, pinch zoom, two-finger trackpad pan, wheel scroll (modifier), and drag-to-pan
 - Visual node and edge rendering from graph store state
+- Annotation cards can originate/terminate persisted presentation-only arrows from arbitrary edge anchors
 - Persistent drawing-object layer (named handles + stored freehand paths) rendered in Pixi viewport
 - Drag-and-drop node positioning with persisted coordinates
 - Node status indicators (error/computing/stale/auto-recompute/idle)
@@ -88,6 +89,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
 - Runtime computation uses topological ordering so dependencies are computed before dependents.
 - Backend recompute queue processing follows upstream-to-downstream topological order.
+- Connections touching `annotation` nodes are presentation-only: they persist/render on canvas but are excluded from dependency ordering, recompute propagation, and cycle validation.
 - Graph updates can enqueue all impacted auto-recompute descendants as pending before execution starts.
 - When an upstream node is errored, backend recompute skips affected downstream nodes and marks them stale.
 - Circular dependencies are rejected for new graphs and all graph updates.

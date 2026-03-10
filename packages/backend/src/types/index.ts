@@ -185,13 +185,24 @@ export const GraphNode = z.object({
 
 export type GraphNode = z.infer<typeof GraphNode>;
 
+export const ConnectionAnchorSide = z.enum(['top', 'right', 'bottom', 'left']);
+export type ConnectionAnchorSide = z.infer<typeof ConnectionAnchorSide>;
+
+export const ConnectionAnchor = z.object({
+  side: ConnectionAnchorSide,
+  offset: z.number().finite().min(0).max(1),
+});
+export type ConnectionAnchor = z.infer<typeof ConnectionAnchor>;
+
 // Connection between nodes
 export const Connection = z.object({
   id: z.string(),
   sourceNodeId: z.string(),
   sourcePort: z.string(),
+  sourceAnchor: ConnectionAnchor.optional(),
   targetNodeId: z.string(),
   targetPort: z.string(),
+  targetAnchor: ConnectionAnchor.optional(),
 });
 
 export type Connection = z.infer<typeof Connection>;
