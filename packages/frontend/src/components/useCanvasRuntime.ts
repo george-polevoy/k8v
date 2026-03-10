@@ -46,12 +46,16 @@ import type {
   ConnectionDragState,
   DrawingDragState,
   HoveredResizeHandle,
+  HoveredSelectionResizeHandle,
   NodeDragState,
   NodeResizeState,
   NodeVisual,
   NumericSliderDragState,
   NumericSliderVisual,
   PanState,
+  SelectionDragState,
+  SelectionMarqueeState,
+  SelectionResizeState,
 } from './canvasShared';
 import {
   createCanvasBackgroundTexture,
@@ -78,10 +82,15 @@ interface UseCanvasRuntimeParams {
   lastResolvedCanvasBackgroundRef: MutableRefObject<CanvasBackgroundSettings>;
   nodeResizeStateRef: MutableRefObject<NodeResizeState | null>;
   hoveredNodeResizeHandleRef: MutableRefObject<HoveredResizeHandle | null>;
+  selectionResizeStateRef: MutableRefObject<SelectionResizeState | null>;
+  hoveredSelectionResizeHandleRef: MutableRefObject<HoveredSelectionResizeHandle | null>;
   drawingEnabledRef: MutableRefObject<boolean>;
   numericSliderDragStateRef: MutableRefObject<NumericSliderDragState | null>;
   hoveredNumericSliderNodeIdRef: MutableRefObject<string | null>;
+  selectionMarqueeStateRef: MutableRefObject<SelectionMarqueeState | null>;
+  selectionDragStateRef: MutableRefObject<SelectionDragState | null>;
   panStateRef: MutableRefObject<PanState | null>;
+  spacePressedRef: MutableRefObject<boolean>;
   connectionDragStateRef: MutableRefObject<ConnectionDragState | null>;
   nodeDragStateRef: MutableRefObject<NodeDragState | null>;
   drawingDragStateRef: MutableRefObject<DrawingDragState | null>;
@@ -175,10 +184,15 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     lastResolvedCanvasBackgroundRef,
     nodeResizeStateRef,
     hoveredNodeResizeHandleRef,
+    selectionResizeStateRef,
+    hoveredSelectionResizeHandleRef,
     drawingEnabledRef,
     numericSliderDragStateRef,
     hoveredNumericSliderNodeIdRef,
+    selectionMarqueeStateRef,
+    selectionDragStateRef,
     panStateRef,
+    spacePressedRef,
     connectionDragStateRef,
     nodeDragStateRef,
     drawingDragStateRef,
@@ -260,6 +274,14 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       canvas.style.cursor = 'crosshair';
       return;
     }
+    if (selectionResizeStateRef.current || hoveredSelectionResizeHandleRef.current) {
+      const resizeHandle =
+        selectionResizeStateRef.current?.handle ??
+        hoveredSelectionResizeHandleRef.current?.handle ??
+        'se';
+      canvas.style.cursor = resolveResizeCursor(resizeHandle);
+      return;
+    }
     if (nodeResizeStateRef.current || hoveredNodeResizeHandleRef.current) {
       const resizeHandle =
         nodeResizeStateRef.current?.handle ??
@@ -276,15 +298,28 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       canvas.style.cursor = 'grabbing';
       return;
     }
-    canvas.style.cursor = 'grab';
+    if (selectionMarqueeStateRef.current) {
+      canvas.style.cursor = 'crosshair';
+      return;
+    }
+    if (selectionDragStateRef.current) {
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+    canvas.style.cursor = spacePressedRef.current ? 'grab' : 'default';
   }, [
     appRef,
     drawingEnabledRef,
     hoveredNodeResizeHandleRef,
+    hoveredSelectionResizeHandleRef,
     hoveredNumericSliderNodeIdRef,
     nodeResizeStateRef,
     numericSliderDragStateRef,
     panStateRef,
+    selectionDragStateRef,
+    selectionMarqueeStateRef,
+    selectionResizeStateRef,
+    spacePressedRef,
   ]);
 
   const shouldKeepCanvasAnimationLoop = useCallback(() => {
@@ -293,6 +328,9 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         connectionDragStateRef.current ||
         nodeDragStateRef.current ||
         nodeResizeStateRef.current ||
+        selectionDragStateRef.current ||
+        selectionMarqueeStateRef.current ||
+        selectionResizeStateRef.current ||
         numericSliderDragStateRef.current ||
         drawingDragStateRef.current ||
         panStateRef.current ||
@@ -314,6 +352,9 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     nodeShocksRef,
     numericSliderDragStateRef,
     panStateRef,
+    selectionDragStateRef,
+    selectionMarqueeStateRef,
+    selectionResizeStateRef,
     smokePuffsRef,
   ]);
 

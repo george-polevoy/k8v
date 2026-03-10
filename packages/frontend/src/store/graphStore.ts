@@ -73,6 +73,8 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
   deleteConnection: (connectionId: string) => void;
   deleteConnections: (connectionIds: string[]) => void;
   selectNode: (nodeId: string | null) => void;
+  setNodeSelection: (nodeIds: string[]) => void;
+  toggleNodeSelection: (nodeId: string) => void;
   selectDrawing: (drawingId: string | null) => void;
   setSelectedNodeGraphicsDebug: (debug: NodeGraphicsComputationDebug | null) => void;
   addDrawing: (drawing: GraphDrawing) => void;
@@ -156,6 +158,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     graph: null,
     graphSummaries: [],
     selectedNodeId: null,
+    selectedNodeIds: [],
     selectedDrawingId: null,
     isLoading: false,
     error: null,
@@ -346,6 +349,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     deleteConnection: graphEditing.deleteConnection,
     deleteConnections: graphEditing.deleteConnections,
     selectNode: graphUi.selectNode,
+    setNodeSelection: graphUi.setNodeSelection,
+    toggleNodeSelection: graphUi.toggleNodeSelection,
     selectDrawing: graphUi.selectDrawing,
     setSelectedNodeGraphicsDebug: graphUi.setSelectedNodeGraphicsDebug,
     addDrawing: graphEditing.addDrawing,

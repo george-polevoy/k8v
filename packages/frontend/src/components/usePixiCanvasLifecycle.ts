@@ -29,10 +29,12 @@ interface UsePixiCanvasLifecycleParams {
   refreshCanvasBackgroundTexture: () => void;
   handleStagePointerDown: (event: FederatedPointerEvent) => void;
   handleStagePointerMove: (event: FederatedPointerEvent) => void;
+  handleWindowPointerMove: (event: PointerEvent) => void;
   handleStagePointerUp: (event: FederatedPointerEvent) => void;
   handleWheel: (event: WheelEvent) => void;
   handleResize: () => void;
   handleKeyDown: (event: KeyboardEvent) => void;
+  handleKeyUp: (event: KeyboardEvent) => void;
   finishInteraction: () => void;
   drawEffects: () => void;
   clearAllNodeGraphicsTextures: () => void;
@@ -61,10 +63,12 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     refreshCanvasBackgroundTexture,
     handleStagePointerDown,
     handleStagePointerMove,
+    handleWindowPointerMove,
     handleStagePointerUp,
     handleWheel,
     handleResize,
     handleKeyDown,
+    handleKeyUp,
     finishInteraction,
     drawEffects,
     clearAllNodeGraphicsTextures,
@@ -143,7 +147,9 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     app.renderer.on('resize', handleResize);
     canvasElement.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('pointerup', finishInteraction);
+    window.addEventListener('pointermove', handleWindowPointerMove);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     app.ticker.add(drawEffects);
 
     renderGraphRef.current();
@@ -162,6 +168,8 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
       app.stage.off('pointerupoutside', handleStagePointerUp);
       app.renderer.off('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('keyup', handleKeyUp);
       app.ticker.remove(drawEffects);
       clearAllNodeGraphicsTextures();
       selectedNodeGraphicsDebugRef.current = null;
@@ -192,9 +200,11 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     effectsLayerRef,
     finishInteraction,
     handleKeyDown,
+    handleKeyUp,
     handleResize,
     handleStagePointerDown,
     handleStagePointerMove,
+    handleWindowPointerMove,
     handleStagePointerUp,
     handleWheel,
     nodeLayerRef,

@@ -74,12 +74,17 @@ import {
   type DrawingDragState,
   type DrawingVisual,
   type HoveredResizeHandle,
+  type HoveredSelectionResizeHandle,
   type NodeDragState,
   type NodeResizeState,
   type NodeVisual,
   type NumericSliderDragState,
   type NumericSliderVisual,
   type PanState,
+  type SelectionBounds,
+  type SelectionDragState,
+  type SelectionMarqueeState,
+  type SelectionResizeState,
   areAnnotationOverlaysEqual,
   areNodeGraphicsDebugValuesEqual,
   drawInputPortMarker,
@@ -156,6 +161,9 @@ interface CanvasDebugCounters {
   viewportDeferredRenderCount?: number;
   projectedTextureRefreshDeferredCount?: number;
   projectedTextureRefreshImmediateCount?: number;
+  viewportX?: number;
+  viewportY?: number;
+  viewportScale?: number;
 }
 
 function incrementCanvasDebugCounter(counter: keyof CanvasDebugCounters): void {
@@ -171,6 +179,23 @@ function incrementCanvasDebugCounter(counter: keyof CanvasDebugCounters): void {
   }
 
   debugCounters[counter] = (debugCounters[counter] ?? 0) + 1;
+}
+
+function syncCanvasDebugViewport(viewport: Container | null): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const debugCounters = (window as Window & {
+    __k8vCanvasDebug?: CanvasDebugCounters;
+  }).__k8vCanvasDebug;
+  if (!debugCounters) {
+    return;
+  }
+
+  debugCounters.viewportX = viewport?.position.x ?? 0;
+  debugCounters.viewportY = viewport?.position.y ?? 0;
+  debugCounters.viewportScale = viewport?.scale.x ?? 1;
 }
 
 function resolveAnnotationOverlayTransform(viewport: Container | null): AnnotationOverlayTransform {
@@ -192,10 +217,13 @@ function buildAnnotationOverlayTransformCss(transform: AnnotationOverlayTransfor
 function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const graph = useGraphStore((state) => state.graph);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const nodeExecutionStates = useGraphStore((state) => state.nodeExecutionStates);
   const nodeGraphicsOutputs = useGraphStore((state) => state.nodeGraphicsOutputs);
   const selectNode = useGraphStore((state) => state.selectNode);
+  const setNodeSelection = useGraphStore((state) => state.setNodeSelection);
+  const toggleNodeSelection = useGraphStore((state) => state.toggleNodeSelection);
   const updateNode = useGraphStore((state) => state.updateNode);
   const updateGraph = useGraphStore((state) => state.updateGraph);
   const selectDrawing = useGraphStore((state) => state.selectDrawing);
@@ -207,7 +235,6 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const drawingCreateRequestId = useGraphStore((state) => state.drawingCreateRequestId);
   const addConnection = useGraphStore((state) => state.addConnection);
   const deleteConnection = useGraphStore((state) => state.deleteConnection);
-  const deleteNode = useGraphStore((state) => state.deleteNode);
   const createGraph = useGraphStore((state) => state.createGraph);
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
@@ -253,6 +280,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const connectionDragStateRef = useRef<ConnectionDragState | null>(null);
   const selectedConnectionIdRef = useRef<string | null>(null);
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
+  const selectedNodeIdsRef = useRef<string[]>(selectedNodeIds);
   const selectedDrawingIdRef = useRef<string | null>(selectedDrawingId);
   const nodeExecutionStatesRef = useRef(nodeExecutionStates);
   const drawingEnabledRef = useRef(drawingEnabled);
@@ -273,6 +301,11 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
   const nodeResizeStateRef = useRef<NodeResizeState | null>(null);
   const hoveredNodeResizeHandleRef = useRef<HoveredResizeHandle | null>(null);
+  const selectionDragStateRef = useRef<SelectionDragState | null>(null);
+  const selectionResizeStateRef = useRef<SelectionResizeState | null>(null);
+  const hoveredSelectionResizeHandleRef = useRef<HoveredSelectionResizeHandle | null>(null);
+  const selectionMarqueeStateRef = useRef<SelectionMarqueeState | null>(null);
+  const spacePressedRef = useRef(false);
   const nodeCardDraftSizesRef = useRef<Map<string, { width: number; height: number }>>(new Map());
   const nodeCardDraftPositionsRef = useRef<Map<string, Position>>(new Map());
   const lastGraphIdRef = useRef<string | null>(null);
@@ -293,6 +326,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const [canvasReady, setCanvasReady] = useState(false);
   const [annotationOverlays, setAnnotationOverlays] = useState<AnnotationOverlayEntry[]>([]);
   selectedNodeIdRef.current = selectedNodeId;
+  selectedNodeIdsRef.current = selectedNodeIds;
   selectedDrawingIdRef.current = selectedDrawingId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
   nodeGraphicsOutputsRef.current = nodeGraphicsOutputs;
@@ -330,10 +364,13 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   }, [requestViewportDrivenGraphRefresh]);
 
   const syncAnnotationOverlayTransform = useCallback(() => {
-    const nextTransform = resolveAnnotationOverlayTransform(viewportRef.current);
+    const viewport = viewportRef.current;
+    const nextTransform = resolveAnnotationOverlayTransform(viewport);
     const previousTransform = annotationOverlayTransformRef.current;
     const overlayViewport = annotationOverlayViewportRef.current;
     const nextTransformCss = buildAnnotationOverlayTransformCss(nextTransform);
+
+    syncCanvasDebugViewport(viewport);
 
     if (
       previousTransform.x !== nextTransform.x ||
@@ -437,7 +474,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     viewportRef,
     textNodesRef,
     graphRef,
-    selectedNodeIdRef,
+    selectedNodeIdsRef,
     selectedDrawingIdRef,
     nodeVisualsRef,
     drawingPositionsRef,
@@ -496,10 +533,15 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     lastResolvedCanvasBackgroundRef,
     nodeResizeStateRef,
     hoveredNodeResizeHandleRef,
+    selectionResizeStateRef,
+    hoveredSelectionResizeHandleRef,
     drawingEnabledRef,
     numericSliderDragStateRef,
     hoveredNumericSliderNodeIdRef,
+    selectionMarqueeStateRef,
+    selectionDragStateRef,
     panStateRef,
+    spacePressedRef,
     connectionDragStateRef,
     nodeDragStateRef,
     drawingDragStateRef,
@@ -553,14 +595,49 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   drawFreehandStrokesRef.current = drawFreehandStrokes;
   updateTextResolutionForScaleRef.current = updateTextResolutionForScale;
 
+  const resolveSelectedNodeBounds = useCallback((
+    nodeIds: string[]
+  ): SelectionBounds | null => {
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    for (const nodeId of nodeIds) {
+      const nodeVisual = nodeVisualsRef.current.get(nodeId);
+      const nodePosition = nodePositionsRef.current.get(nodeId);
+      if (!nodeVisual || !nodePosition) {
+        continue;
+      }
+
+      minX = Math.min(minX, nodePosition.x);
+      minY = Math.min(minY, nodePosition.y);
+      maxX = Math.max(maxX, nodePosition.x + nodeVisual.width);
+      maxY = Math.max(maxY, nodePosition.y + nodeVisual.height);
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+
+    return {
+      x: snapToPixel(minX),
+      y: snapToPixel(minY),
+      width: snapToPixel(maxX - minX),
+      height: snapToPixel(maxY - minY),
+    };
+  }, [nodePositionsRef, nodeVisualsRef]);
+
   const {
     finishInteraction,
     handleStagePointerDown,
     handleStagePointerMove,
+    handleWindowPointerMove,
     handleStagePointerUp,
     handleWheel,
     handleResize,
     handleKeyDown,
+    handleKeyUp,
   } = useCanvasInteractions({
     appRef,
     viewportRef,
@@ -581,12 +658,18 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     numericSliderDragStateRef,
     connectionDragStateRef,
     panStateRef,
+    selectionDragStateRef,
+    selectionResizeStateRef,
+    selectionMarqueeStateRef,
+    hoveredSelectionResizeHandleRef,
+    spacePressedRef,
     inputPortPositionsRef,
     hoveredInputPortKeyRef,
     hoveredOutputPortKeyRef,
     selectedConnectionIdRef,
     selectedDrawingIdRef,
     selectedNodeIdRef,
+    selectedNodeIdsRef,
     requestCanvasAnimationLoop,
     requestViewportInteractionRefresh,
     requestViewportDrivenGraphRefresh,
@@ -606,8 +689,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     updateGraph,
     deleteConnection,
     deleteDrawing,
-    deleteNode,
     selectNode,
+    setNodeSelection,
     selectDrawing,
     setInputPortHighlight,
     applyCanvasCursor,
@@ -722,6 +805,13 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       hoveredNodeResizeHandleRef.current = null;
     }
 
+    if (
+      hoveredSelectionResizeHandleRef.current &&
+      selectedNodeIdsRef.current.length < 2
+    ) {
+      hoveredSelectionResizeHandleRef.current = null;
+    }
+
     const currentNodeIds = new Set(currentGraph.nodes.map((node) => node.id));
     pruneNodeDraftMaps(currentNodeIds, nodeCardDraftSizesRef.current, nodeCardDraftPositionsRef.current);
 
@@ -729,6 +819,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     let selectedNodeGraphicsDebugNext: NodeGraphicsComputationDebug | null = null;
     const nextAnnotationOverlays: AnnotationOverlayEntry[] = [];
     const selectedNodeIdValue = selectedNodeIdRef.current;
+    const selectedNodeIdSet = new Set(selectedNodeIdsRef.current);
     const activeNodeDragState = nodeDragStateRef.current;
 
     for (const node of currentGraph.nodes) {
@@ -802,7 +893,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       }
       let requestUrl: string | null = null;
       const container = new Container();
-      const isSelected = selectedNodeId === node.id;
+      const isSelected = selectedNodeIdSet.has(node.id);
 
       container.position.set(snapToPixel(renderedPosition.x), snapToPixel(renderedPosition.y));
       container.eventMode = 'static';
@@ -1083,6 +1174,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           };
           drawOutputPortMarker(marker, true);
           selectedNodeIdRef.current = node.id;
+          selectedNodeIdsRef.current = [node.id];
+          selectedDrawingIdRef.current = null;
           selectNode(node.id);
           drawConnections();
         });
@@ -1160,6 +1253,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             };
             selectedConnectionIdRef.current = null;
             selectedNodeIdRef.current = node.id;
+            selectedNodeIdsRef.current = [node.id];
+            selectedDrawingIdRef.current = null;
             selectNode(node.id);
             drawConnections();
           });
@@ -1302,6 +1397,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           requestCanvasAnimationLoop();
           selectedConnectionIdRef.current = null;
           selectedNodeIdRef.current = node.id;
+          selectedNodeIdsRef.current = [node.id];
+          selectedDrawingIdRef.current = null;
           selectNode(node.id);
 
           numericSliderDragStateRef.current = {
@@ -1316,7 +1413,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         container.addChild(sliderHitArea);
       }
 
-      if (isSelected) {
+      if (isSelected && selectedNodeIdSet.size === 1) {
         const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
         const handleSize = NODE_RESIZE_HANDLE_SIZE;
         const createResizeHandle = (
@@ -1369,6 +1466,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
 
             selectedConnectionIdRef.current = null;
             selectedNodeIdRef.current = node.id;
+            selectedNodeIdsRef.current = [node.id];
+            selectedDrawingIdRef.current = null;
             selectNode(node.id);
             nodeResizeStateRef.current = {
               nodeId: node.id,
@@ -1438,6 +1537,43 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
         canvas?.focus({ preventScroll: true });
 
+        if (event.ctrlKey || event.metaKey) {
+          selectedConnectionIdRef.current = null;
+          const nextNodeIds = selectedNodeIdsRef.current.includes(node.id)
+            ? selectedNodeIdsRef.current.filter((candidateNodeId) => candidateNodeId !== node.id)
+            : [...selectedNodeIdsRef.current, node.id];
+          selectedNodeIdsRef.current = nextNodeIds;
+          selectedNodeIdRef.current = nextNodeIds.length === 1 ? nextNodeIds[0] : null;
+          toggleNodeSelection(node.id);
+          return;
+        }
+
+        const isPartOfMultiSelection =
+          selectedNodeIdsRef.current.length > 1 &&
+          selectedNodeIdsRef.current.includes(node.id);
+        if (isPartOfMultiSelection) {
+          const nodeStartPositions = new Map<string, Position>();
+          const currentNodePositions = new Map<string, Position>();
+          for (const selectedNodeIdValue of selectedNodeIdsRef.current) {
+            const selectedNodePosition = nodePositionsRef.current.get(selectedNodeIdValue);
+            if (!selectedNodePosition) {
+              continue;
+            }
+            nodeStartPositions.set(selectedNodeIdValue, { ...selectedNodePosition });
+            currentNodePositions.set(selectedNodeIdValue, { ...selectedNodePosition });
+            nodeCardDraftPositionsRef.current.set(selectedNodeIdValue, { ...selectedNodePosition });
+          }
+          selectionDragStateRef.current = {
+            pointerX: event.global.x,
+            pointerY: event.global.y,
+            nodeStartPositions,
+            currentNodePositions,
+            moved: false,
+          };
+          selectedConnectionIdRef.current = null;
+          return;
+        }
+
         const currentPosition = nodePositionsRef.current.get(node.id) ?? {
           x: node.position.x,
           y: node.position.y,
@@ -1455,6 +1591,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         };
         selectedConnectionIdRef.current = null;
         selectedNodeIdRef.current = node.id;
+        selectedNodeIdsRef.current = [node.id];
+        selectedDrawingIdRef.current = null;
         selectNode(node.id);
       });
 
@@ -1462,14 +1600,25 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         if (drawingEnabledRef.current) {
           return;
         }
+        if (event.ctrlKey || event.metaKey) {
+          event.stopPropagation();
+          return;
+        }
         const dragState = nodeDragStateRef.current;
         if (dragState?.nodeId === node.id && dragState.moved) {
+          event.stopPropagation();
+          return;
+        }
+        const selectionDragState = selectionDragStateRef.current;
+        if (selectionDragState?.moved) {
           event.stopPropagation();
           return;
         }
         event.stopPropagation();
         selectedConnectionIdRef.current = null;
         selectedNodeIdRef.current = node.id;
+        selectedNodeIdsRef.current = [node.id];
+        selectedDrawingIdRef.current = null;
         selectNode(node.id);
       });
 
@@ -1547,6 +1696,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         };
         selectedConnectionIdRef.current = null;
         selectedNodeIdRef.current = null;
+        selectedNodeIdsRef.current = [];
         selectedDrawingIdRef.current = drawing.id;
         selectDrawing(drawing.id);
       });
@@ -1560,6 +1710,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         event.stopPropagation();
         selectedConnectionIdRef.current = null;
         selectedNodeIdRef.current = null;
+        selectedNodeIdsRef.current = [];
         selectedDrawingIdRef.current = drawing.id;
         selectDrawing(drawing.id);
       });
@@ -1572,6 +1723,172 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         width,
         height,
       });
+    }
+
+    const multiSelectedNodeIds = selectedNodeIdsRef.current.filter((nodeId) =>
+      currentGraph.nodes.some((node) => node.id === nodeId)
+    );
+    if (multiSelectedNodeIds.length > 1) {
+      const selectionBounds = resolveSelectedNodeBounds(multiSelectedNodeIds);
+      if (selectionBounds) {
+        const selectionFrame = new Graphics();
+        selectionFrame.lineStyle(2, 0x2563eb, 0.95);
+        selectionFrame.beginFill(0x93c5fd, 0.08);
+        selectionFrame.drawRect(
+          selectionBounds.x,
+          selectionBounds.y,
+          selectionBounds.width,
+          selectionBounds.height
+        );
+        selectionFrame.endFill();
+        selectionFrame.eventMode = 'none';
+        drawingHandleLayer.addChild(selectionFrame);
+
+        const createSelectionResizeHandle = (
+          handleX: number,
+          handleY: number,
+          handleDirection: ResizeHandleDirection
+        ) => {
+          const handleSize = NODE_RESIZE_HANDLE_SIZE;
+          const resizeHandle = new Graphics();
+          resizeHandle.lineStyle(1, 0x1e3a8a, 0.8);
+          resizeHandle.beginFill(0x2563eb, 0.92);
+          resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
+          resizeHandle.endFill();
+          resizeHandle.eventMode = 'static';
+          resizeHandle.cursor = resolveResizeCursor(handleDirection);
+          resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            event.stopPropagation();
+            hoveredSelectionResizeHandleRef.current = { handle: handleDirection };
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            event.stopPropagation();
+            if (selectionResizeStateRef.current?.handle === handleDirection) {
+              return;
+            }
+            if (hoveredSelectionResizeHandleRef.current?.handle === handleDirection) {
+              hoveredSelectionResizeHandleRef.current = null;
+            }
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+            if (drawingEnabledRef.current) {
+              return;
+            }
+            if (event.button !== 0) {
+              return;
+            }
+            event.stopPropagation();
+            const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+            canvas?.focus({ preventScroll: true });
+
+            const nodeStates = new Map<string, {
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+              minWidth: number;
+              minHeight: number;
+            }>();
+            for (const selectedNodeIdValue of multiSelectedNodeIds) {
+              const node = currentGraph.nodes.find((candidateNode) => candidateNode.id === selectedNodeIdValue);
+              const nodeVisual = nodeVisualsRef.current.get(selectedNodeIdValue);
+              const nodePosition = nodePositionsRef.current.get(selectedNodeIdValue);
+              if (!node || !nodeVisual || !nodePosition) {
+                continue;
+              }
+              const dimensions = resolveNodeCardDimensions(
+                node,
+                nodeCardDraftSizesRef.current.get(selectedNodeIdValue)
+              );
+              nodeStates.set(selectedNodeIdValue, {
+                x: nodePosition.x,
+                y: nodePosition.y,
+                width: nodeVisual.width,
+                height: nodeVisual.height,
+                minWidth: dimensions.minWidth,
+                minHeight: dimensions.minHeight,
+              });
+            }
+
+            selectionResizeStateRef.current = {
+              pointerX: event.global.x,
+              pointerY: event.global.y,
+              bounds: selectionBounds,
+              handle: handleDirection,
+              nodeStates,
+              currentBounds: selectionBounds,
+              currentNodeStates: new Map(nodeStates),
+            };
+            hoveredSelectionResizeHandleRef.current = { handle: handleDirection };
+            requestCanvasAnimationLoop();
+            applyCanvasCursor();
+          });
+          resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
+            event.stopPropagation();
+          });
+          drawingHandleLayer.addChild(resizeHandle);
+        };
+
+        const handleOffset = NODE_RESIZE_HANDLE_SIZE * 0.5;
+        createSelectionResizeHandle(selectionBounds.x - handleOffset, selectionBounds.y - handleOffset, 'nw');
+        createSelectionResizeHandle(
+          selectionBounds.x + (selectionBounds.width * 0.5) - handleOffset,
+          selectionBounds.y - handleOffset,
+          'n'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x + selectionBounds.width - handleOffset,
+          selectionBounds.y - handleOffset,
+          'ne'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x + selectionBounds.width - handleOffset,
+          selectionBounds.y + (selectionBounds.height * 0.5) - handleOffset,
+          'e'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x + selectionBounds.width - handleOffset,
+          selectionBounds.y + selectionBounds.height - handleOffset,
+          'se'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x + (selectionBounds.width * 0.5) - handleOffset,
+          selectionBounds.y + selectionBounds.height - handleOffset,
+          's'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x - handleOffset,
+          selectionBounds.y + selectionBounds.height - handleOffset,
+          'sw'
+        );
+        createSelectionResizeHandle(
+          selectionBounds.x - handleOffset,
+          selectionBounds.y + (selectionBounds.height * 0.5) - handleOffset,
+          'w'
+        );
+      }
+    }
+
+    const selectionMarqueeState = selectionMarqueeStateRef.current;
+    if (selectionMarqueeState) {
+      const marqueeX = Math.min(selectionMarqueeState.startWorldX, selectionMarqueeState.currentWorldX);
+      const marqueeY = Math.min(selectionMarqueeState.startWorldY, selectionMarqueeState.currentWorldY);
+      const marqueeWidth = Math.abs(selectionMarqueeState.currentWorldX - selectionMarqueeState.startWorldX);
+      const marqueeHeight = Math.abs(selectionMarqueeState.currentWorldY - selectionMarqueeState.startWorldY);
+      const marquee = new Graphics();
+      marquee.lineStyle(1, 0x2563eb, 0.95);
+      marquee.beginFill(0x93c5fd, 0.12);
+      marquee.drawRect(marqueeX, marqueeY, marqueeWidth, marqueeHeight);
+      marquee.endFill();
+      drawingHandleLayer.addChild(marquee);
     }
 
     if (!areAnnotationOverlaysEqual(annotationOverlaysRef.current, nextAnnotationOverlays)) {
@@ -1588,6 +1905,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     }
     const viewport = viewportRef.current;
     if (viewport) {
+      syncAnnotationOverlayTransform();
       updateTextResolutionForScale(viewport.scale.x);
     }
     drawMinimap();
@@ -1610,13 +1928,14 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     refreshCanvasBackgroundTexture,
     requestCanvasAnimationLoop,
     requestViewportDrivenGraphRefresh,
+    resolveSelectedNodeBounds,
     setSelectedNodeGraphicsDebug,
     selectDrawing,
     selectNode,
     selectedDrawingId,
-    selectedNodeId,
     syncAnnotationOverlayTransform,
     syncNodePortPositions,
+    toggleNodeSelection,
     updateNumericSliderFromPointer,
     updateTextResolutionForScale,
   ]);
@@ -1624,6 +1943,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   useCanvasGraphEffects({
     graph,
     selectedNodeId,
+    selectedNodeIds,
     selectedDrawingId,
     drawingCreateRequestId,
     drawingEnabled,
@@ -1643,6 +1963,11 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     nodeDragStateRef,
     nodeResizeStateRef,
     hoveredNodeResizeHandleRef,
+    selectionDragStateRef,
+    selectionResizeStateRef,
+    hoveredSelectionResizeHandleRef,
+    selectionMarqueeStateRef,
+    spacePressedRef,
     nodeCardDraftSizesRef,
     nodeCardDraftPositionsRef,
     numericSliderDragStateRef,
@@ -1676,10 +2001,12 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     refreshCanvasBackgroundTexture,
     handleStagePointerDown,
     handleStagePointerMove,
+    handleWindowPointerMove,
     handleStagePointerUp,
     handleWheel,
     handleResize,
     handleKeyDown,
+    handleKeyUp,
     finishInteraction,
     drawEffects,
     clearAllNodeGraphicsTextures,

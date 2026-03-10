@@ -13,6 +13,7 @@ import type {
 export interface GraphStorePersistenceState {
   graph: Graph | null;
   selectedNodeId: string | null;
+  selectedNodeIds: string[];
   selectedDrawingId: string | null;
   isLoading: boolean;
   error: string | null;
@@ -40,6 +41,7 @@ interface GraphStateUpdateParams {
   error?: string | null;
   selectionMode?: GraphSelectionMode;
   selectedNodeId?: string | null;
+  selectedNodeIds?: string[];
   selectedDrawingId?: string | null;
 }
 
@@ -63,6 +65,7 @@ export function buildGraphStateUpdate({
   error = null,
   selectionMode = 'preserve',
   selectedNodeId,
+  selectedNodeIds,
   selectedDrawingId,
 }: GraphStateUpdateParams): GraphStorePersistenceStateUpdate {
   const nextState: GraphStorePersistenceStateUpdate = {
@@ -77,17 +80,20 @@ export function buildGraphStateUpdate({
     return {
       ...nextState,
       selectedNodeId: null,
+      selectedNodeIds: [],
       selectedDrawingId: null,
     };
   }
 
   if (selectionMode === 'reconcile') {
+    const reconciledNodeIds = Array.from(new Set(
+      (selectedNodeIds ?? (selectedNodeId ? [selectedNodeId] : []))
+        .filter((nodeId) => graph.nodes.some((node) => node.id === nodeId))
+    ));
     return {
       ...nextState,
-      selectedNodeId:
-        selectedNodeId && graph.nodes.some((node) => node.id === selectedNodeId)
-          ? selectedNodeId
-          : null,
+      selectedNodeId: reconciledNodeIds.length === 1 ? reconciledNodeIds[0] : null,
+      selectedNodeIds: reconciledNodeIds,
       selectedDrawingId:
         selectedDrawingId &&
         graph.drawings?.some((drawing) => drawing.id === selectedDrawingId)
@@ -143,6 +149,7 @@ export function createGraphUpdatePersistenceController({
           buildGraphStateUpdate({
             graph: persistedGraph,
             selectedNodeId: state.selectedNodeId,
+            selectedNodeIds: state.selectedNodeIds,
             selectedDrawingId: state.selectedDrawingId,
             nodeExecutionStates: state.nodeExecutionStates,
             nodeGraphicsOutputs: state.nodeGraphicsOutputs,
@@ -168,6 +175,7 @@ export function createGraphUpdatePersistenceController({
               buildGraphStateUpdate({
                 graph: latestGraph,
                 selectedNodeId: state.selectedNodeId,
+                selectedNodeIds: state.selectedNodeIds,
                 selectedDrawingId: state.selectedDrawingId,
                 nodeExecutionStates: state.nodeExecutionStates,
                 nodeGraphicsOutputs: state.nodeGraphicsOutputs,

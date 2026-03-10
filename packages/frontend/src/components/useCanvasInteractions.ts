@@ -22,11 +22,14 @@ import {
   withNodePositionInProjection,
 } from '../utils/projections';
 import {
+  computeRectFromPoints,
   computeNodeResizeDraft,
+  computeSelectionResizeDraft,
   computeSnappedDragPosition,
   computeSnappedPanPosition,
   hasExceededDragThreshold,
   isCanvasDeletionShortcutBlocked,
+  rectIntersectsRect,
   resolveWheelInteractionPlan,
 } from '../utils/canvasInteractions';
 import {
@@ -70,6 +73,56 @@ interface NodeResizeStateLike {
   currentY: number;
   currentWidth: number;
   currentHeight: number;
+}
+
+interface SelectionDragStateLike {
+  pointerX: number;
+  pointerY: number;
+  nodeStartPositions: Map<string, Position>;
+  currentNodePositions: Map<string, Position>;
+  moved: boolean;
+}
+
+interface SelectionResizeNodeStateLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+}
+
+interface SelectionResizeStateLike {
+  pointerX: number;
+  pointerY: number;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  handle: ResizeHandleDirection;
+  nodeStates: Map<string, SelectionResizeNodeStateLike>;
+  currentBounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  currentNodeStates: Map<string, SelectionResizeNodeStateLike>;
+}
+
+interface HoveredSelectionResizeHandleLike {
+  handle: ResizeHandleDirection;
+}
+
+interface SelectionMarqueeStateLike {
+  startWorldX: number;
+  startWorldY: number;
+  currentWorldX: number;
+  currentWorldY: number;
+  additive: boolean;
+  moved: boolean;
 }
 
 interface ConnectionDragStateLike {
@@ -154,6 +207,11 @@ interface UseCanvasInteractionsParams {
   drawingDragStateRef: MutableRefObject<DrawingDragStateLike | null>;
   nodeDragStateRef: MutableRefObject<NodeDragStateLike | null>;
   nodeResizeStateRef: MutableRefObject<NodeResizeStateLike | null>;
+  selectionDragStateRef: MutableRefObject<SelectionDragStateLike | null>;
+  selectionResizeStateRef: MutableRefObject<SelectionResizeStateLike | null>;
+  selectionMarqueeStateRef: MutableRefObject<SelectionMarqueeStateLike | null>;
+  hoveredSelectionResizeHandleRef: MutableRefObject<HoveredSelectionResizeHandleLike | null>;
+  spacePressedRef: MutableRefObject<boolean>;
   nodeVisualsRef: MutableRefObject<Map<string, NodeVisualLike>>;
   nodePositionsRef: MutableRefObject<Map<string, Position>>;
   nodeCardDraftSizesRef: MutableRefObject<Map<string, { width: number; height: number }>>;
@@ -167,6 +225,7 @@ interface UseCanvasInteractionsParams {
   selectedConnectionIdRef: MutableRefObject<string | null>;
   selectedDrawingIdRef: MutableRefObject<string | null>;
   selectedNodeIdRef: MutableRefObject<string | null>;
+  selectedNodeIdsRef: MutableRefObject<string[]>;
   requestCanvasAnimationLoop: () => void;
   requestViewportInteractionRefresh: (options?: { scaleSensitive?: boolean }) => void;
   requestViewportDrivenGraphRefresh: () => void;
@@ -186,8 +245,8 @@ interface UseCanvasInteractionsParams {
   updateGraph: (graph: Graph) => void | Promise<void>;
   deleteConnection: (connectionId: string) => void;
   deleteDrawing: (drawingId: string) => void;
-  deleteNode: (nodeId: string) => void;
   selectNode: (nodeId: string | null) => void;
+  setNodeSelection: (nodeIds: string[]) => void;
   selectDrawing: (drawingId: string | null) => void;
   setInputPortHighlight: (portKey: string, highlighted: boolean) => void;
   applyCanvasCursor: () => void;
@@ -209,6 +268,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     drawingDragStateRef,
     nodeDragStateRef,
     nodeResizeStateRef,
+    selectionDragStateRef,
+    selectionResizeStateRef,
+    selectionMarqueeStateRef,
+    hoveredSelectionResizeHandleRef,
+    spacePressedRef,
     nodeVisualsRef,
     nodePositionsRef,
     nodeCardDraftSizesRef,
@@ -222,6 +286,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     selectedConnectionIdRef,
     selectedDrawingIdRef,
     selectedNodeIdRef,
+    selectedNodeIdsRef,
     requestCanvasAnimationLoop,
     requestViewportInteractionRefresh,
     requestViewportDrivenGraphRefresh,
@@ -241,14 +306,166 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     updateGraph,
     deleteConnection,
     deleteDrawing,
-    deleteNode,
     selectNode,
+    setNodeSelection,
     selectDrawing,
     setInputPortHighlight,
     applyCanvasCursor,
     renderGraphRef,
     config,
   } = params;
+
+  const persistNodeBatchUpdate = useCallback((
+    nodeStates: Map<string, {
+      position: Position;
+      size?: {
+        width: number;
+        height: number;
+      };
+    }>
+  ) => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph || nodeStates.size === 0) {
+      return;
+    }
+
+    const activeProjectionId = currentGraph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+    const nextNodes = currentGraph.nodes.map((node) => {
+      const nodeState = nodeStates.get(node.id);
+      if (!nodeState) {
+        return node;
+      }
+
+      return {
+        ...node,
+        position: nodeState.position,
+        config: nodeState.size
+          ? {
+            ...node.config,
+            config: {
+              ...(node.config.config ?? {}),
+              cardWidth: nodeState.size.width,
+              cardHeight: nodeState.size.height,
+            },
+          }
+          : node.config,
+      };
+    });
+
+    const nextProjections = (currentGraph.projections ?? []).map((projection) => {
+      if (projection.id !== activeProjectionId) {
+        return projection;
+      }
+
+      let nextProjection = projection;
+      for (const [nodeId, nodeState] of nodeStates.entries()) {
+        nextProjection = withNodePositionInProjection(nextProjection, nodeId, nodeState.position);
+        if (nodeState.size) {
+          nextProjection = withNodeCardSizeInProjection(nextProjection, nodeId, nodeState.size);
+        }
+      }
+      return nextProjection;
+    });
+
+    void updateGraph({
+      ...currentGraph,
+      nodes: nextNodes,
+      projections: nextProjections,
+      updatedAt: Date.now(),
+    });
+  }, [graphRef, updateGraph]);
+
+  const deleteSelectedNodesBatch = useCallback((nodeIds: string[]) => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph || nodeIds.length === 0) {
+      return;
+    }
+
+    const nodeIdSet = new Set(nodeIds);
+    const nextNodes = currentGraph.nodes.filter((node) => !nodeIdSet.has(node.id));
+    const nextConnections = currentGraph.connections.filter(
+      (connection) => !nodeIdSet.has(connection.sourceNodeId) && !nodeIdSet.has(connection.targetNodeId)
+    );
+    const nextProjections = (currentGraph.projections ?? []).map((projection) => {
+      const nextNodePositions = { ...projection.nodePositions };
+      const nextNodeCardSizes = { ...projection.nodeCardSizes };
+      for (const nodeId of nodeIdSet) {
+        delete nextNodePositions[nodeId];
+        delete nextNodeCardSizes[nodeId];
+      }
+      return {
+        ...projection,
+        nodePositions: nextNodePositions,
+        nodeCardSizes: nextNodeCardSizes,
+      };
+    });
+
+    selectedNodeIdsRef.current = [];
+    selectedNodeIdRef.current = null;
+    selectedDrawingIdRef.current = null;
+    setNodeSelection([]);
+    selectedConnectionIdRef.current = null;
+    nodeCardDraftPositionsRef.current.clear();
+    nodeCardDraftSizesRef.current.clear();
+    void updateGraph({
+      ...currentGraph,
+      nodes: nextNodes,
+      connections: nextConnections,
+      projections: nextProjections,
+      updatedAt: Date.now(),
+    });
+  }, [
+    graphRef,
+    nodeCardDraftPositionsRef,
+    nodeCardDraftSizesRef,
+    selectedConnectionIdRef,
+    selectedDrawingIdRef,
+    selectedNodeIdRef,
+    selectedNodeIdsRef,
+    setNodeSelection,
+    updateGraph,
+  ]);
+
+  const resolveNodeSelectionWithinRect = useCallback((selectionRect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): string[] => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph) {
+      return [];
+    }
+
+    const nextSelectedNodeIds: string[] = [];
+    for (const node of currentGraph.nodes) {
+      const nodeVisual = nodeVisualsRef.current.get(node.id);
+      const nodePosition = nodePositionsRef.current.get(node.id);
+      if (!nodeVisual || !nodePosition) {
+        continue;
+      }
+
+      const nodeRect = {
+        x: nodePosition.x,
+        y: nodePosition.y,
+        width: nodeVisual.width,
+        height: nodeVisual.height,
+      };
+      if (rectIntersectsRect(selectionRect, nodeRect)) {
+        nextSelectedNodeIds.push(node.id);
+      }
+    }
+
+    return nextSelectedNodeIds;
+  }, [graphRef, nodePositionsRef, nodeVisualsRef]);
+
+  const applyNodeSelection = useCallback((nodeIds: string[]) => {
+    const normalizedNodeIds = Array.from(new Set(nodeIds));
+    selectedNodeIdsRef.current = normalizedNodeIds;
+    selectedNodeIdRef.current = normalizedNodeIds.length === 1 ? normalizedNodeIds[0] : null;
+    selectedDrawingIdRef.current = null;
+    setNodeSelection(normalizedNodeIds);
+  }, [selectedDrawingIdRef, selectedNodeIdRef, selectedNodeIdsRef, setNodeSelection]);
 
   const finishInteraction = useCallback(() => {
     if (connectionDragStateRef.current) {
@@ -278,6 +495,19 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       drawFreehandStrokes();
     }
 
+    const selectionDragState = selectionDragStateRef.current;
+    if (selectionDragState) {
+      if (selectionDragState.moved) {
+        const nextNodeStates = new Map<string, { position: Position }>();
+        for (const [nodeId, position] of selectionDragState.currentNodePositions.entries()) {
+          nextNodeStates.set(nodeId, { position });
+        }
+        persistNodeBatchUpdate(nextNodeStates);
+      }
+      nodeCardDraftPositionsRef.current.clear();
+      selectionDragStateRef.current = null;
+    }
+
     const dragState = nodeDragStateRef.current;
     if (dragState) {
       if (dragState.moved) {
@@ -289,6 +519,41 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       nodeDragStateRef.current = null;
     }
 
+    const selectionResizeState = selectionResizeStateRef.current;
+    if (selectionResizeState) {
+      if (
+        Math.abs(selectionResizeState.currentBounds.x - selectionResizeState.bounds.x) > 0.5 ||
+        Math.abs(selectionResizeState.currentBounds.y - selectionResizeState.bounds.y) > 0.5 ||
+        Math.abs(selectionResizeState.currentBounds.width - selectionResizeState.bounds.width) > 0.5 ||
+        Math.abs(selectionResizeState.currentBounds.height - selectionResizeState.bounds.height) > 0.5
+      ) {
+        const nextNodeStates = new Map<string, {
+          position: Position;
+          size: {
+            width: number;
+            height: number;
+          };
+        }>();
+        for (const [nodeId, nodeState] of selectionResizeState.currentNodeStates.entries()) {
+          nextNodeStates.set(nodeId, {
+            position: {
+              x: nodeState.x,
+              y: nodeState.y,
+            },
+            size: {
+              width: nodeState.width,
+              height: nodeState.height,
+            },
+          });
+        }
+        persistNodeBatchUpdate(nextNodeStates);
+      }
+      nodeCardDraftSizesRef.current.clear();
+      nodeCardDraftPositionsRef.current.clear();
+      selectionResizeStateRef.current = null;
+      hoveredSelectionResizeHandleRef.current = null;
+    }
+
     const resizeState = nodeResizeStateRef.current;
     if (resizeState) {
       const positionChanged =
@@ -297,50 +562,22 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       const sizeChanged =
         Math.abs(resizeState.currentWidth - resizeState.width) > 0.5 ||
         Math.abs(resizeState.currentHeight - resizeState.height) > 0.5;
-      const currentGraph = graphRef.current;
-      if ((positionChanged || sizeChanged) && currentGraph) {
-        const activeProjectionId = currentGraph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-        const nextPosition = {
-          x: resizeState.currentX,
-          y: resizeState.currentY,
-        };
-        const nextCardSize = {
-          width: resizeState.currentWidth,
-          height: resizeState.currentHeight,
-        };
-        const nextNodes = currentGraph.nodes.map((node) => {
-          if (node.id !== resizeState.nodeId) {
-            return node;
-          }
-          return {
-            ...node,
-            position: nextPosition,
-            config: {
-              ...node.config,
-              config: {
-                ...(node.config.config ?? {}),
-                cardWidth: nextCardSize.width,
-                cardHeight: nextCardSize.height,
+      if (positionChanged || sizeChanged) {
+        persistNodeBatchUpdate(new Map([
+          [
+            resizeState.nodeId,
+            {
+              position: {
+                x: resizeState.currentX,
+                y: resizeState.currentY,
+              },
+              size: {
+                width: resizeState.currentWidth,
+                height: resizeState.currentHeight,
               },
             },
-          };
-        });
-        const nextProjections = (currentGraph.projections ?? []).map((projection) =>
-          projection.id === activeProjectionId
-            ? withNodeCardSizeInProjection(
-              withNodePositionInProjection(projection, resizeState.nodeId, nextPosition),
-              resizeState.nodeId,
-              nextCardSize
-            )
-            : projection
-        );
-
-        void updateGraph({
-          ...currentGraph,
-          nodes: nextNodes,
-          projections: nextProjections,
-          updatedAt: Date.now(),
-        });
+          ],
+        ]));
       }
       nodeCardDraftSizesRef.current.delete(resizeState.nodeId);
       nodeCardDraftPositionsRef.current.delete(resizeState.nodeId);
@@ -358,6 +595,33 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       drawingDragStateRef.current = null;
     }
 
+    const selectionMarqueeState = selectionMarqueeStateRef.current;
+    if (selectionMarqueeState) {
+      if (selectionMarqueeState.moved) {
+        const selectionRect = computeRectFromPoints(
+          selectionMarqueeState.startWorldX,
+          selectionMarqueeState.startWorldY,
+          selectionMarqueeState.currentWorldX,
+          selectionMarqueeState.currentWorldY
+        );
+        const nextSelectedNodeIds = resolveNodeSelectionWithinRect(selectionRect);
+        if (selectionMarqueeState.additive) {
+          applyNodeSelection([...selectedNodeIdsRef.current, ...nextSelectedNodeIds]);
+        } else {
+          applyNodeSelection(nextSelectedNodeIds);
+        }
+      } else if (!selectionMarqueeState.additive) {
+        if (selectedDrawingIdRef.current) {
+          selectedDrawingIdRef.current = null;
+          selectDrawing(null);
+        } else {
+          applyNodeSelection([]);
+        }
+      }
+      selectionMarqueeStateRef.current = null;
+      renderGraphRef.current();
+    }
+
     panStateRef.current = null;
     hoveredInputPortKeyRef.current = null;
     hoveredOutputPortKeyRef.current = null;
@@ -365,13 +629,14 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
   }, [
     activeDrawingPathRef,
     addDrawingPath,
+    applyNodeSelection,
     applyCanvasCursor,
     commitNumericSliderValue,
     connectionDragStateRef,
     drawFreehandStrokes,
     drawingDragStateRef,
     endConnectionDrag,
-    graphRef,
+    hoveredSelectionResizeHandleRef,
     hoveredInputPortKeyRef,
     hoveredOutputPortKeyRef,
     nodeCardDraftPositionsRef,
@@ -380,8 +645,16 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     nodeResizeStateRef,
     numericSliderDragStateRef,
     panStateRef,
+    persistNodeBatchUpdate,
+    renderGraphRef,
+    resolveNodeSelectionWithinRect,
+    selectedDrawingIdRef,
+    selectedNodeIdsRef,
+    selectionDragStateRef,
+    selectionMarqueeStateRef,
+    selectionResizeStateRef,
+    selectDrawing,
     updateDrawingPosition,
-    updateGraph,
     updateNodePosition,
   ]);
 
@@ -437,28 +710,39 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     if (pickedConnectionId) {
       selectedConnectionIdRef.current = pickedConnectionId;
       selectedNodeIdRef.current = null;
+      selectedNodeIdsRef.current = [];
+      selectedDrawingIdRef.current = null;
       selectNode(null);
       drawConnections();
       return;
     }
 
-    panStateRef.current = {
-      pointerX: event.global.x,
-      pointerY: event.global.y,
-      viewportX: viewport.position.x,
-      viewportY: viewport.position.y,
-    };
-    applyCanvasCursor();
+    if (spacePressedRef.current) {
+      panStateRef.current = {
+        pointerX: event.global.x,
+        pointerY: event.global.y,
+        viewportX: viewport.position.x,
+        viewportY: viewport.position.y,
+      };
+      applyCanvasCursor();
+      return;
+    }
+
     if (selectedConnectionIdRef.current) {
       selectedConnectionIdRef.current = null;
       drawConnections();
     }
-    if (selectedDrawingIdRef.current) {
-      selectedDrawingIdRef.current = null;
-      selectDrawing(null);
-    }
-    selectedNodeIdRef.current = null;
-    selectNode(null);
+
+    const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
+    selectionMarqueeStateRef.current = {
+      startWorldX: worldPoint.x,
+      startWorldY: worldPoint.y,
+      currentWorldX: worldPoint.x,
+      currentWorldY: worldPoint.y,
+      additive: Boolean(event.ctrlKey || event.metaKey),
+      moved: false,
+    };
+    applyCanvasCursor();
   }, [
     activeDrawingPathRef,
     appRef,
@@ -472,11 +756,130 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     graphRef,
     panStateRef,
     pickConnectionAtClientPoint,
-    selectDrawing,
     selectedConnectionIdRef,
     selectedDrawingIdRef,
     selectedNodeIdRef,
+    selectedNodeIdsRef,
+    selectionMarqueeStateRef,
     selectNode,
+    spacePressedRef,
+    viewportRef,
+  ]);
+
+  const updateSelectionResizeFromPointer = useCallback((pointerX: number, pointerY: number): boolean => {
+    const viewport = viewportRef.current;
+    const selectionResizeState = selectionResizeStateRef.current;
+    if (!viewport || !selectionResizeState) {
+      return false;
+    }
+
+    let minScaleX = 0;
+    let minScaleY = 0;
+    for (const nodeState of selectionResizeState.nodeStates.values()) {
+      minScaleX = Math.max(minScaleX, nodeState.minWidth / Math.max(nodeState.width, 1));
+      minScaleY = Math.max(minScaleY, nodeState.minHeight / Math.max(nodeState.height, 1));
+    }
+
+    const resizedBounds = computeSelectionResizeDraft({
+      bounds: selectionResizeState.bounds,
+      handle: selectionResizeState.handle,
+      pointerX,
+      pointerY,
+      startPointerX: selectionResizeState.pointerX,
+      startPointerY: selectionResizeState.pointerY,
+      scale: viewport.scale.x || 1,
+      minWidth: selectionResizeState.bounds.width * minScaleX,
+      minHeight: selectionResizeState.bounds.height * minScaleY,
+    });
+    const scaleX = resizedBounds.width / Math.max(selectionResizeState.bounds.width, 1);
+    const scaleY = resizedBounds.height / Math.max(selectionResizeState.bounds.height, 1);
+    const nextNodeStates = new Map<string, SelectionResizeNodeStateLike>();
+
+    for (const [nodeId, nodeState] of selectionResizeState.nodeStates.entries()) {
+      const relativeLeft = nodeState.x - selectionResizeState.bounds.x;
+      const relativeTop = nodeState.y - selectionResizeState.bounds.y;
+      const relativeRight = relativeLeft + nodeState.width;
+      const relativeBottom = relativeTop + nodeState.height;
+      const nextX = resizedBounds.x + (relativeLeft * scaleX);
+      const nextY = resizedBounds.y + (relativeTop * scaleY);
+      const nextRight = resizedBounds.x + (relativeRight * scaleX);
+      const nextBottom = resizedBounds.y + (relativeBottom * scaleY);
+      nextNodeStates.set(nodeId, {
+        x: nextX,
+        y: nextY,
+        width: Math.max(nodeState.minWidth, nextRight - nextX),
+        height: Math.max(nodeState.minHeight, nextBottom - nextY),
+        minWidth: nodeState.minWidth,
+        minHeight: nodeState.minHeight,
+      });
+    }
+
+    selectionResizeState.currentBounds = resizedBounds;
+    selectionResizeState.currentNodeStates = nextNodeStates;
+    nodeCardDraftSizesRef.current.clear();
+    nodeCardDraftPositionsRef.current.clear();
+    for (const [nodeId, nodeState] of nextNodeStates.entries()) {
+      nodeCardDraftPositionsRef.current.set(nodeId, {
+        x: nodeState.x,
+        y: nodeState.y,
+      });
+      nodeCardDraftSizesRef.current.set(nodeId, {
+        width: nodeState.width,
+        height: nodeState.height,
+      });
+    }
+    renderGraphRef.current();
+    applyCanvasCursor();
+    return true;
+  }, [
+    applyCanvasCursor,
+    nodeCardDraftPositionsRef,
+    nodeCardDraftSizesRef,
+    renderGraphRef,
+    selectionResizeStateRef,
+    viewportRef,
+  ]);
+
+  const updateSelectionDragFromPointer = useCallback((pointerX: number, pointerY: number): boolean => {
+    const viewport = viewportRef.current;
+    const selectionDragState = selectionDragStateRef.current;
+    if (!viewport || !selectionDragState) {
+      return false;
+    }
+
+    const deltaX = pointerX - selectionDragState.pointerX;
+    const deltaY = pointerY - selectionDragState.pointerY;
+    if (
+      !selectionDragState.moved &&
+      !hasExceededDragThreshold(deltaX, deltaY, config.nodeDragStartThreshold)
+    ) {
+      return true;
+    }
+
+    nodeCardDraftPositionsRef.current.clear();
+    for (const [nodeId, startPosition] of selectionDragState.nodeStartPositions.entries()) {
+      const nextPosition = computeSnappedDragPosition({
+        originX: startPosition.x,
+        originY: startPosition.y,
+        pointerX,
+        pointerY,
+        startPointerX: selectionDragState.pointerX,
+        startPointerY: selectionDragState.pointerY,
+        scale: viewport.scale.x || 1,
+      });
+      selectionDragState.currentNodePositions.set(nodeId, nextPosition);
+      nodeCardDraftPositionsRef.current.set(nodeId, nextPosition);
+    }
+    selectionDragState.moved = true;
+    renderGraphRef.current();
+    drawMinimap();
+    return true;
+  }, [
+    config.nodeDragStartThreshold,
+    drawMinimap,
+    nodeCardDraftPositionsRef,
+    renderGraphRef,
+    selectionDragStateRef,
     viewportRef,
   ]);
 
@@ -532,6 +935,10 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
         renderGraphRef.current();
       }
       applyCanvasCursor();
+      return;
+    }
+
+    if (updateSelectionResizeFromPointer(event.global.x, event.global.y)) {
       return;
     }
 
@@ -680,6 +1087,30 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       return;
     }
 
+    if (updateSelectionDragFromPointer(event.global.x, event.global.y)) {
+      return;
+    }
+
+    const selectionMarqueeState = selectionMarqueeStateRef.current;
+    if (selectionMarqueeState) {
+      if (!viewport) {
+        return;
+      }
+
+      const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
+      selectionMarqueeState.currentWorldX = worldPoint.x;
+      selectionMarqueeState.currentWorldY = worldPoint.y;
+      if (!selectionMarqueeState.moved) {
+        selectionMarqueeState.moved = hasExceededDragThreshold(
+          worldPoint.x - selectionMarqueeState.startWorldX,
+          worldPoint.y - selectionMarqueeState.startWorldY,
+          config.nodeDragStartThreshold
+        );
+      }
+      renderGraphRef.current();
+      return;
+    }
+
     const dragState = nodeDragStateRef.current;
     if (dragState) {
       if (!viewport) {
@@ -763,10 +1194,39 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     renderGraphRef,
     requestCanvasAnimationLoop,
     requestViewportInteractionRefresh,
+    selectionMarqueeStateRef,
     setInputPortHighlight,
     syncNodePortPositions,
+    updateSelectionDragFromPointer,
+    updateSelectionResizeFromPointer,
     updateNumericSliderFromPointer,
     viewportRef,
+  ]);
+
+  const handleWindowPointerMove = useCallback((event: PointerEvent) => {
+    if (!selectionDragStateRef.current && !selectionResizeStateRef.current) {
+      return;
+    }
+
+    const app = appRef.current;
+    if (!app) {
+      return;
+    }
+
+    const canvasRect = (app.view as HTMLCanvasElement).getBoundingClientRect();
+    const pointerX = event.clientX - canvasRect.left;
+    const pointerY = event.clientY - canvasRect.top;
+
+    if (updateSelectionResizeFromPointer(pointerX, pointerY)) {
+      return;
+    }
+    void updateSelectionDragFromPointer(pointerX, pointerY);
+  }, [
+    appRef,
+    selectionDragStateRef,
+    selectionResizeStateRef,
+    updateSelectionDragFromPointer,
+    updateSelectionResizeFromPointer,
   ]);
 
   const handleStagePointerUp = useCallback((event: FederatedPointerEvent) => {
@@ -857,13 +1317,27 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
   ]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    const canvasElement = appRef.current?.view as HTMLCanvasElement | undefined;
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (!canvasElement) {
+      return;
+    }
+
+    if (event.code === 'Space') {
+      if (isCanvasDeletionShortcutBlocked(activeElement, canvasElement)) {
+        return;
+      }
+      spacePressedRef.current = true;
+      event.preventDefault();
+      applyCanvasCursor();
+      return;
+    }
+
     if (event.key !== 'Delete' && event.key !== 'Backspace') {
       return;
     }
 
-    const canvasElement = appRef.current?.view as HTMLCanvasElement | undefined;
-    const activeElement = document.activeElement as HTMLElement | null;
-    if (!canvasElement || isCanvasDeletionShortcutBlocked(activeElement, canvasElement)) {
+    if (isCanvasDeletionShortcutBlocked(activeElement, canvasElement)) {
       return;
     }
 
@@ -886,38 +1360,49 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       return;
     }
 
-    const selectedNode = selectedNodeIdRef.current;
-    if (!selectedNode) {
+    const selectedNodeIds = selectedNodeIdsRef.current;
+    if (selectedNodeIds.length === 0) {
       return;
     }
 
     event.preventDefault();
-    deleteNode(selectedNode);
-    selectedConnectionIdRef.current = null;
-    selectedNodeIdRef.current = null;
-    selectNode(null);
+    deleteSelectedNodesBatch(selectedNodeIds);
     drawConnections();
   }, [
     appRef,
+    applyCanvasCursor,
     deleteConnection,
+    deleteSelectedNodesBatch,
     deleteDrawing,
-    deleteNode,
     drawConnections,
     drawFreehandStrokes,
     drawMinimap,
-    selectNode,
     selectedConnectionIdRef,
     selectedDrawingIdRef,
-    selectedNodeIdRef,
+    selectedNodeIdsRef,
+    spacePressedRef,
   ]);
+
+  const handleKeyUp = useCallback((event: KeyboardEvent) => {
+    if (event.code !== 'Space') {
+      return;
+    }
+    if (!spacePressedRef.current) {
+      return;
+    }
+    spacePressedRef.current = false;
+    applyCanvasCursor();
+  }, [applyCanvasCursor, spacePressedRef]);
 
   return {
     finishInteraction,
     handleStagePointerDown,
     handleStagePointerMove,
+    handleWindowPointerMove,
     handleStagePointerUp,
     handleWheel,
     handleResize,
     handleKeyDown,
+    handleKeyUp,
   };
 }

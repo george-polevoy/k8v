@@ -46,6 +46,25 @@ export interface NodeResizeDraft {
   height: number;
 }
 
+export interface Rect2D {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SelectionResizeComputationInput {
+  bounds: Rect2D;
+  handle: string;
+  pointerX: number;
+  pointerY: number;
+  startPointerX: number;
+  startPointerY: number;
+  scale: number;
+  minWidth: number;
+  minHeight: number;
+}
+
 export interface WheelInteractionPlanInput {
   currentX: number;
   currentY: number;
@@ -119,6 +138,82 @@ export function computeNodeResizeDraft(input: NodeResizeComputationInput): NodeR
   }
   if (resizeFromNorth) {
     nextTop = input.y + deltaY;
+  }
+
+  if ((nextRight - nextLeft) < input.minWidth) {
+    if (resizeFromWest && !resizeFromEast) {
+      nextLeft = nextRight - input.minWidth;
+    } else {
+      nextRight = nextLeft + input.minWidth;
+    }
+  }
+  if ((nextBottom - nextTop) < input.minHeight) {
+    if (resizeFromNorth && !resizeFromSouth) {
+      nextTop = nextBottom - input.minHeight;
+    } else {
+      nextBottom = nextTop + input.minHeight;
+    }
+  }
+
+  return {
+    x: snapToPixel(nextLeft),
+    y: snapToPixel(nextTop),
+    width: Math.max(input.minWidth, snapToPixel(nextRight - nextLeft)),
+    height: Math.max(input.minHeight, snapToPixel(nextBottom - nextTop)),
+  };
+}
+
+export function computeRectFromPoints(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number
+): Rect2D {
+  const minX = Math.min(startX, endX);
+  const minY = Math.min(startY, endY);
+  const maxX = Math.max(startX, endX);
+  const maxY = Math.max(startY, endY);
+  return {
+    x: snapToPixel(minX),
+    y: snapToPixel(minY),
+    width: snapToPixel(maxX - minX),
+    height: snapToPixel(maxY - minY),
+  };
+}
+
+export function rectIntersectsRect(left: Rect2D, right: Rect2D): boolean {
+  return (
+    left.x <= (right.x + right.width) &&
+    (left.x + left.width) >= right.x &&
+    left.y <= (right.y + right.height) &&
+    (left.y + left.height) >= right.y
+  );
+}
+
+export function computeSelectionResizeDraft(input: SelectionResizeComputationInput): Rect2D {
+  const scale = input.scale || 1;
+  const deltaX = (input.pointerX - input.startPointerX) / scale;
+  const deltaY = (input.pointerY - input.startPointerY) / scale;
+  const resizeFromWest = input.handle.includes('w');
+  const resizeFromEast = input.handle.includes('e');
+  const resizeFromNorth = input.handle.includes('n');
+  const resizeFromSouth = input.handle.includes('s');
+  let nextLeft = input.bounds.x;
+  let nextTop = input.bounds.y;
+  let nextRight = input.bounds.x + input.bounds.width;
+  let nextBottom = input.bounds.y + input.bounds.height;
+
+  if (resizeFromEast) {
+    nextRight = input.bounds.x + input.bounds.width + deltaX;
+  }
+  if (resizeFromWest) {
+    nextLeft = input.bounds.x + deltaX;
+  }
+  if (resizeFromSouth) {
+    nextBottom = input.bounds.y + input.bounds.height + deltaY;
+  }
+  if (resizeFromNorth) {
+    nextTop = input.bounds.y + deltaY;
   }
 
   if ((nextRight - nextLeft) < input.minWidth) {

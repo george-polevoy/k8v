@@ -63,7 +63,7 @@ Status: IN PROGRESS
 ### B-006 Canvas UX Quality
 Status: IN PROGRESS
 
-- Add marquee node selection and multi-select operations.
+- Add marquee node selection and multi-select operations. (DONE: marquee select, `Ctrl` toggle/additive select, shared move/resize handles, and `Space`-drag pan)
 - Add keyboard shortcuts reference and discoverability.
 - Add optional edge reroute handles.
 - Add pencil freehand annotations with limited style presets. (DONE: white/green/red and hairline/3px/9px options in toolbar)

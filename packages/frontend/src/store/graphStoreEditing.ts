@@ -14,11 +14,15 @@ import {
 
 interface GraphStoreEditingState {
   graph: Graph | null;
+  selectedNodeId: string | null;
+  selectedNodeIds: string[];
   selectedDrawingId: string | null;
   updateGraph: (graph: Partial<Graph>) => Promise<void>;
 }
 
-type GraphStoreEditingSetState = (partial: Pick<GraphStoreEditingState, 'selectedDrawingId'>) => void;
+type GraphStoreEditingSetState = (
+  partial: Pick<GraphStoreEditingState, 'selectedNodeId' | 'selectedNodeIds' | 'selectedDrawingId'>
+) => void;
 
 interface CreateGraphEditingControllerParams {
   getState: () => GraphStoreEditingState;
@@ -118,6 +122,16 @@ export function createGraphEditingController({
     },
 
     deleteNode(nodeId: string): void {
+      const { selectedNodeId, selectedNodeIds } = getState();
+      if (selectedNodeIds.includes(nodeId)) {
+        const remainingSelectedNodeIds = selectedNodeIds.filter((candidateNodeId) => candidateNodeId !== nodeId);
+        setState({
+          selectedNodeId: remainingSelectedNodeIds.length === 1 ? remainingSelectedNodeIds[0] : null,
+          selectedNodeIds: remainingSelectedNodeIds,
+          selectedDrawingId: selectedNodeId === nodeId ? null : getState().selectedDrawingId,
+        });
+      }
+
       persistGraphEdit((graph) =>
         withUpdatedAt({
           ...graph,
@@ -214,7 +228,11 @@ export function createGraphEditingController({
     deleteDrawing(drawingId: string): void {
       const { selectedDrawingId } = getState();
       if (selectedDrawingId === drawingId) {
-        setState({ selectedDrawingId: null });
+        setState({
+          selectedNodeId: getState().selectedNodeId,
+          selectedNodeIds: getState().selectedNodeIds,
+          selectedDrawingId: null,
+        });
       }
 
       persistGraphEdit((graph) =>

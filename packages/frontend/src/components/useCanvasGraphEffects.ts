@@ -11,6 +11,7 @@ import type { ProjectionTransitionState } from './useCanvasViewport';
 interface UseCanvasGraphEffectsParams {
   graph: Graph | null;
   selectedNodeId: string | null;
+  selectedNodeIds: string[];
   selectedDrawingId: string | null;
   drawingCreateRequestId: number;
   drawingEnabled: boolean;
@@ -30,6 +31,11 @@ interface UseCanvasGraphEffectsParams {
   nodeDragStateRef: MutableRefObject<object | null>;
   nodeResizeStateRef: MutableRefObject<object | null>;
   hoveredNodeResizeHandleRef: MutableRefObject<object | null>;
+  selectionDragStateRef: MutableRefObject<object | null>;
+  selectionResizeStateRef: MutableRefObject<object | null>;
+  hoveredSelectionResizeHandleRef: MutableRefObject<object | null>;
+  selectionMarqueeStateRef: MutableRefObject<object | null>;
+  spacePressedRef: MutableRefObject<boolean>;
   nodeCardDraftSizesRef: MutableRefObject<Map<string, { width: number; height: number }>>;
   nodeCardDraftPositionsRef: MutableRefObject<Map<string, { x: number; y: number }>>;
   numericSliderDragStateRef: MutableRefObject<object | null>;
@@ -49,6 +55,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
   const {
     graph,
     selectedNodeId,
+    selectedNodeIds,
     selectedDrawingId,
     drawingCreateRequestId,
     drawingEnabled,
@@ -68,6 +75,11 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
     nodeDragStateRef,
     nodeResizeStateRef,
     hoveredNodeResizeHandleRef,
+    selectionDragStateRef,
+    selectionResizeStateRef,
+    hoveredSelectionResizeHandleRef,
+    selectionMarqueeStateRef,
+    spacePressedRef,
     nodeCardDraftSizesRef,
     nodeCardDraftPositionsRef,
     numericSliderDragStateRef,
@@ -183,7 +195,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
 
   useEffect(() => {
     renderGraphRef.current();
-  }, [renderGraphRef, selectedDrawingId, selectedNodeId]);
+  }, [renderGraphRef, selectedDrawingId, selectedNodeId, selectedNodeIds]);
 
   useEffect(() => {
     if (!appRef.current) {
@@ -195,6 +207,11 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
       nodeDragStateRef.current = null;
       nodeResizeStateRef.current = null;
       hoveredNodeResizeHandleRef.current = null;
+      selectionDragStateRef.current = null;
+      selectionResizeStateRef.current = null;
+      hoveredSelectionResizeHandleRef.current = null;
+      selectionMarqueeStateRef.current = null;
+      spacePressedRef.current = false;
       nodeCardDraftSizesRef.current.clear();
       nodeCardDraftPositionsRef.current.clear();
       numericSliderDragStateRef.current = null;
@@ -217,6 +234,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
     drawingEnabled,
     endConnectionDrag,
     hoveredNodeResizeHandleRef,
+    hoveredSelectionResizeHandleRef,
     hoveredNumericSliderNodeIdRef,
     nodeCardDraftPositionsRef,
     nodeCardDraftSizesRef,
@@ -224,6 +242,10 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
     nodeResizeStateRef,
     numericSliderDragStateRef,
     panStateRef,
+    selectionDragStateRef,
+    selectionMarqueeStateRef,
+    selectionResizeStateRef,
     renderGraphRef,
+    spacePressedRef,
   ]);
 }

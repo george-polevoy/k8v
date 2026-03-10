@@ -174,6 +174,7 @@ test('computeNode refresh key updates only when the computed node is selected', 
   resetGraphStoreState({
     graph,
     selectedNodeId: 'node-a',
+    selectedNodeIds: ['node-a'],
     resultRefreshKey: baselineRefreshKey,
   });
 
@@ -384,6 +385,7 @@ test('computeGraph refresh key updates only when selected node is in returned re
   resetGraphStoreState({
     graph,
     selectedNodeId: 'node-b',
+    selectedNodeIds: ['node-b'],
     resultRefreshKey: baselineRefreshKey,
   });
 

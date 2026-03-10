@@ -110,6 +110,53 @@ export interface HoveredResizeHandle {
   handle: ResizeHandleDirection;
 }
 
+export interface SelectionBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SelectionDragState {
+  pointerX: number;
+  pointerY: number;
+  nodeStartPositions: Map<string, Position>;
+  currentNodePositions: Map<string, Position>;
+  moved: boolean;
+}
+
+export interface SelectionResizeNodeState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+}
+
+export interface SelectionResizeState {
+  pointerX: number;
+  pointerY: number;
+  bounds: SelectionBounds;
+  handle: ResizeHandleDirection;
+  nodeStates: Map<string, SelectionResizeNodeState>;
+  currentBounds: SelectionBounds;
+  currentNodeStates: Map<string, SelectionResizeNodeState>;
+}
+
+export interface HoveredSelectionResizeHandle {
+  handle: ResizeHandleDirection;
+}
+
+export interface SelectionMarqueeState {
+  startWorldX: number;
+  startWorldY: number;
+  currentWorldX: number;
+  currentWorldY: number;
+  additive: boolean;
+  moved: boolean;
+}
+
 export interface AnnotationOverlayEntry {
   nodeId: string;
   x: number;

@@ -36,7 +36,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Pinch zoom (trackpad gesture) keeps pointer-focused zoom with higher sensitivity than mouse wheel.
 - Two-finger trackpad scroll pans viewport.
 - Shift + wheel scrolls horizontally; Alt + wheel scrolls vertically.
-- Drag-to-pan on empty canvas.
+- Empty-canvas click-drag performs marquee node selection; holding `Space` converts empty-canvas drag into viewport panning.
+- Canvas supports multi-node selection with marquee drag, `Ctrl`-click toggle, and additive `Ctrl`-drag marquee selection.
+- Multi-selected nodes keep per-node selected styling, expose shared move/resize handles, and delete together.
 - Drag-to-move nodes with persisted positions.
 - Node position persistence is projection-aware: moving a node updates coordinates only for the active projection.
 - Node card resize persistence is projection-aware: resizing updates dimensions only for the active projection.

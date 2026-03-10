@@ -92,7 +92,7 @@ interface UseCanvasViewportParams {
   viewportRef: MutableRefObject<Container | null>;
   textNodesRef: MutableRefObject<Set<Text>>;
   graphRef: MutableRefObject<Graph | null>;
-  selectedNodeIdRef: MutableRefObject<string | null>;
+  selectedNodeIdsRef: MutableRefObject<string[]>;
   selectedDrawingIdRef: MutableRefObject<string | null>;
   nodeVisualsRef: MutableRefObject<Map<string, NodeVisualLike>>;
   drawingPositionsRef: MutableRefObject<Map<string, Position>>;
@@ -119,7 +119,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     viewportRef,
     textNodesRef,
     graphRef,
-    selectedNodeIdRef,
+    selectedNodeIdsRef,
     selectedDrawingIdRef,
     nodeVisualsRef,
     drawingPositionsRef,
@@ -280,6 +280,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     };
 
     if (currentGraph) {
+      const selectedNodeIdSet = new Set(selectedNodeIdsRef.current);
       for (const node of currentGraph.nodes) {
         const position = nodePositionsRef.current.get(node.id) ?? node.position;
         const visual = nodeVisualsRef.current.get(node.id);
@@ -294,7 +295,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
         const w = nodeWidth * scale;
         const h = nodeHeight * scale;
 
-        ctx.fillStyle = selectedNodeIdRef.current === node.id ? 'rgba(59, 130, 246, 0.75)' : 'rgba(203, 213, 225, 0.95)';
+        ctx.fillStyle = selectedNodeIdSet.has(node.id) ? 'rgba(59, 130, 246, 0.75)' : 'rgba(203, 213, 225, 0.95)';
         ctx.strokeStyle = 'rgba(30, 41, 59, 0.8)';
         ctx.lineWidth = 1;
         ctx.fillRect(x, y, w, h);
@@ -358,7 +359,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     nodeVisualsRef,
     resolveNodeCardDimensions,
     selectedDrawingIdRef,
-    selectedNodeIdRef,
+    selectedNodeIdsRef,
     viewportRef,
   ]);
 

@@ -31,6 +31,7 @@ export function resetGraphStoreState(overrides: Partial<ReturnType<typeof useGra
     graph: null,
     graphSummaries: [],
     selectedNodeId: null,
+    selectedNodeIds: [],
     selectedDrawingId: null,
     isLoading: false,
     error: null,

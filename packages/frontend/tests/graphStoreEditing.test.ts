@@ -287,6 +287,7 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
 test('selectDrawing clears selected node and tracks drawing selection', () => {
   resetGraphStoreState({
     selectedNodeId: 'node-1',
+    selectedNodeIds: ['node-1'],
     selectedNodeGraphicsDebug: {
       nodeId: 'node-1',
       nodeType: 'python_process',
@@ -314,6 +315,7 @@ test('selectDrawing clears selected node and tracks drawing selection', () => {
   useGraphStore.getState().selectDrawing('drawing-1');
   let state = useGraphStore.getState();
   assert.equal(state.selectedNodeId, null);
+  assert.deepEqual(state.selectedNodeIds, []);
   assert.equal(state.selectedDrawingId, 'drawing-1');
   assert.equal(state.selectedNodeGraphicsDebug, null);
 
@@ -343,8 +345,29 @@ test('selectDrawing clears selected node and tracks drawing selection', () => {
   useGraphStore.getState().selectNode('node-2');
   state = useGraphStore.getState();
   assert.equal(state.selectedNodeId, 'node-2');
+  assert.deepEqual(state.selectedNodeIds, ['node-2']);
   assert.equal(state.selectedDrawingId, null);
   assert.equal(state.selectedNodeGraphicsDebug, null);
+});
+
+test('setNodeSelection and toggleNodeSelection track multi-select state', () => {
+  resetGraphStoreState();
+
+  useGraphStore.getState().setNodeSelection(['node-1', 'node-2']);
+  let state = useGraphStore.getState();
+  assert.equal(state.selectedNodeId, null);
+  assert.deepEqual(state.selectedNodeIds, ['node-1', 'node-2']);
+  assert.equal(state.selectedDrawingId, null);
+
+  useGraphStore.getState().toggleNodeSelection('node-2');
+  state = useGraphStore.getState();
+  assert.equal(state.selectedNodeId, 'node-1');
+  assert.deepEqual(state.selectedNodeIds, ['node-1']);
+
+  useGraphStore.getState().toggleNodeSelection('node-3');
+  state = useGraphStore.getState();
+  assert.equal(state.selectedNodeId, null);
+  assert.deepEqual(state.selectedNodeIds, ['node-1', 'node-3']);
 });
 
 test('drawing UI actions update local drawing state', () => {
@@ -447,6 +470,76 @@ test('deleteDrawing clears selected drawing before persisting removal', async ()
     assert.equal(state.selectedDrawingId, null);
     assert.ok(capturedPayload, 'expected graph update payload');
     assert.equal(capturedPayload.drawings.length, 0);
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
+test('deleteNode reconciles multi-select state when a selected node is removed', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const graph: Graph = {
+    id: 'g-delete-node-selection',
+    name: 'Node Delete Selection',
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'inline_code' as any,
+        position: { x: 10, y: 20 },
+        metadata: {
+          name: 'Node 1',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'node-1-version',
+      },
+      {
+        id: 'node-2',
+        type: 'inline_code' as any,
+        position: { x: 40, y: 60 },
+        metadata: {
+          name: 'Node 2',
+          inputs: [],
+          outputs: [],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 2;',
+          runtime: 'javascript_vm',
+        },
+        version: 'node-2-version',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  resetGraphStoreState({
+    graph,
+    selectedNodeId: null,
+    selectedNodeIds: ['node-1', 'node-2'],
+  } as any);
+
+  try {
+    useGraphStore.getState().deleteNode('node-2');
+    await delay(0);
+
+    const state = useGraphStore.getState();
+    assert.ok(capturedPayload, 'expected graph update payload');
+    assert.equal(state.selectedNodeId, 'node-1');
+    assert.deepEqual(state.selectedNodeIds, ['node-1']);
   } finally {
     (axios as any).put = originalPut;
   }
