@@ -6,6 +6,13 @@ import {
 } from './graphModel.js';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DEFAULT_ANNOTATION_TEXT = '';
+const DEFAULT_ANNOTATION_BACKGROUND_COLOR = '#fef3c7';
+const DEFAULT_ANNOTATION_BORDER_COLOR = '#334155';
+const DEFAULT_ANNOTATION_FONT_COLOR = '#1f2937';
+const DEFAULT_ANNOTATION_FONT_SIZE = 14;
+const MIN_ANNOTATION_FONT_SIZE = 8;
+const MAX_ANNOTATION_FONT_SIZE = 72;
 
 export function assertValidPortName(name: string, kind: 'input' | 'output'): void {
   if (!PORT_NAME_PATTERN.test(name)) {
@@ -226,6 +233,122 @@ export function updateInlineCodeNodeCode(
 
 export function ensureNodeVersion(node: GraphNode): string {
   return `${Date.now()}-${node.id}`;
+}
+
+interface AnnotationNodeOptions {
+  nodeId?: string;
+  name?: string;
+  x: number;
+  y: number;
+  text?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  fontColor?: string;
+  fontSize?: number;
+}
+
+interface AnnotationConfigUpdates {
+  text?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  fontColor?: string;
+  fontSize?: number;
+}
+
+function normalizeAnnotationColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function normalizeAnnotationFontSize(value: unknown, fallback = DEFAULT_ANNOTATION_FONT_SIZE): number {
+  const fallbackSize = Math.min(
+    MAX_ANNOTATION_FONT_SIZE,
+    Math.max(MIN_ANNOTATION_FONT_SIZE, Number.isFinite(fallback) ? fallback : DEFAULT_ANNOTATION_FONT_SIZE)
+  );
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number.parseFloat(value)
+      : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return fallbackSize;
+  }
+  return Math.min(MAX_ANNOTATION_FONT_SIZE, Math.max(MIN_ANNOTATION_FONT_SIZE, Math.round(parsed)));
+}
+
+export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode {
+  const nodeId = options.nodeId?.trim() || randomUUID();
+  const nowVersion = `${Date.now()}-${nodeId}`;
+
+  return {
+    id: nodeId,
+    type: 'annotation',
+    position: { x: options.x, y: options.y },
+    metadata: {
+      name: options.name ?? 'Annotation',
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: options.text ?? DEFAULT_ANNOTATION_TEXT,
+        backgroundColor: normalizeAnnotationColor(
+          options.backgroundColor,
+          DEFAULT_ANNOTATION_BACKGROUND_COLOR
+        ),
+        borderColor: normalizeAnnotationColor(
+          options.borderColor,
+          DEFAULT_ANNOTATION_BORDER_COLOR
+        ),
+        fontColor: normalizeAnnotationColor(
+          options.fontColor,
+          DEFAULT_ANNOTATION_FONT_COLOR
+        ),
+        fontSize: normalizeAnnotationFontSize(options.fontSize),
+        cardWidth: 320,
+        cardHeight: 200,
+      },
+    },
+    version: nowVersion,
+  };
+}
+
+export function updateAnnotationNode(
+  node: GraphNode,
+  updates: AnnotationConfigUpdates
+): GraphNode {
+  const currentConfig = (node.config.config ?? {}) as Record<string, unknown>;
+  const nextText = updates.text !== undefined
+    ? updates.text
+    : (typeof currentConfig.text === 'string' ? currentConfig.text : DEFAULT_ANNOTATION_TEXT);
+  const nextBackgroundColor = updates.backgroundColor !== undefined
+    ? normalizeAnnotationColor(updates.backgroundColor, DEFAULT_ANNOTATION_BACKGROUND_COLOR)
+    : normalizeAnnotationColor(currentConfig.backgroundColor, DEFAULT_ANNOTATION_BACKGROUND_COLOR);
+  const nextBorderColor = updates.borderColor !== undefined
+    ? normalizeAnnotationColor(updates.borderColor, DEFAULT_ANNOTATION_BORDER_COLOR)
+    : normalizeAnnotationColor(currentConfig.borderColor, DEFAULT_ANNOTATION_BORDER_COLOR);
+  const nextFontColor = updates.fontColor !== undefined
+    ? normalizeAnnotationColor(updates.fontColor, DEFAULT_ANNOTATION_FONT_COLOR)
+    : normalizeAnnotationColor(currentConfig.fontColor, DEFAULT_ANNOTATION_FONT_COLOR);
+  const nextFontSize = updates.fontSize !== undefined
+    ? normalizeAnnotationFontSize(updates.fontSize)
+    : normalizeAnnotationFontSize(currentConfig.fontSize);
+
+  return {
+    ...node,
+    config: {
+      ...node.config,
+      config: {
+        ...currentConfig,
+        text: nextText,
+        backgroundColor: nextBackgroundColor,
+        borderColor: nextBorderColor,
+        fontColor: nextFontColor,
+        fontSize: nextFontSize,
+      },
+    },
+    version: ensureNodeVersion(node),
+  };
 }
 
 interface NumericInputConfig {

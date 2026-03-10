@@ -132,14 +132,17 @@ Last reviewed: March 10, 2026.
 - `A-BE-64` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` always includes `sourceNodeId`/`targetNodeId` in connections even when `connectionFields` omits them.
 - `A-BE-65` `packages/backend/tests/app.test.ts`: annotation-linked connections round-trip persisted edge anchors and are excluded from DAG validation.
 - `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
+- `A-BE-67` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` traverses annotation-linked nodes and can project annotation `sourceAnchor`/`targetAnchor` fields for those links.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
 - `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
-- `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests and enforces required `maxNodes` for DFS requests.
+- `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests, accepts annotation anchor connection fields, and enforces required `maxNodes` for DFS requests.
 - `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function output matches direct frontend canvas capture for identical graph/region inputs.
 - `A-MCP-07` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function respects requested bitmap dimensions.
 - `A-MCP-08` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function works when loading graph data from backend (no override payload).
+- `A-MCP-09` `packages/mcp-server/tests/graphEdits.test.ts`: MCP bulk-edit operations create and update annotation nodes with persisted text/color/font-size config.
+- `A-MCP-10` `packages/mcp-server/tests/graphEdits.test.ts`: MCP annotation connection edits preserve source/target anchors and `connection_set` rewires one annotation anchor slot without removing unrelated annotation links.
 
 ## Manual Regression Test Cases
 
@@ -280,6 +283,7 @@ Last reviewed: March 10, 2026.
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
+| Graph traversal/query includes annotation nodes and annotation-linked anchors | `A-BE-67`, `A-MCP-05` | Automated |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
@@ -336,7 +340,7 @@ Last reviewed: March 10, 2026.
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
 | MCP graph-query tool validation coverage | `A-MCP-05` | Automated |
-| MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
+| MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `A-MCP-09`, `A-MCP-10`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
 | MCP drawing-edit API coverage | `M-MCP-05` | Manual |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
 

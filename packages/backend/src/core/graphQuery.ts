@@ -18,8 +18,10 @@ export const GRAPH_QUERY_CONNECTION_FIELDS = [
   'id',
   'sourceNodeId',
   'sourcePort',
+  'sourceAnchor',
   'targetNodeId',
   'targetPort',
+  'targetAnchor',
 ] as const;
 export type GraphQueryConnectionField = (typeof GRAPH_QUERY_CONNECTION_FIELDS)[number];
 
@@ -149,11 +151,21 @@ function projectGraphConnection(
       case 'sourcePort':
         projected.sourcePort = connection.sourcePort;
         break;
+      case 'sourceAnchor':
+        if (connection.sourceAnchor) {
+          projected.sourceAnchor = connection.sourceAnchor;
+        }
+        break;
       case 'targetNodeId':
         projected.targetNodeId = connection.targetNodeId;
         break;
       case 'targetPort':
         projected.targetPort = connection.targetPort;
+        break;
+      case 'targetAnchor':
+        if (connection.targetAnchor) {
+          projected.targetAnchor = connection.targetAnchor;
+        }
         break;
       default:
         break;

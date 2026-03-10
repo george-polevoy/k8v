@@ -168,15 +168,16 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## MCP and Agent API
 
 - MCP server package at `packages/mcp-server`.
-- MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`), moving, naming, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, deterministic per-input rewiring (`connection_set` / `connection_replace`), delete, and compute.
+- MCP graph-edit tools for node creation (`node_add_inline`, `node_add_numeric_input`, `node_add_annotation`), moving, naming, annotation content/style update, code/runtime update, auto-recompute toggle, input port editing, connect/disconnect, deterministic per-input rewiring (`connection_set` / `connection_replace`), delete, and compute.
 - MCP `node_set_code` and bulk-edit `node_set_code` infer inline output ports from updated code and retain currently connected legacy outputs for connection-safe edits; optional `outputNames` allows explicit output-port schema updates for delegated helper-style code.
+- MCP `node_set_annotation` and bulk-edit `node_set_annotation` update annotation text/colors/font size without raw whole-graph mutation.
 - MCP `connections_list` tool lists edges for a graph with optional `nodeId`/`targetPort` filters.
-- MCP `graph_query` tool delegates to backend graph-query operations (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) and returns only requested node/connection fields.
-- MCP connection mutation tools (`connection_add`, `connection_delete`, `connection_set`, `connection_replace`) accept optional `noRecompute` to avoid backend auto-recompute enqueue.
+- MCP `graph_query` tool delegates to backend graph-query operations (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) and returns only requested node/connection fields, including annotation nodes and optional `sourceAnchor`/`targetAnchor` link projection.
+- MCP connection mutation tools (`connection_add`, `connection_delete`, `connection_set`, `connection_replace`) accept optional `noRecompute` to avoid backend auto-recompute enqueue and preserve annotation-link anchors on `__annotation__` endpoints.
 - MCP graph-edit tools for projections: add a projection (cloned from current active coordinates/card sizes/background by default) and select active projection.
 - MCP graph-edit tools for graph-level Python env management: add/edit/delete env definitions (`name`, `pythonPath`, `cwd`).
 - MCP graph-edit tools for drawing objects: create, move, rename, delete, and append paths.
-- MCP `bulk_edit` tool accepts an ordered array of graph-edit operations (including `node_add_numeric_input`) and applies them sequentially in one persisted graph update.
+- MCP `bulk_edit` tool accepts an ordered array of graph-edit operations (including `node_add_numeric_input`, `node_add_annotation`, and annotation-aware connection edits) and applies them sequentially in one persisted graph update.
 - Internal-only Playwright screenshot tool (`graph_screenshot_region`) renders through the frontend canvas in `canvasOnly` mode on a dedicated hidden page.
 - Screenshot tool captures by explicit world rectangle (`x`, `y`, `width`, `height`) into fixed bitmap size (`width`, `height`).
 - Screenshot render includes persisted drawing paths and drawing handles.

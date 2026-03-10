@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { getNode } from './graphConnectionEdits.js';
 import {
   assertValidPortName,
+  createAnnotationNode,
   createNumericInputNode,
   ensureNodeVersion,
   inferInputPortNamesFromCode,
   inferOutputPortNamesFromCode,
+  updateAnnotationNode,
   updateInlineCodeNodeCode,
 } from './graphNodeEdits.js';
 import { textResult } from './mcpHttp.js';
@@ -164,6 +166,56 @@ export function registerNodeTools(server: any, deps: NodeToolRegistrarDeps): voi
   );
 
   server.registerTool(
+    'node_add_annotation',
+    {
+      description: 'Add an annotation card node to a graph.',
+      inputSchema: {
+        graphId: z.string(),
+        name: z.string().optional(),
+        x: z.number(),
+        y: z.number(),
+        text: z.string().optional(),
+        backgroundColor: z.string().optional(),
+        borderColor: z.string().optional(),
+        fontColor: z.string().optional(),
+        fontSize: z.number().optional(),
+        backendUrl: z.string().optional(),
+      },
+    },
+    async ({
+      graphId,
+      name,
+      x,
+      y,
+      text,
+      backgroundColor,
+      borderColor,
+      fontColor,
+      fontSize,
+      backendUrl,
+    }) => {
+      const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+      const node = createAnnotationNode({
+        name,
+        x,
+        y,
+        text,
+        backgroundColor,
+        borderColor,
+        fontColor,
+        fontSize,
+      });
+
+      const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+        ...current,
+        nodes: [...current.nodes, node],
+      }));
+
+      return textResult({ graphId, nodeId: node.id, graph });
+    }
+  );
+
+  server.registerTool(
     'node_move',
     {
       description: 'Move a node to a new canvas position.',
@@ -273,6 +325,55 @@ export function registerNodeTools(server: any, deps: NodeToolRegistrarDeps): voi
             ? updateInlineCodeNodeCode(node, code, current.connections, outputNames, runtime, pythonEnv)
             : node
         ),
+      }));
+
+      return textResult(graph);
+    }
+  );
+
+  server.registerTool(
+    'node_set_annotation',
+    {
+      description: 'Update annotation content or colors for an annotation node.',
+      inputSchema: {
+        graphId: z.string(),
+        nodeId: z.string(),
+        text: z.string().optional(),
+        backgroundColor: z.string().optional(),
+        borderColor: z.string().optional(),
+        fontColor: z.string().optional(),
+        fontSize: z.number().optional(),
+        backendUrl: z.string().optional(),
+      },
+    },
+    async ({
+      graphId,
+      nodeId,
+      text,
+      backgroundColor,
+      borderColor,
+      fontColor,
+      fontSize,
+      backendUrl,
+    }) => {
+      const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+      const graph = await updateGraph(resolvedBackendUrl, graphId, (current) => ({
+        ...current,
+        nodes: current.nodes.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
+          if (node.type !== 'annotation') {
+            throw new Error(`Node ${nodeId} is not an annotation node`);
+          }
+          return updateAnnotationNode(node, {
+            text,
+            backgroundColor,
+            borderColor,
+            fontColor,
+            fontSize,
+          });
+        }),
       }));
 
       return textResult(graph);

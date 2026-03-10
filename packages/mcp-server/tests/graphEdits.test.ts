@@ -43,6 +43,36 @@ function createNode(params: {
   };
 }
 
+function createAnnotationNode(params: {
+  id: string;
+  name?: string;
+  text?: string;
+}) {
+  return {
+    id: params.id,
+    type: 'annotation',
+    position: { x: 0, y: 0 },
+    metadata: {
+      name: params.name ?? params.id,
+      inputs: [],
+      outputs: [],
+    },
+    config: {
+      type: 'annotation',
+      config: {
+        text: params.text ?? '',
+        backgroundColor: '#fef3c7',
+        borderColor: '#334155',
+        fontColor: '#1f2937',
+        fontSize: 14,
+        cardWidth: 320,
+        cardHeight: 200,
+      },
+    },
+    version: `${params.id}-v1`,
+  };
+}
+
 test('bulk_edit schema accepts node_add_numeric_input operations', () => {
   const parsed = BULK_EDIT_OPERATION_SCHEMA.parse({
     op: 'node_add_numeric_input',
@@ -81,6 +111,17 @@ test('graph_query schema requires maxNodes for DFS traversal requests', () => {
   );
 });
 
+test('graph_query schema accepts annotation anchor connection fields', () => {
+  const parsed = GRAPH_QUERY_OPERATION_SCHEMA.parse({
+    operation: 'traverse_bfs',
+    startNodeIds: ['annotation-source'],
+    connectionFields: ['sourceAnchor', 'targetAnchor'],
+  });
+
+  assert.equal(parsed.operation, 'traverse_bfs');
+  assert.deepEqual(parsed.connectionFields, ['sourceAnchor', 'targetAnchor']);
+});
+
 test('bulk_edit schema accepts connection_set operations', () => {
   const parsed = BULK_EDIT_OPERATION_SCHEMA.parse({
     op: 'connection_set',
@@ -91,6 +132,19 @@ test('bulk_edit schema accepts connection_set operations', () => {
   });
 
   assert.equal(parsed.op, 'connection_set');
+});
+
+test('bulk_edit schema accepts node_add_annotation operations', () => {
+  const parsed = BULK_EDIT_OPERATION_SCHEMA.parse({
+    op: 'node_add_annotation',
+    x: 120,
+    y: 48,
+    text: '# Note',
+    backgroundColor: '#fef3c7',
+    fontSize: 18,
+  });
+
+  assert.equal(parsed.op, 'node_add_annotation');
 });
 
 test('bulk_edit schema accepts node_set_code outputNames', () => {
@@ -167,6 +221,70 @@ test('applyBulkEditOperation rejects duplicate numeric_input node ids', () => {
     }),
     /already exists/
   );
+});
+
+test('applyBulkEditOperation adds annotation node with content styling', () => {
+  const graph = createEmptyGraph();
+  const result = applyBulkEditOperation(graph, {
+    op: 'node_add_annotation',
+    name: 'Review Note',
+    x: 64,
+    y: 96,
+    text: 'Check edge routing',
+    backgroundColor: '#fef3c7',
+    borderColor: '#ef4444',
+    fontColor: '#1f2937',
+    fontSize: 18,
+  });
+
+  assert.equal(result.graph.nodes.length, 1);
+  const node = result.graph.nodes[0];
+  assert.equal(node.type, 'annotation');
+  assert.equal(node.metadata.name, 'Review Note');
+  assert.deepEqual(node.metadata.inputs, []);
+  assert.deepEqual(node.metadata.outputs, []);
+  assert.deepEqual(node.position, { x: 64, y: 96 });
+  assert.deepEqual(node.config.config, {
+    text: 'Check edge routing',
+    backgroundColor: '#fef3c7',
+    borderColor: '#ef4444',
+    fontColor: '#1f2937',
+    fontSize: 18,
+    cardWidth: 320,
+    cardHeight: 200,
+  });
+  assert.equal(result.details?.nodeId, node.id);
+});
+
+test('applyBulkEditOperation updates annotation node content styling', () => {
+  const graph = createEmptyGraph();
+  graph.nodes.push(createAnnotationNode({
+    id: 'annotation-1',
+    name: 'Annotation 1',
+    text: 'Original',
+  }));
+
+  const result = applyBulkEditOperation(graph, {
+    op: 'node_set_annotation',
+    nodeId: 'annotation-1',
+    text: 'Updated note',
+    backgroundColor: '#dbeafe',
+    borderColor: '#2563eb',
+    fontColor: '#1e3a8a',
+    fontSize: 20,
+  });
+
+  const updatedNode = result.graph.nodes.find((node) => node.id === 'annotation-1');
+  assert.ok(updatedNode);
+  assert.deepEqual(updatedNode.config.config, {
+    text: 'Updated note',
+    backgroundColor: '#dbeafe',
+    borderColor: '#2563eb',
+    fontColor: '#1e3a8a',
+    fontSize: 20,
+    cardWidth: 320,
+    cardHeight: 200,
+  });
 });
 
 test('applyBulkEditOperation graph_projection_add preserves oversized fallback node card dimensions', () => {
@@ -291,6 +409,110 @@ test('applyBulkEditOperation connection_set keeps matching connection id while d
   assert.equal(targetInbound.length, 1);
   assert.equal(targetInbound[0].id, 'conn-keep');
   assert.equal(result.details?.replacedConnectionIds?.includes('conn-drop'), true);
+});
+
+test('applyBulkEditOperation connection_set rewires one annotation anchor slot without removing unrelated annotation links', () => {
+  const graph = createEmptyGraph();
+  graph.nodes.push(createNode({ id: 'source-a', outputs: ['value'] }));
+  graph.nodes.push(createNode({ id: 'source-b', outputs: ['value'] }));
+  graph.nodes.push(createAnnotationNode({ id: 'annotation-target' }));
+  graph.connections.push(
+    {
+      id: 'conn-top',
+      sourceNodeId: 'source-a',
+      sourcePort: 'value',
+      targetNodeId: 'annotation-target',
+      targetPort: '__annotation__',
+      targetAnchor: {
+        side: 'top',
+        offset: 0.25,
+      },
+    },
+    {
+      id: 'conn-right',
+      sourceNodeId: 'source-a',
+      sourcePort: 'value',
+      targetNodeId: 'annotation-target',
+      targetPort: '__annotation__',
+      targetAnchor: {
+        side: 'right',
+        offset: 0.6,
+      },
+    }
+  );
+
+  const result = applyBulkEditOperation(graph, {
+    op: 'connection_set',
+    sourceNodeId: 'source-b',
+    sourcePort: 'value',
+    targetNodeId: 'annotation-target',
+    targetPort: '__annotation__',
+    targetAnchor: {
+      side: 'top',
+      offset: 0.25,
+    },
+    connectionId: 'conn-top-new',
+  });
+
+  assert.deepEqual(
+    result.graph.connections.map((connection) => ({
+      id: connection.id,
+      sourceNodeId: connection.sourceNodeId,
+      targetAnchor: connection.targetAnchor,
+    })),
+    [
+      {
+        id: 'conn-right',
+        sourceNodeId: 'source-a',
+        targetAnchor: {
+          side: 'right',
+          offset: 0.6,
+        },
+      },
+      {
+        id: 'conn-top-new',
+        sourceNodeId: 'source-b',
+        targetAnchor: {
+          side: 'top',
+          offset: 0.25,
+        },
+      },
+    ]
+  );
+  assert.equal(result.details?.replacedConnectionIds?.includes('conn-top'), true);
+});
+
+test('applyBulkEditOperation connection_add preserves annotation source anchors', () => {
+  const graph = createEmptyGraph();
+  graph.nodes.push(createAnnotationNode({ id: 'annotation-source' }));
+  graph.nodes.push(createNode({ id: 'target', inputs: ['input'] }));
+
+  const result = applyBulkEditOperation(graph, {
+    op: 'connection_add',
+    sourceNodeId: 'annotation-source',
+    sourcePort: '__annotation__',
+    sourceAnchor: {
+      side: 'bottom',
+      offset: 0.4,
+    },
+    targetNodeId: 'target',
+    targetPort: 'input',
+    connectionId: 'conn-annotation-target',
+  });
+
+  assert.deepEqual(result.graph.connections, [
+    {
+      id: 'conn-annotation-target',
+      sourceNodeId: 'annotation-source',
+      sourcePort: '__annotation__',
+      sourceAnchor: {
+        side: 'bottom',
+        offset: 0.4,
+      },
+      targetNodeId: 'target',
+      targetPort: 'input',
+    },
+  ]);
 });
 
 test('applyBulkEditOperation node_set_code infers output ports from updated code', () => {

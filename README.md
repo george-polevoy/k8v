@@ -82,8 +82,8 @@ npm run dev:mcp
 ```
 
 The MCP server exposes:
-- graph CRUD-style editing operations (nodes/connections, graph Python env add/edit/delete, drawing objects, compute), including connection inspection (`connections_list`) and atomic per-input source replacement (`connection_set` / `connection_replace`)
-- lightweight graph navigation queries via `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) with field-level projection for compact responses
+- graph CRUD-style editing operations (including inline/numeric/annotation nodes, annotation-aware connections, graph Python env add/edit/delete, drawing objects, compute), including connection inspection (`connections_list`) and atomic per-input source replacement (`connection_set` / `connection_replace`)
+- lightweight graph navigation queries via `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) with field-level projection for compact responses, including annotation nodes and optional connection anchor fields
 - bulk graph editing via `bulk_edit` (ordered operation arrays applied sequentially)
 - internal screenshot tool `graph_screenshot_region`:
   - renders the frontend canvas in `canvasOnly` mode on an internal page

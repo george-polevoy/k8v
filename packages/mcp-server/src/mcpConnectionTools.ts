@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   applyConnectionSet,
   assertConnectionPortsExist,
+  matchesConnectionDefinition,
   filterConnections,
 } from './graphConnectionEdits.js';
 import { textResult } from './mcpHttp.js';
@@ -33,6 +34,11 @@ interface ConnectionToolRegistrarDeps {
   updateGraphConnections: UpdateGraphConnectionsFn;
   updateGraphConnectionsWithResult: UpdateGraphConnectionsWithResultFn;
 }
+
+const ConnectionAnchorSchema = z.object({
+  side: z.enum(['top', 'right', 'bottom', 'left']),
+  offset: z.number().finite().min(0).max(1),
+});
 
 export function registerConnectionTools(server: any, deps: ConnectionToolRegistrarDeps): void {
   const {
@@ -78,8 +84,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
         graphId: z.string(),
         sourceNodeId: z.string(),
         sourcePort: z.string(),
+        sourceAnchor: ConnectionAnchorSchema.optional(),
         targetNodeId: z.string(),
         targetPort: z.string(),
+        targetAnchor: ConnectionAnchorSchema.optional(),
         connectionId: z.string().optional(),
         noRecompute: z.boolean().optional(),
         backendUrl: z.string().optional(),
@@ -89,8 +97,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
       graphId,
       sourceNodeId,
       sourcePort,
+      sourceAnchor,
       targetNodeId,
       targetPort,
+      targetAnchor,
       connectionId,
       noRecompute,
       backendUrl,
@@ -101,14 +111,25 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
         resolvedBackendUrl,
         graphId,
         (current) => {
-          assertConnectionPortsExist(current, sourceNodeId, sourcePort, targetNodeId, targetPort);
+          assertConnectionPortsExist(
+            current,
+            sourceNodeId,
+            sourcePort,
+            targetNodeId,
+            targetPort,
+            sourceAnchor,
+            targetAnchor
+          );
 
           const duplicate = current.connections.some(
-            (connection) =>
-              connection.sourceNodeId === sourceNodeId &&
-              connection.sourcePort === sourcePort &&
-              connection.targetNodeId === targetNodeId &&
-              connection.targetPort === targetPort
+            (connection) => matchesConnectionDefinition(connection, {
+              sourceNodeId,
+              sourcePort,
+              sourceAnchor,
+              targetNodeId,
+              targetPort,
+              targetAnchor,
+            })
           );
           if (duplicate) {
             return current.connections;
@@ -120,8 +141,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
               id: connectionId ?? randomUUID(),
               sourceNodeId,
               sourcePort,
+              ...(sourceAnchor ? { sourceAnchor } : {}),
               targetNodeId,
               targetPort,
+              ...(targetAnchor ? { targetAnchor } : {}),
             },
           ];
         },
@@ -143,8 +166,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
         graphId: z.string(),
         sourceNodeId: z.string(),
         sourcePort: z.string(),
+        sourceAnchor: ConnectionAnchorSchema.optional(),
         targetNodeId: z.string(),
         targetPort: z.string(),
+        targetAnchor: ConnectionAnchorSchema.optional(),
         connectionId: z.string().optional(),
         noRecompute: z.boolean().optional(),
         backendUrl: z.string().optional(),
@@ -154,8 +179,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
       graphId,
       sourceNodeId,
       sourcePort,
+      sourceAnchor,
       targetNodeId,
       targetPort,
+      targetAnchor,
       connectionId,
       noRecompute,
       backendUrl,
@@ -168,8 +195,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
           const result = applyConnectionSet(current, {
             sourceNodeId,
             sourcePort,
+            sourceAnchor,
             targetNodeId,
             targetPort,
+            targetAnchor,
             connectionId,
           });
           return {
@@ -201,8 +230,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
         graphId: z.string(),
         sourceNodeId: z.string(),
         sourcePort: z.string(),
+        sourceAnchor: ConnectionAnchorSchema.optional(),
         targetNodeId: z.string(),
         targetPort: z.string(),
+        targetAnchor: ConnectionAnchorSchema.optional(),
         connectionId: z.string().optional(),
         noRecompute: z.boolean().optional(),
         backendUrl: z.string().optional(),
@@ -212,8 +243,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
       graphId,
       sourceNodeId,
       sourcePort,
+      sourceAnchor,
       targetNodeId,
       targetPort,
+      targetAnchor,
       connectionId,
       noRecompute,
       backendUrl,
@@ -226,8 +259,10 @@ export function registerConnectionTools(server: any, deps: ConnectionToolRegistr
           const result = applyConnectionSet(current, {
             sourceNodeId,
             sourcePort,
+            sourceAnchor,
             targetNodeId,
             targetPort,
+            targetAnchor,
             connectionId,
           });
           return {

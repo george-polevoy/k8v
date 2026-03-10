@@ -4,6 +4,7 @@ import {
   applyConnectionSet,
   assertConnectionPortsExist,
   getNode,
+  matchesConnectionDefinition,
 } from './graphConnectionEdits.js';
 import {
   applyProjectionToNodes,
@@ -19,12 +20,19 @@ import {
 } from './graphModel.js';
 import {
   assertValidPortName,
+  createAnnotationNode,
   createNumericInputNode,
   ensureNodeVersion,
   inferInputPortNamesFromCode,
   inferOutputPortNamesFromCode,
+  updateAnnotationNode,
   updateInlineCodeNodeCode,
 } from './graphNodeEdits.js';
+
+const ConnectionAnchorSchema = z.object({
+  side: z.enum(['top', 'right', 'bottom', 'left']),
+  offset: z.number().finite().min(0).max(1),
+});
 
 export function getNextProjectionName(existingProjections: GraphProjection[]): string {
   const existingNames = new Set(existingProjections.map((projection) => projection.name));
@@ -127,6 +135,18 @@ export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
     autoRecompute: z.boolean().optional(),
   }),
   z.object({
+    op: z.literal('node_add_annotation'),
+    nodeId: z.string().trim().min(1).optional(),
+    name: z.string().optional(),
+    x: z.number(),
+    y: z.number(),
+    text: z.string().optional(),
+    backgroundColor: z.string().optional(),
+    borderColor: z.string().optional(),
+    fontColor: z.string().optional(),
+    fontSize: z.number().optional(),
+  }),
+  z.object({
     op: z.literal('node_move'),
     nodeId: z.string(),
     x: z.number(),
@@ -144,6 +164,15 @@ export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
     outputNames: z.array(z.string()).optional(),
     runtime: z.string().optional(),
     pythonEnv: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal('node_set_annotation'),
+    nodeId: z.string(),
+    text: z.string().optional(),
+    backgroundColor: z.string().optional(),
+    borderColor: z.string().optional(),
+    fontColor: z.string().optional(),
+    fontSize: z.number().optional(),
   }),
   z.object({
     op: z.literal('node_set_auto_recompute'),
@@ -180,16 +209,20 @@ export const BULK_EDIT_OPERATION_SCHEMA = z.discriminatedUnion('op', [
     op: z.literal('connection_add'),
     sourceNodeId: z.string(),
     sourcePort: z.string(),
+    sourceAnchor: ConnectionAnchorSchema.optional(),
     targetNodeId: z.string(),
     targetPort: z.string(),
+    targetAnchor: ConnectionAnchorSchema.optional(),
     connectionId: z.string().optional(),
   }),
   z.object({
     op: z.enum(['connection_set', 'connection_replace']),
     sourceNodeId: z.string(),
     sourcePort: z.string(),
+    sourceAnchor: ConnectionAnchorSchema.optional(),
     targetNodeId: z.string(),
     targetPort: z.string(),
+    targetAnchor: ConnectionAnchorSchema.optional(),
     connectionId: z.string().optional(),
   }),
   z.object({
@@ -576,6 +609,30 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
         details: { nodeId: node.id },
       };
     }
+    case 'node_add_annotation': {
+      const node = createAnnotationNode({
+        nodeId: operation.nodeId,
+        name: operation.name,
+        x: operation.x,
+        y: operation.y,
+        text: operation.text,
+        backgroundColor: operation.backgroundColor,
+        borderColor: operation.borderColor,
+        fontColor: operation.fontColor,
+        fontSize: operation.fontSize,
+      });
+      if (current.nodes.some((candidate) => candidate.id === node.id)) {
+        throw new Error(`Node ${node.id} already exists in graph ${current.id}`);
+      }
+
+      return {
+        graph: {
+          ...current,
+          nodes: [...current.nodes, node],
+        },
+        details: { nodeId: node.id },
+      };
+    }
     case 'node_move': {
       getNode(current, operation.nodeId);
       const projectionState = normalizeGraphProjectionState(
@@ -647,6 +704,27 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
                 )
               : node
           ),
+        },
+      };
+    case 'node_set_annotation':
+      return {
+        graph: {
+          ...current,
+          nodes: current.nodes.map((node) => {
+            if (node.id !== operation.nodeId) {
+              return node;
+            }
+            if (node.type !== 'annotation') {
+              throw new Error(`Node ${operation.nodeId} is not an annotation node`);
+            }
+            return updateAnnotationNode(node, {
+              text: operation.text,
+              backgroundColor: operation.backgroundColor,
+              borderColor: operation.borderColor,
+              fontColor: operation.fontColor,
+              fontSize: operation.fontSize,
+            });
+          }),
         },
       };
     case 'node_set_auto_recompute':
@@ -822,15 +900,20 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
         operation.sourceNodeId,
         operation.sourcePort,
         operation.targetNodeId,
-        operation.targetPort
+        operation.targetPort,
+        operation.sourceAnchor,
+        operation.targetAnchor
       );
 
       const duplicate = current.connections.some(
-        (connection) =>
-          connection.sourceNodeId === operation.sourceNodeId &&
-          connection.sourcePort === operation.sourcePort &&
-          connection.targetNodeId === operation.targetNodeId &&
-          connection.targetPort === operation.targetPort
+        (connection) => matchesConnectionDefinition(connection, {
+          sourceNodeId: operation.sourceNodeId,
+          sourcePort: operation.sourcePort,
+          sourceAnchor: operation.sourceAnchor,
+          targetNodeId: operation.targetNodeId,
+          targetPort: operation.targetPort,
+          targetAnchor: operation.targetAnchor,
+        })
       );
       if (duplicate) {
         return { graph: current };
@@ -845,8 +928,10 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
               id: operation.connectionId ?? randomUUID(),
               sourceNodeId: operation.sourceNodeId,
               sourcePort: operation.sourcePort,
+              ...(operation.sourceAnchor ? { sourceAnchor: operation.sourceAnchor } : {}),
               targetNodeId: operation.targetNodeId,
               targetPort: operation.targetPort,
+              ...(operation.targetAnchor ? { targetAnchor: operation.targetAnchor } : {}),
             },
           ],
         },
@@ -857,8 +942,10 @@ export function applyBulkEditOperation(current: Graph, operation: BulkEditOperat
       const result = applyConnectionSet(current, {
         sourceNodeId: operation.sourceNodeId,
         sourcePort: operation.sourcePort,
+        sourceAnchor: operation.sourceAnchor,
         targetNodeId: operation.targetNodeId,
         targetPort: operation.targetPort,
+        targetAnchor: operation.targetAnchor,
         connectionId: operation.connectionId,
       });
 

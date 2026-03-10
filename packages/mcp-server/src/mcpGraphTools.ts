@@ -35,8 +35,10 @@ const GRAPH_QUERY_CONNECTION_FIELD_VALUES = [
   'id',
   'sourceNodeId',
   'sourcePort',
+  'sourceAnchor',
   'targetNodeId',
   'targetPort',
+  'targetAnchor',
 ] as const;
 const GRAPH_QUERY_OPERATION_VALUES = [
   'overview',

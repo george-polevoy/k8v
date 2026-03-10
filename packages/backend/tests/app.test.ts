@@ -630,6 +630,102 @@ test('POST /api/graphs/:id/query supports BFS traversal with optional depth', as
   }
 });
 
+test('POST /api/graphs/:id/query traverses annotation-linked nodes and returns anchor fields', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const annotationSource = createAnnotationNode('annotation-source');
+    annotationSource.metadata.name = 'Source Annotation';
+    const inlineNode = createPassThroughNode('node-b');
+    inlineNode.metadata.name = 'Inline';
+    const annotationTarget = createAnnotationNode('annotation-target');
+    annotationTarget.metadata.name = 'Target Annotation';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [annotationSource, inlineNode, annotationTarget],
+      connections: [
+        {
+          id: 'conn-annotation-inline',
+          sourceNodeId: 'annotation-source',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'bottom',
+            offset: 0.25,
+          },
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+        {
+          id: 'conn-inline-annotation',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'annotation-target',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'top',
+            offset: 0.75,
+          },
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'traverse_bfs',
+        startNodeIds: ['annotation-source'],
+        nodeFields: ['id', 'type'],
+        connectionFields: [
+          'id',
+          'sourceNodeId',
+          'sourcePort',
+          'sourceAnchor',
+          'targetNodeId',
+          'targetPort',
+          'targetAnchor',
+        ],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.deepEqual(query.nodes, [
+      { id: 'annotation-source', type: 'annotation' },
+      { id: 'node-b', type: 'inline_code' },
+      { id: 'annotation-target', type: 'annotation' },
+    ]);
+    assert.deepEqual(query.connections, [
+      {
+        id: 'conn-annotation-inline',
+        sourceNodeId: 'annotation-source',
+        sourcePort: '__annotation__',
+        sourceAnchor: {
+          side: 'bottom',
+          offset: 0.25,
+        },
+        targetNodeId: 'node-b',
+        targetPort: 'input',
+      },
+      {
+        id: 'conn-inline-annotation',
+        sourceNodeId: 'node-b',
+        sourcePort: 'output',
+        targetNodeId: 'annotation-target',
+        targetPort: '__annotation__',
+        targetAnchor: {
+          side: 'top',
+          offset: 0.75,
+        },
+      },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs/:id/query supports DFS traversal with max node limit', async () => {
   const ctx = await setupTestServer();
 
