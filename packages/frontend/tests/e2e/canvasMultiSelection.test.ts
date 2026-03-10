@@ -38,6 +38,16 @@ async function createMultiNodeGraph(): Promise<{
     middle: string;
     right: string;
   };
+}>;
+async function createMultiNodeGraph(options?: {
+  withInternalConnection?: boolean;
+}): Promise<{
+  graphId: string;
+  nodeIds: {
+    left: string;
+    middle: string;
+    right: string;
+  };
 }> {
   const nodeIds = {
     left: crypto.randomUUID(),
@@ -81,7 +91,15 @@ async function createMultiNodeGraph(): Promise<{
         makeNode(nodeIds.middle, 'Middle Numeric', { x: 430, y: 160 }),
         makeNode(nodeIds.right, 'Right Numeric', { x: 820, y: 260 }),
       ],
-      connections: [],
+      connections: options?.withInternalConnection
+        ? [{
+            id: crypto.randomUUID(),
+            sourceNodeId: nodeIds.left,
+            sourcePort: 'value',
+            targetNodeId: nodeIds.middle,
+            targetPort: 'value',
+          }]
+        : [],
       drawings: [],
     }),
   });
@@ -106,6 +124,79 @@ async function getGraphNodeIds(graphId: string): Promise<string[]> {
   return Array.isArray(graph.nodes)
     ? graph.nodes.flatMap((node) => (typeof node.id === 'string' ? [node.id] : []))
     : [];
+}
+
+async function getGraphSnapshot(graphId: string): Promise<{
+  nodes: Array<{
+    id: string;
+    name: string;
+    position: {
+      x: number;
+      y: number;
+    };
+  }>;
+  connections: Array<{
+    id: string;
+    sourceNodeId: string;
+    targetNodeId: string;
+  }>;
+}> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  const graph = await response.json() as {
+    nodes?: Array<{
+      id?: string;
+      position?: {
+        x?: number;
+        y?: number;
+      };
+      metadata?: {
+        name?: string;
+      };
+    }>;
+    connections?: Array<{
+      id?: string;
+      sourceNodeId?: string;
+      targetNodeId?: string;
+    }>;
+  };
+  assert.ok(response.ok, `Fetch graph failed (${response.status})`);
+
+  return {
+    nodes: Array.isArray(graph.nodes)
+      ? graph.nodes.flatMap((node) => (
+          typeof node.id === 'string' &&
+          typeof node.position?.x === 'number' &&
+          typeof node.position?.y === 'number'
+            ? [{
+                id: node.id,
+                name: typeof node.metadata?.name === 'string' ? node.metadata.name : node.id,
+                position: {
+                  x: node.position.x,
+                  y: node.position.y,
+                },
+              }]
+            : []
+        ))
+      : [],
+    connections: Array.isArray(graph.connections)
+      ? graph.connections.flatMap((connection) => (
+          typeof connection.id === 'string' &&
+          typeof connection.sourceNodeId === 'string' &&
+          typeof connection.targetNodeId === 'string'
+            ? [{
+                id: connection.id,
+                sourceNodeId: connection.sourceNodeId,
+                targetNodeId: connection.targetNodeId,
+              }]
+            : []
+        ))
+      : [],
+  };
 }
 
 async function waitForGraphNodeIds(
@@ -473,6 +564,137 @@ test(
         (ids) => ids.length === 1 && ids[0] === nodeIds.right
       );
       assert.deepEqual(remainingNodeIds, [nodeIds.right]);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'alt-dragging a selected node set duplicates the nodes and their internal links',
+  { timeout: 150_000 },
+  async () => {
+    const { graphId, nodeIds } = await createMultiNodeGraph({ withInternalConnection: true });
+    const browser = await launchBrowser();
+
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        (window as Window & {
+          __k8vCanvasDebug?: Record<string, unknown>;
+        }).__k8vCanvasDebug = {};
+      });
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox() as CanvasBox | null;
+      assert.ok(canvasBox, 'Canvas should provide a bounding box');
+
+      const viewportTransform = await waitForViewportTransform(page, (transform) =>
+        Number.isFinite(transform.x) &&
+        Number.isFinite(transform.y) &&
+        Number.isFinite(transform.scale)
+      );
+      const leftRect = await resolveNodeScreenRect(graphId, nodeIds.left, viewportTransform, canvasBox);
+      const middleRect = await resolveNodeScreenRect(graphId, nodeIds.middle, viewportTransform, canvasBox);
+
+      await page.mouse.move(leftRect.x - 20, leftRect.y - 20);
+      await page.mouse.down();
+      await page.mouse.move(
+        middleRect.x + middleRect.width + 20,
+        middleRect.y + middleRect.height + 20,
+        { steps: 16 }
+      );
+      await page.mouse.up();
+
+      const selectedBeforeDuplicate = await readSelectedNodeIds(page);
+      assert.deepEqual(
+        sortNodeIds(selectedBeforeDuplicate),
+        sortNodeIds([nodeIds.left, nodeIds.middle]),
+        'Expected marquee selection before Alt-drag duplication'
+      );
+
+      const leftPositionBeforeDuplicate = await getNodePosition(graphId, nodeIds.left);
+      const middlePositionBeforeDuplicate = await getNodePosition(graphId, nodeIds.middle);
+      const dragDelta = { x: 144, y: 108 };
+
+      await page.keyboard.down('Alt');
+      await page.mouse.move(
+        leftRect.x + (leftRect.width * 0.5),
+        leftRect.y + (leftRect.height * 0.5)
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        leftRect.x + (leftRect.width * 0.5) + dragDelta.x,
+        leftRect.y + (leftRect.height * 0.5) + dragDelta.y,
+        { steps: 18 }
+      );
+      await page.mouse.up();
+      await page.keyboard.up('Alt');
+
+      const duplicatedNodeIds = await waitForGraphNodeIds(
+        graphId,
+        (ids) => ids.length === 5
+      );
+      assert.equal(duplicatedNodeIds.length, 5, 'Alt-drag should persist two duplicate nodes');
+
+      const selectedAfterDuplicate = await readSelectedNodeIds(page);
+      assert.equal(selectedAfterDuplicate.length, 2, 'The duplicated set should remain selected after Alt-drag');
+      assert.ok(
+        selectedAfterDuplicate.every((selectedNodeId) =>
+          selectedNodeId !== nodeIds.left &&
+          selectedNodeId !== nodeIds.middle &&
+          selectedNodeId !== nodeIds.right
+        ),
+        'Alt-drag selection should switch to the new duplicate node ids'
+      );
+
+      const graphSnapshot = await getGraphSnapshot(graphId);
+      const duplicateNodes = graphSnapshot.nodes.filter((node) =>
+        node.id !== nodeIds.left &&
+        node.id !== nodeIds.middle &&
+        node.id !== nodeIds.right
+      );
+      assert.equal(duplicateNodes.length, 2, 'Expected exactly two duplicated nodes');
+      const duplicateLeftNode = duplicateNodes.find((node) => node.name === 'Left Numeric');
+      const duplicateMiddleNode = duplicateNodes.find((node) => node.name === 'Middle Numeric');
+      assert.ok(duplicateLeftNode, 'Expected duplicated Left Numeric node');
+      assert.ok(duplicateMiddleNode, 'Expected duplicated Middle Numeric node');
+      assert.deepEqual(
+        sortNodeIds(selectedAfterDuplicate),
+        sortNodeIds([duplicateLeftNode.id, duplicateMiddleNode.id]),
+        'The duplicate nodes should be the active selection after Alt-drag'
+      );
+
+      const leftPositionAfterDuplicate = await getNodePosition(graphId, nodeIds.left);
+      const middlePositionAfterDuplicate = await getNodePosition(graphId, nodeIds.middle);
+      assert.ok(
+        approxEqual(leftPositionAfterDuplicate.x, leftPositionBeforeDuplicate.x, 1.5) &&
+        approxEqual(leftPositionAfterDuplicate.y, leftPositionBeforeDuplicate.y, 1.5) &&
+        approxEqual(middlePositionAfterDuplicate.x, middlePositionBeforeDuplicate.x, 1.5) &&
+        approxEqual(middlePositionAfterDuplicate.y, middlePositionBeforeDuplicate.y, 1.5),
+        'Alt-drag should leave the original selected nodes in place'
+      );
+      assert.ok(
+        approxEqual(duplicateLeftNode.position.x - leftPositionBeforeDuplicate.x, dragDelta.x, 1.5) &&
+        approxEqual(duplicateLeftNode.position.y - leftPositionBeforeDuplicate.y, dragDelta.y, 1.5) &&
+        approxEqual(duplicateMiddleNode.position.x - middlePositionBeforeDuplicate.x, dragDelta.x, 1.5) &&
+        approxEqual(duplicateMiddleNode.position.y - middlePositionBeforeDuplicate.y, dragDelta.y, 1.5),
+        'Duplicate nodes should follow the Alt-drag delta'
+      );
+      assert.ok(
+        graphSnapshot.connections.some((connection) =>
+          connection.sourceNodeId === duplicateLeftNode.id &&
+          connection.targetNodeId === duplicateMiddleNode.id
+        ),
+        'Internal links between duplicated nodes should be copied to the duplicate set'
+      );
 
       await context.close();
     } finally {

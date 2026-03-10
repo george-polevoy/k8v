@@ -123,6 +123,7 @@ export interface SelectionDragState {
   nodeStartPositions: Map<string, Position>;
   currentNodePositions: Map<string, Position>;
   moved: boolean;
+  duplicateOnDrag: boolean;
 }
 
 export interface SelectionResizeNodeState {

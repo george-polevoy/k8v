@@ -1561,13 +1561,26 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           return;
         }
 
-        const isPartOfMultiSelection =
-          selectedNodeIdsRef.current.length > 1 &&
-          selectedNodeIdsRef.current.includes(node.id);
-        if (isPartOfMultiSelection) {
+        const isNodeSelected = selectedNodeIdsRef.current.includes(node.id);
+        const shouldDuplicateOnDrag = Boolean(event.altKey);
+        const selectionDragNodeIds = shouldDuplicateOnDrag
+          ? (isNodeSelected ? selectedNodeIdsRef.current : [node.id])
+          : (
+              selectedNodeIdsRef.current.length > 1 && isNodeSelected
+                ? selectedNodeIdsRef.current
+                : null
+            );
+        if (selectionDragNodeIds) {
+          if (!isNodeSelected) {
+            selectedNodeIdRef.current = node.id;
+            selectedNodeIdsRef.current = [node.id];
+            selectedDrawingIdRef.current = null;
+            selectNode(node.id);
+          }
+
           const nodeStartPositions = new Map<string, Position>();
           const currentNodePositions = new Map<string, Position>();
-          for (const selectedNodeIdValue of selectedNodeIdsRef.current) {
+          for (const selectedNodeIdValue of selectionDragNodeIds) {
             const selectedNodePosition = nodePositionsRef.current.get(selectedNodeIdValue);
             if (!selectedNodePosition) {
               continue;
@@ -1582,6 +1595,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             nodeStartPositions,
             currentNodePositions,
             moved: false,
+            duplicateOnDrag: shouldDuplicateOnDrag,
           };
           selectedConnectionIdRef.current = null;
           return;

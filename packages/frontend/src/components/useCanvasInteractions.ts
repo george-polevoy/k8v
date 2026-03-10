@@ -32,6 +32,7 @@ import {
   rectIntersectsRect,
   resolveWheelInteractionPlan,
 } from '../utils/canvasInteractions';
+import { duplicateNodeSelectionInGraph } from '../utils/selectionDuplication';
 import {
   resolveModifierWheelScrollDelta,
   resolveWheelZoomSensitivityMultiplier,
@@ -81,6 +82,7 @@ interface SelectionDragStateLike {
   nodeStartPositions: Map<string, Position>;
   currentNodePositions: Map<string, Position>;
   moved: boolean;
+  duplicateOnDrag: boolean;
 }
 
 interface SelectionResizeNodeStateLike {
@@ -466,6 +468,61 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     selectedDrawingIdRef.current = null;
     setNodeSelection(normalizedNodeIds);
   }, [selectedDrawingIdRef, selectedNodeIdRef, selectedNodeIdsRef, setNodeSelection]);
+
+  const startDuplicateSelectionDrag = useCallback((
+    selectionDragState: SelectionDragStateLike,
+    draggedNodePositions: Map<string, Position>
+  ): SelectionDragStateLike | null => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph || draggedNodePositions.size === 0) {
+      return null;
+    }
+
+    const duplication = duplicateNodeSelectionInGraph({
+      graph: currentGraph,
+      selectedNodeIds: Array.from(selectionDragState.nodeStartPositions.keys()),
+      duplicatedNodePositions: draggedNodePositions,
+      createId: uuidv4,
+    });
+
+    if (duplication.duplicatedNodeIds.length === 0) {
+      return null;
+    }
+
+    const nextNodeStartPositions = new Map<string, Position>();
+    const nextCurrentNodePositions = new Map<string, Position>();
+    for (const [sourceNodeId, duplicateNodeId] of duplication.sourceToDuplicateNodeId.entries()) {
+      const startPosition = selectionDragState.nodeStartPositions.get(sourceNodeId);
+      const currentPosition = draggedNodePositions.get(sourceNodeId);
+      if (!startPosition || !currentPosition) {
+        continue;
+      }
+      nextNodeStartPositions.set(duplicateNodeId, { ...startPosition });
+      nextCurrentNodePositions.set(duplicateNodeId, { ...currentPosition });
+    }
+
+    graphRef.current = duplication.graph;
+    applyNodeSelection(duplication.duplicatedNodeIds);
+    nodeCardDraftPositionsRef.current.clear();
+    for (const [duplicateNodeId, position] of nextCurrentNodePositions.entries()) {
+      nodeCardDraftPositionsRef.current.set(duplicateNodeId, position);
+    }
+    void updateGraph(duplication.graph);
+
+    return {
+      pointerX: selectionDragState.pointerX,
+      pointerY: selectionDragState.pointerY,
+      nodeStartPositions: nextNodeStartPositions,
+      currentNodePositions: nextCurrentNodePositions,
+      moved: true,
+      duplicateOnDrag: false,
+    };
+  }, [
+    applyNodeSelection,
+    graphRef,
+    nodeCardDraftPositionsRef,
+    updateGraph,
+  ]);
 
   const finishInteraction = useCallback(() => {
     if (connectionDragStateRef.current) {
@@ -856,7 +913,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       return true;
     }
 
-    nodeCardDraftPositionsRef.current.clear();
+    const draggedNodePositions = new Map<string, Position>();
     for (const [nodeId, startPosition] of selectionDragState.nodeStartPositions.entries()) {
       const nextPosition = computeSnappedDragPosition({
         originX: startPosition.x,
@@ -867,6 +924,24 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
         startPointerY: selectionDragState.pointerY,
         scale: viewport.scale.x || 1,
       });
+      draggedNodePositions.set(nodeId, nextPosition);
+    }
+
+    if (selectionDragState.duplicateOnDrag) {
+      const duplicatedSelectionDragState = startDuplicateSelectionDrag(
+        selectionDragState,
+        draggedNodePositions
+      );
+      if (duplicatedSelectionDragState) {
+        selectionDragStateRef.current = duplicatedSelectionDragState;
+        renderGraphRef.current();
+        drawMinimap();
+        return true;
+      }
+    }
+
+    nodeCardDraftPositionsRef.current.clear();
+    for (const [nodeId, nextPosition] of draggedNodePositions.entries()) {
       selectionDragState.currentNodePositions.set(nodeId, nextPosition);
       nodeCardDraftPositionsRef.current.set(nodeId, nextPosition);
     }
@@ -879,6 +954,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     drawMinimap,
     nodeCardDraftPositionsRef,
     renderGraphRef,
+    startDuplicateSelectionDrag,
     selectionDragStateRef,
     viewportRef,
   ]);
