@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   colorWithOpacityToCss,
   normalizeColorWithOpacity,
@@ -130,8 +131,9 @@ function ColorSelectionDialog({
     return null;
   }
 
-  return (
+  const dialog = (
     <div
+      data-testid="color-selection-dialog-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -145,6 +147,7 @@ function ColorSelectionDialog({
       onClick={onCancel}
     >
       <div
+        data-testid="color-selection-dialog"
         onClick={(event) => event.stopPropagation()}
         style={{
           width: 'min(340px, 100%)',
@@ -313,6 +316,8 @@ function ColorSelectionDialog({
       </div>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
 
 export default ColorSelectionDialog;

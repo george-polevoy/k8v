@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createEmptyGraph } from './support/api.ts';
+import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
+import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
+
+test.before(async () => {
+  await ensureE2EEnvironment();
+});
+
+test.after(async () => {
+  await shutdownE2EEnvironment();
+});
+
+test(
+  'pencil color dialog renders outside toolbar floating window',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId } = await createEmptyGraph('E2E Toolbar Pencil Color Dialog');
+    const browser = await launchBrowser();
+
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+
+      await openCanvasForGraph(page, graphId);
+      await page.locator('[data-testid="floating-window-toolbar"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+
+      await page.locator('button[title="Toggle Pencil Draw"]').click();
+      await page.locator('button[title="Choose pencil color"]').click();
+
+      const dialog = page.locator('[data-testid="color-selection-dialog"]');
+      await dialog.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
+
+      const toolbarContainsDialog = await page.evaluate(() => {
+        const toolbarWindow = document.querySelector('[data-testid="floating-window-toolbar"]');
+        const colorDialog = document.querySelector('[data-testid="color-selection-dialog"]');
+        return Boolean(toolbarWindow && colorDialog && toolbarWindow.contains(colorDialog));
+      });
+      assert.equal(toolbarContainsDialog, false, 'Expected pencil color dialog to be mounted outside toolbar window.');
+
+      const dialogBounds = await dialog.boundingBox();
+      assert.ok(dialogBounds, 'Expected pencil color dialog to have measurable bounds.');
+      assert.ok(dialogBounds.width >= 300, `Expected full-size color dialog width, got ${dialogBounds.width}.`);
+
+      const viewport = page.viewportSize();
+      assert.ok(viewport, 'Expected viewport to be set.');
+      const dialogCenterX = dialogBounds.x + (dialogBounds.width / 2);
+      const dialogCenterY = dialogBounds.y + (dialogBounds.height / 2);
+      assert.ok(
+        Math.abs(dialogCenterX - (viewport.width / 2)) < 24,
+        `Expected dialog horizontal center near viewport center, got ${dialogCenterX}.`
+      );
+      assert.ok(
+        Math.abs(dialogCenterY - (viewport.height / 2)) < 24,
+        `Expected dialog vertical center near viewport center, got ${dialogCenterY}.`
+      );
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
