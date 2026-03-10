@@ -13,11 +13,30 @@ export interface NormalizedColorWithOpacity {
   alpha: number;
 }
 
+export interface RgbChannels {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface HsvColor {
+  h: number;
+  s: number;
+  v: number;
+}
+
 function clampByte(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
   }
   return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function clampUnit(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
 }
 
 function clampOpacity(value: number): number {
@@ -41,6 +60,14 @@ function formatOpacity(alpha: number): string {
 
 function serializeHex(r: number, g: number, b: number): string {
   return `#${clampByte(r).toString(16).padStart(2, '0')}${clampByte(g).toString(16).padStart(2, '0')}${clampByte(b).toString(16).padStart(2, '0')}`;
+}
+
+function normalizeHueDegrees(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
 }
 
 function parseAlpha(input: string): number | null {
@@ -99,6 +126,90 @@ function parseRgbFunctionColor(value: string): NormalizedColorWithOpacity | null
 
 function normalizeFallbackColor(fallbackColor: string): string {
   return HEX_COLOR_PATTERN.test(fallbackColor) ? fallbackColor.toLowerCase() : '#ffffff';
+}
+
+export function hexToRgbChannels(hex: string): RgbChannels {
+  const normalizedHex = normalizeHexColor(hex, '#000000');
+  return {
+    r: Number.parseInt(normalizedHex.slice(1, 3), 16),
+    g: Number.parseInt(normalizedHex.slice(3, 5), 16),
+    b: Number.parseInt(normalizedHex.slice(5, 7), 16),
+  };
+}
+
+export function rgbChannelsToHex(channels: RgbChannels): string {
+  return serializeHex(channels.r, channels.g, channels.b);
+}
+
+export function rgbChannelsToHsv(channels: RgbChannels): HsvColor {
+  const red = clampByte(channels.r) / 255;
+  const green = clampByte(channels.g) / 255;
+  const blue = clampByte(channels.b) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+
+  let hue = 0;
+  if (delta > 0) {
+    if (max === red) {
+      hue = 60 * (((green - blue) / delta) % 6);
+    } else if (max === green) {
+      hue = 60 * (((blue - red) / delta) + 2);
+    } else {
+      hue = 60 * (((red - green) / delta) + 4);
+    }
+  }
+
+  return {
+    h: normalizeHueDegrees(hue),
+    s: max === 0 ? 0 : delta / max,
+    v: max,
+  };
+}
+
+export function hsvToRgbChannels(color: HsvColor): RgbChannels {
+  const hue = normalizeHueDegrees(color.h);
+  const saturation = clampUnit(color.s);
+  const value = clampUnit(color.v);
+
+  if (saturation <= 0) {
+    const channel = clampByte(value * 255);
+    return { r: channel, g: channel, b: channel };
+  }
+
+  const chroma = value * saturation;
+  const hueSegment = hue / 60;
+  const secondary = chroma * (1 - Math.abs((hueSegment % 2) - 1));
+  const match = value - chroma;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  if (hueSegment >= 0 && hueSegment < 1) {
+    red = chroma;
+    green = secondary;
+  } else if (hueSegment < 2) {
+    red = secondary;
+    green = chroma;
+  } else if (hueSegment < 3) {
+    green = chroma;
+    blue = secondary;
+  } else if (hueSegment < 4) {
+    green = secondary;
+    blue = chroma;
+  } else if (hueSegment < 5) {
+    red = secondary;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = secondary;
+  }
+
+  return {
+    r: clampByte((red + match) * 255),
+    g: clampByte((green + match) * 255),
+    b: clampByte((blue + match) * 255),
+  };
 }
 
 export function normalizeHexColor(value: unknown, fallbackColor: string): string {
@@ -173,9 +284,7 @@ export function normalizeColorWithOpacity(
 
 export function colorWithOpacityToCss(color: NormalizedColorWithOpacity): string {
   const hex = normalizeHexColor(color.hex, '#ffffff');
-  const r = Number.parseInt(hex.slice(1, 3), 16);
-  const g = Number.parseInt(hex.slice(3, 5), 16);
-  const b = Number.parseInt(hex.slice(5, 7), 16);
+  const { r, g, b } = hexToRgbChannels(hex);
   return `rgba(${r}, ${g}, ${b}, ${formatOpacity(color.alpha)})`;
 }
 

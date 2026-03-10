@@ -78,6 +78,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Canvas fills the full viewport while UI chrome is rendered as floating overlays.
 - Toolbar and right-side panel stack are draggable floating windows, so layout remains stable during window resizing.
 - Shared color-selection dialogs render as viewport overlays outside floating toolbar/sidebar windows, so larger dialogs are not clipped by narrow panel client areas.
+- Shared color-selection dialogs support rectangular saturation/value picking, linear hue selection, RGB sliders, preset swatches, and optional opacity control.
 - Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.
 - Selecting a node auto-expands the Node accordion panel.
 - Diagnostics panel shows backend failure state with a red header indicator and user-readable error message.

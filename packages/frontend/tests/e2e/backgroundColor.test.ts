@@ -14,11 +14,10 @@ test.after(async () => {
 });
 
 test(
-  'projection background color selection dialog persists chosen color',
+  'projection background color dialog supports hue and saturation/value selection',
   { timeout: 90_000 },
   async () => {
     const { graphId } = await createEmptyGraph('E2E Background Color');
-    const selectedColor = '#22c55e';
 
     const browser = await launchBrowser();
     try {
@@ -50,7 +49,25 @@ test(
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
 
-      await page.locator(`button[data-color="${selectedColor}"]`).first().click();
+      const hueSlider = page.locator('[data-testid="color-selection-hue-slider"]');
+      const saturationValuePicker = page.locator('[data-testid="color-selection-sv-picker"]');
+      const hueBounds = await hueSlider.boundingBox();
+      const saturationValueBounds = await saturationValuePicker.boundingBox();
+      assert.ok(hueBounds, 'Expected hue slider bounds');
+      assert.ok(saturationValueBounds, 'Expected saturation/value picker bounds');
+
+      await page.mouse.click(
+        hueBounds.x + (hueBounds.width * 0.33),
+        hueBounds.y + (hueBounds.height * 0.5)
+      );
+      await page.mouse.click(
+        saturationValueBounds.x + (saturationValueBounds.width * 0.78),
+        saturationValueBounds.y + (saturationValueBounds.height * 0.22)
+      );
+
+      const selectedColor = await page.locator('[data-testid="color-selection-dialog"]').getAttribute('data-current-color');
+      assert.ok(selectedColor, 'Expected dialog to expose the currently selected color');
+
       await page.getByRole('button', { name: 'Use Color' }).click();
 
       await page.locator('[data-testid="canvas-background-save"]').click();

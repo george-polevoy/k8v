@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
   colorWithOpacityToCss,
+  hexToRgbChannels,
+  hsvToRgbChannels,
   normalizeColorWithOpacity,
   normalizeHexColor,
+  rgbChannelsToHex,
+  rgbChannelsToHsv,
   serializeColorWithOpacity,
 } from '../utils/color';
 
@@ -36,10 +40,14 @@ interface ColorSelectionDialogProps {
   onConfirm: (color: string) => void;
 }
 
-interface RgbChannels {
-  r: number;
-  g: number;
-  b: number;
+interface ColorDraftState {
+  color: string;
+  redPercent: number;
+  greenPercent: number;
+  bluePercent: number;
+  hueDegrees: number;
+  saturationPercent: number;
+  valuePercent: number;
 }
 
 function clampPercent(value: number): number {
@@ -56,18 +64,18 @@ function clampChannel(value: number): number {
   return Math.min(255, Math.max(0, Math.round(value)));
 }
 
-function hexToRgbChannels(hex: string): RgbChannels {
-  const normalizedHex = normalizeHexColor(hex, '#000000');
-  return {
-    r: Number.parseInt(normalizedHex.slice(1, 3), 16),
-    g: Number.parseInt(normalizedHex.slice(3, 5), 16),
-    b: Number.parseInt(normalizedHex.slice(5, 7), 16),
-  };
+function clampHueDegrees(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(360, Math.max(0, Math.round(value)));
 }
 
-function rgbChannelsToHex(channels: RgbChannels): string {
-  const channel = (value: number) => clampChannel(value).toString(16).padStart(2, '0');
-  return `#${channel(channels.r)}${channel(channels.g)}${channel(channels.b)}`;
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
 }
 
 function channelToPercent(channel: number): number {
@@ -76,6 +84,39 @@ function channelToPercent(channel: number): number {
 
 function percentToChannel(percent: number): number {
   return clampChannel((clampPercent(percent) / 100) * 255);
+}
+
+function buildColorDraftState(color: string, fallbackHueDegrees?: number): ColorDraftState {
+  const normalizedColor = normalizeHexColor(color, '#ffffff');
+  const rgb = hexToRgbChannels(normalizedColor);
+  const hsv = rgbChannelsToHsv(rgb);
+  const hueDegrees = (hsv.s <= 0.0001 || hsv.v <= 0.0001) && Number.isFinite(fallbackHueDegrees)
+    ? clampHueDegrees(fallbackHueDegrees as number)
+    : clampHueDegrees(hsv.h);
+
+  return {
+    color: normalizedColor,
+    redPercent: channelToPercent(rgb.r),
+    greenPercent: channelToPercent(rgb.g),
+    bluePercent: channelToPercent(rgb.b),
+    hueDegrees,
+    saturationPercent: clampPercent(hsv.s * 100),
+    valuePercent: clampPercent(hsv.v * 100),
+  };
+}
+
+function resolveRelativePointerPosition(
+  event: ReactPointerEvent<HTMLDivElement>
+): { xRatio: number; yRatio: number } {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return {
+    xRatio: clampRatio((event.clientX - bounds.left) / Math.max(bounds.width, 1)),
+    yRatio: clampRatio((event.clientY - bounds.top) / Math.max(bounds.height, 1)),
+  };
+}
+
+function isPrimaryPointerDrag(event: ReactPointerEvent<HTMLDivElement>): boolean {
+  return event.buttons === 1 || event.currentTarget.hasPointerCapture(event.pointerId);
 }
 
 function ColorSelectionDialog({
@@ -91,40 +132,64 @@ function ColorSelectionDialog({
   onConfirm,
 }: ColorSelectionDialogProps) {
   const initialParsedColor = normalizeColorWithOpacity(initialColor, defaultColor);
-  const initialRgb = hexToRgbChannels(initialParsedColor.hex);
-  const [draftColor, setDraftColor] = useState(() => initialParsedColor.hex);
+  const [draftState, setDraftState] = useState(() => buildColorDraftState(initialParsedColor.hex));
   const [draftOpacity, setDraftOpacity] = useState(() => initialParsedColor.alpha);
-  const [draftRedPercent, setDraftRedPercent] = useState(() => channelToPercent(initialRgb.r));
-  const [draftGreenPercent, setDraftGreenPercent] = useState(() => channelToPercent(initialRgb.g));
-  const [draftBluePercent, setDraftBluePercent] = useState(() => channelToPercent(initialRgb.b));
 
   useEffect(() => {
     if (!open) {
       return;
     }
     const parsed = normalizeColorWithOpacity(initialColor, defaultColor);
-    const parsedRgb = hexToRgbChannels(parsed.hex);
-    setDraftColor(parsed.hex);
+    setDraftState(buildColorDraftState(parsed.hex));
     setDraftOpacity(parsed.alpha);
-    setDraftRedPercent(channelToPercent(parsedRgb.r));
-    setDraftGreenPercent(channelToPercent(parsedRgb.g));
-    setDraftBluePercent(channelToPercent(parsedRgb.b));
   }, [defaultColor, initialColor, open]);
+
+  const applyHexColor = (nextColor: string, fallbackHueDegrees = draftState.hueDegrees) => {
+    setDraftState(buildColorDraftState(nextColor, fallbackHueDegrees));
+  };
 
   const applyRgbPercents = (nextRed: number, nextGreen: number, nextBlue: number) => {
     const normalizedRed = clampPercent(nextRed);
     const normalizedGreen = clampPercent(nextGreen);
     const normalizedBlue = clampPercent(nextBlue);
-    setDraftRedPercent(normalizedRed);
-    setDraftGreenPercent(normalizedGreen);
-    setDraftBluePercent(normalizedBlue);
-    setDraftColor(
+    applyHexColor(
       rgbChannelsToHex({
         r: percentToChannel(normalizedRed),
         g: percentToChannel(normalizedGreen),
         b: percentToChannel(normalizedBlue),
-      })
+      }),
+      draftState.hueDegrees
     );
+  };
+
+  const applyHsv = (
+    nextHueDegrees: number,
+    nextSaturationPercent: number,
+    nextValuePercent: number
+  ) => {
+    const normalizedHueDegrees = clampHueDegrees(nextHueDegrees);
+    const normalizedSaturationPercent = clampPercent(nextSaturationPercent);
+    const normalizedValuePercent = clampPercent(nextValuePercent);
+    applyHexColor(
+      rgbChannelsToHex(
+        hsvToRgbChannels({
+          h: normalizedHueDegrees,
+          s: normalizedSaturationPercent / 100,
+          v: normalizedValuePercent / 100,
+        })
+      ),
+      normalizedHueDegrees
+    );
+  };
+
+  const updateSaturationValueFromPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const { xRatio, yRatio } = resolveRelativePointerPosition(event);
+    applyHsv(draftState.hueDegrees, xRatio * 100, (1 - yRatio) * 100);
+  };
+
+  const updateHueFromPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const { xRatio } = resolveRelativePointerPosition(event);
+    applyHsv(xRatio * 360, draftState.saturationPercent, draftState.valuePercent);
   };
 
   if (!open) {
@@ -148,9 +213,11 @@ function ColorSelectionDialog({
     >
       <div
         data-testid="color-selection-dialog"
+        data-current-color={draftState.color}
+        data-current-alpha={draftOpacity}
         onClick={(event) => event.stopPropagation()}
         style={{
-          width: 'min(340px, 100%)',
+          width: 'min(380px, 100%)',
           background: '#ffffff',
           border: '1px solid #dbe4ef',
           borderRadius: '10px',
@@ -172,55 +239,170 @@ function ColorSelectionDialog({
               borderRadius: '50%',
               border: '1px solid #334155',
               background: allowOpacity
-                ? colorWithOpacityToCss({ hex: draftColor, alpha: draftOpacity })
-                : draftColor,
+                ? colorWithOpacityToCss({ hex: draftState.color, alpha: draftOpacity })
+                : draftState.color,
               flexShrink: 0,
             }}
           />
           <div style={{ fontSize: '11px', color: '#475569' }}>Preview</div>
         </div>
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '11px', color: '#475569', marginBottom: '6px' }}>
+            Saturation / Value
+          </div>
+          <div
+            data-testid="color-selection-sv-picker"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              updateSaturationValueFromPointer(event);
+            }}
+            onPointerMove={(event) => {
+              if (!isPrimaryPointerDrag(event)) {
+                return;
+              }
+              updateSaturationValueFromPointer(event);
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            onPointerCancel={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            style={{
+              position: 'relative',
+              width: '100%',
+              height: '168px',
+              borderRadius: '10px',
+              border: '1px solid #cbd5e1',
+              background: `linear-gradient(to top, #000000, transparent), linear-gradient(to right, #ffffff, hsl(${draftState.hueDegrees}, 100%, 50%))`,
+              cursor: 'crosshair',
+              touchAction: 'none',
+              userSelect: 'none',
+              marginBottom: '8px',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: `${draftState.saturationPercent}%`,
+                top: `${100 - draftState.valuePercent}%`,
+                width: '14px',
+                height: '14px',
+                borderRadius: '50%',
+                border: '2px solid #ffffff',
+                boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.5)',
+                transform: 'translate(-50%, -50%)',
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
+          <div style={{ fontSize: '11px', color: '#475569', marginBottom: '6px' }}>
+            Hue: {draftState.hueDegrees}°
+          </div>
+          <div
+            data-testid="color-selection-hue-slider"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              updateHueFromPointer(event);
+            }}
+            onPointerMove={(event) => {
+              if (!isPrimaryPointerDrag(event)) {
+                return;
+              }
+              updateHueFromPointer(event);
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            onPointerCancel={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            style={{
+              position: 'relative',
+              width: '100%',
+              height: '14px',
+              borderRadius: '999px',
+              border: '1px solid #cbd5e1',
+              background: 'linear-gradient(to right, #ff0000 0%, #ffff00 16.6%, #00ff00 33.3%, #00ffff 50%, #0000ff 66.6%, #ff00ff 83.3%, #ff0000 100%)',
+              cursor: 'pointer',
+              touchAction: 'none',
+              userSelect: 'none',
+              marginBottom: '6px',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: `${(draftState.hueDegrees / 360) * 100}%`,
+                top: '50%',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                border: '2px solid #ffffff',
+                boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.55)',
+                background: '#ffffff',
+                transform: 'translate(-50%, -50%)',
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
+            <span>Saturation: {draftState.saturationPercent}%</span>
+            <span>Value: {draftState.valuePercent}%</span>
+          </div>
+        </div>
         <div style={{ marginBottom: '12px', display: 'grid', gap: '8px' }}>
           <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
-            Red: {draftRedPercent}%
+            Red: {draftState.redPercent}%
             <input
               type="range"
               min={0}
               max={100}
               step={1}
-              value={draftRedPercent}
+              value={draftState.redPercent}
               onChange={(event) => {
                 const nextRed = Number.parseInt(event.target.value, 10);
-                applyRgbPercents(nextRed, draftGreenPercent, draftBluePercent);
+                applyRgbPercents(nextRed, draftState.greenPercent, draftState.bluePercent);
               }}
               style={{ width: '100%' }}
             />
           </label>
           <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
-            Green: {draftGreenPercent}%
+            Green: {draftState.greenPercent}%
             <input
               type="range"
               min={0}
               max={100}
               step={1}
-              value={draftGreenPercent}
+              value={draftState.greenPercent}
               onChange={(event) => {
                 const nextGreen = Number.parseInt(event.target.value, 10);
-                applyRgbPercents(draftRedPercent, nextGreen, draftBluePercent);
+                applyRgbPercents(draftState.redPercent, nextGreen, draftState.bluePercent);
               }}
               style={{ width: '100%' }}
             />
           </label>
           <label style={{ display: 'block', fontSize: '11px', color: '#475569' }}>
-            Blue: {draftBluePercent}%
+            Blue: {draftState.bluePercent}%
             <input
               type="range"
               min={0}
               max={100}
               step={1}
-              value={draftBluePercent}
+              value={draftState.bluePercent}
               onChange={(event) => {
                 const nextBlue = Number.parseInt(event.target.value, 10);
-                applyRgbPercents(draftRedPercent, draftGreenPercent, nextBlue);
+                applyRgbPercents(draftState.redPercent, draftState.greenPercent, nextBlue);
               }}
               style={{ width: '100%' }}
             />
@@ -254,18 +436,12 @@ function ColorSelectionDialog({
                 data-testid={`color-preset-${index}`}
                 data-color={normalizedPreset}
                 type="button"
-                onClick={() => {
-                  const presetRgb = hexToRgbChannels(normalizedPreset);
-                  setDraftColor(normalizedPreset);
-                  setDraftRedPercent(channelToPercent(presetRgb.r));
-                  setDraftGreenPercent(channelToPercent(presetRgb.g));
-                  setDraftBluePercent(channelToPercent(presetRgb.b));
-                }}
+                onClick={() => applyHexColor(normalizedPreset)}
                 style={{
                   width: '100%',
                   aspectRatio: '1 / 1',
                   borderRadius: '6px',
-                  border: draftColor === normalizedPreset ? '2px solid #0f172a' : '1px solid #94a3b8',
+                  border: draftState.color === normalizedPreset ? '2px solid #0f172a' : '1px solid #94a3b8',
                   background: normalizedPreset,
                   cursor: 'pointer',
                   padding: 0,
@@ -293,7 +469,7 @@ function ColorSelectionDialog({
           <button
             type="button"
             onClick={() => {
-              const normalized = normalizeHexColor(draftColor, defaultColor);
+              const normalized = normalizeHexColor(draftState.color, defaultColor);
               if (allowOpacity) {
                 onConfirm(serializeColorWithOpacity({ hex: normalized, alpha: draftOpacity }, true));
                 return;
