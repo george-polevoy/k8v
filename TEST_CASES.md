@@ -31,7 +31,7 @@ Last reviewed: March 10, 2026.
 - `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
 - `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: annotation cards create persisted presentation-only arrows from arbitrary card edges to standard node ports and other annotation edges.
-- `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport.
+- `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport.
 - `A-E2E-22` `packages/frontend/tests/e2e/nodePanelMultiSelectionColors.test.ts`: node panel summarizes multi-node selection as a named set and applies shared node-card background/border color changes across all selected nodes.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
@@ -259,7 +259,7 @@ Last reviewed: March 10, 2026.
 | Modifier wheel directional scroll (`Shift` horizontal, `Alt` vertical) | `A-E2E-10`, `A-FE-26`, `M-CANVAS-02` | Automated + Manual |
 | Empty-canvas `Space`-drag pans viewport | `A-E2E-21`, `M-CANVAS-03` | Automated + Manual |
 | Empty-canvas drag marquee-selects nodes without panning | `A-E2E-21`, `M-CANVAS-29` | Automated + Manual |
-| Multi-node selection supports `Ctrl` toggle/additive marquee, shared move/resize, and delete | `A-E2E-21`, `A-FE-31`, `M-CANVAS-30` | Automated + Manual |
+| Multi-node selection supports `Ctrl` toggle/additive marquee without browser context menu interference, shared move/resize, and delete | `A-E2E-21`, `A-FE-31`, `M-CANVAS-30` | Automated + Manual |
 | Shared node-card background/border colors can be edited across the full selected node set | `A-E2E-22`, `A-FE-32` | Automated |
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `A-E2E-13`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |

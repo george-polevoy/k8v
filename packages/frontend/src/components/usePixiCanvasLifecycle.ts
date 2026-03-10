@@ -131,6 +131,9 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height);
 
     const canvasElement = app.view as HTMLCanvasElement;
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
     canvasElement.style.display = 'block';
     canvasElement.style.width = '100%';
     canvasElement.style.height = '100%';
@@ -145,6 +148,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     app.stage.on('pointerup', handleStagePointerUp);
     app.stage.on('pointerupoutside', handleStagePointerUp);
     app.renderer.on('resize', handleResize);
+    canvasElement.addEventListener('contextmenu', handleContextMenu);
     canvasElement.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('pointerup', finishInteraction);
     window.addEventListener('pointermove', handleWindowPointerMove);
@@ -161,6 +165,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
       }
 
       window.removeEventListener('pointerup', finishInteraction);
+      canvasElement.removeEventListener('contextmenu', handleContextMenu);
       canvasElement.removeEventListener('wheel', handleWheel);
       app.stage.off('pointerdown', handleStagePointerDown);
       app.stage.off('pointermove', handleStagePointerMove);

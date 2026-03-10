@@ -26,6 +26,11 @@ interface ViewportTransform {
   scale: number;
 }
 
+interface ContextMenuDispatchResult {
+  defaultPrevented: boolean;
+  dispatchResult: boolean;
+}
+
 async function createMultiNodeGraph(): Promise<{
   graphId: string;
   nodeIds: {
@@ -174,6 +179,24 @@ async function readSelectedNodeIds(page: import('playwright').Page): Promise<str
   });
 }
 
+async function dispatchCanvasContextMenu(
+  page: import('playwright').Page
+): Promise<ContextMenuDispatchResult> {
+  return page.locator('canvas').first().evaluate((canvasElement) => {
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      button: 0,
+    });
+    const dispatchResult = canvasElement.dispatchEvent(event);
+    return {
+      defaultPrevented: event.defaultPrevented,
+      dispatchResult,
+    };
+  });
+}
+
 function sortNodeIds(nodeIds: string[]): string[] {
   return [...nodeIds].sort((left, right) => left.localeCompare(right));
 }
@@ -267,6 +290,17 @@ test(
         Number.isFinite(transform.x) &&
         Number.isFinite(transform.y) &&
         Number.isFinite(transform.scale)
+      );
+      const contextMenuDispatchResult = await dispatchCanvasContextMenu(page);
+      assert.equal(
+        contextMenuDispatchResult.defaultPrevented,
+        true,
+        'Canvas should prevent the browser context menu during ctrl-click selection gestures'
+      );
+      assert.equal(
+        contextMenuDispatchResult.dispatchResult,
+        false,
+        'Prevented canvas contextmenu events should report a canceled default action'
       );
       const leftRect = await resolveNodeScreenRect(graphId, nodeIds.left, initialViewportTransform, canvasBox);
       const middleRect = await resolveNodeScreenRect(graphId, nodeIds.middle, initialViewportTransform, canvasBox);
