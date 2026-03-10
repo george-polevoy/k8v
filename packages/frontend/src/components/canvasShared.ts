@@ -533,7 +533,7 @@ function clampAlpha(alpha: number): number {
   return Math.max(0, Math.min(1, alpha));
 }
 
-function blendPixiColors(baseColor: number, targetColor: number, amount: number): number {
+export function blendPixiColors(baseColor: number, targetColor: number, amount: number): number {
   const clampedAmount = Math.max(0, Math.min(1, amount));
   const baseR = (baseColor >> 16) & 0xff;
   const baseG = (baseColor >> 8) & 0xff;

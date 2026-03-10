@@ -101,6 +101,8 @@ function AccordionSection({
 
 function RightSidebar() {
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
+  const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const error = useGraphStore((state) => state.error);
   const [expandedSection, setExpandedSection] = useState<SidebarSectionId | null>('graph');
   const diagnosticsHasAlert = Boolean(error);
@@ -110,11 +112,11 @@ function RightSidebar() {
   };
 
   useEffect(() => {
-    if (!selectedNodeId) {
+    if (!selectedNodeId && selectedNodeIds.length === 0 && !selectedDrawingId) {
       return;
     }
     setExpandedSection('node');
-  }, [selectedNodeId]);
+  }, [selectedDrawingId, selectedNodeId, selectedNodeIds.length]);
 
   return (
     <aside

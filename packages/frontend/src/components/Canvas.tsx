@@ -49,6 +49,11 @@ import {
 } from '../utils/canvasNodeRender';
 import { colorStringToPixi } from '../utils/color';
 import { buildGraphicsImageUrl } from '../utils/graphics';
+import {
+  DEFAULT_NODE_CARD_BACKGROUND_COLOR,
+  DEFAULT_NODE_CARD_BORDER_COLOR,
+  resolveNodeCardAppearance,
+} from '../utils/nodeCardAppearance';
 import { truncateTextToWidth } from '../utils/textLayout';
 import {
   formatNumericInputValue,
@@ -87,6 +92,7 @@ import {
   type SelectionResizeState,
   areAnnotationOverlaysEqual,
   areNodeGraphicsDebugValuesEqual,
+  blendPixiColors,
   drawInputPortMarker,
   drawNodeCardFrame,
   drawNumericSliderVisual,
@@ -966,14 +972,17 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         Boolean(projectedGraphicsTexture) ||
         (shouldLoadProjectedGraphics && Boolean(graphicsOutput))
       );
+      const nodeCardAppearance = resolveNodeCardAppearance(node);
+      const nodeCardBackground = colorStringToPixi(
+        nodeCardAppearance.backgroundColor,
+        DEFAULT_NODE_CARD_BACKGROUND_COLOR
+      );
+      const nodeCardBorder = colorStringToPixi(
+        nodeCardAppearance.borderColor,
+        DEFAULT_NODE_CARD_BORDER_COLOR
+      );
       const annotationConfig = node.type === NodeType.ANNOTATION
         ? normalizeAnnotationConfig(node.config.config as Record<string, unknown> | undefined)
-        : null;
-      const annotationBackground = annotationConfig
-        ? colorStringToPixi(annotationConfig.backgroundColor, '#fef3c7')
-        : null;
-      const annotationBorder = annotationConfig
-        ? colorStringToPixi(annotationConfig.borderColor, '#334155')
         : null;
 
       const frame = new Graphics();
@@ -981,19 +990,23 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         frame,
         width,
         height,
-        annotationBorder
-          ? annotationBorder.color
+        annotationConfig
+          ? nodeCardBorder.color
           : isSelected
             ? 0x1d4ed8
-            : 0x334155,
-        annotationBackground
-          ? annotationBackground.color
+            : nodeCardBorder.color,
+        annotationConfig
+          ? nodeCardBackground.color
           : isSelected
-            ? 0xe2e8f0
-            : 0xf8fafc,
+            ? blendPixiColors(nodeCardBackground.color, 0xe2e8f0, 0.38)
+            : nodeCardBackground.color,
         hasProjectedGraphics,
-        annotationBorder?.alpha ?? 1,
-        annotationBackground?.alpha ?? 1,
+        annotationConfig
+          ? nodeCardBorder.alpha
+          : isSelected
+            ? 1
+            : nodeCardBorder.alpha,
+        nodeCardBackground.alpha,
         !annotationConfig
       );
       frame.eventMode = 'static';

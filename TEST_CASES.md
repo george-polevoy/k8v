@@ -32,6 +32,7 @@ Last reviewed: March 10, 2026.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
 - `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: annotation cards create persisted presentation-only arrows from arbitrary card edges to standard node ports and other annotation edges.
 - `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport.
+- `A-E2E-22` `packages/frontend/tests/e2e/nodePanelMultiSelectionColors.test.ts`: node panel summarizes multi-node selection as a named set and applies shared node-card background/border color changes across all selected nodes.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -63,6 +64,7 @@ Last reviewed: March 10, 2026.
 - `A-FE-29` `packages/frontend/tests/connectionStroke.test.ts`: connection-stroke normalization enforces defaults, 2x width ratio, and foreground/background brightness separation.
 - `A-FE-30` `packages/frontend/tests/annotationConnections.test.ts`: annotation connection helpers normalize edge anchors, snap arbitrary edge hits, and identify annotation-linked presentation edges.
 - `A-FE-31` `packages/frontend/tests/graphStoreEditing.test.ts`: node multi-selection state preserves selected node IDs across set/toggle flows and reconciles remaining selection when a selected node is deleted.
+- `A-FE-32` `packages/frontend/tests/nodeCardAppearance.test.ts`: node card appearance helpers normalize default/custom background and border colors for generic nodes while preserving annotation-specific color config.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -258,6 +260,7 @@ Last reviewed: March 10, 2026.
 | Empty-canvas `Space`-drag pans viewport | `A-E2E-21`, `M-CANVAS-03` | Automated + Manual |
 | Empty-canvas drag marquee-selects nodes without panning | `A-E2E-21`, `M-CANVAS-29` | Automated + Manual |
 | Multi-node selection supports `Ctrl` toggle/additive marquee, shared move/resize, and delete | `A-E2E-21`, `A-FE-31`, `M-CANVAS-30` | Automated + Manual |
+| Shared node-card background/border colors can be edited across the full selected node set | `A-E2E-22`, `A-FE-32` | Automated |
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `A-E2E-13`, `M-CANVAS-04` | Automated + Manual |
 | Node positions are stored per active projection | `A-FE-22`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Node card dimensions are stored per active projection | `A-FE-23`, `A-BE-41`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
@@ -292,6 +295,7 @@ Last reviewed: March 10, 2026.
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
 | Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `A-E2E-01`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Annotation node editing (`markdown` content + note colors, including border/opacity via shared color dialog, plus font size) | `A-E2E-14`, `A-FE-28`, `M-PANEL-15` | Automated + Manual |
+| Node panel summarizes multi-node selection as a set preview instead of a single node title | `A-E2E-22` | Automated |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
@@ -337,6 +341,6 @@ Last reviewed: March 10, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, toolbar add-node dialog layering, and canvas multi-selection/space-pan interactions (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, toolbar add-node dialog layering, canvas multi-selection/space-pan interactions, and node-panel multi-selection shared color editing (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

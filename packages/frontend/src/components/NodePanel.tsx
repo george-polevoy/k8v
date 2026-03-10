@@ -4,6 +4,11 @@ import { GraphNode, NodeType, PortDefinition } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
 import { inferInlineOutputPortNames } from '../utils/inlinePortInference';
 import { normalizeColorString } from '../utils/color';
+import {
+  DEFAULT_NODE_CARD_BACKGROUND_COLOR,
+  DEFAULT_NODE_CARD_BORDER_COLOR,
+  resolveNodeCardAppearance,
+} from '../utils/nodeCardAppearance';
 import { normalizeNumericInputConfig } from '../utils/numericInput';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import GraphManagementControls from './GraphManagementControls';
@@ -22,6 +27,8 @@ import {
 } from '../utils/annotation';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+type CardColorTarget = 'background' | 'border';
 
 function getNextInputName(inputs: PortDefinition[]): string {
   const existing = new Set(inputs.map((input) => input.name));
@@ -106,6 +113,16 @@ function formatDebugPixelList(values: number[]): string {
   return values.length > 8 ? `${preview}, ...` : preview;
 }
 
+function formatSelectedNodeSetSummary(nodes: GraphNode[]): string {
+  if (nodes.length === 0) {
+    return 'No nodes selected';
+  }
+
+  const previewNames = nodes.slice(0, 3).map((node) => node.metadata.name).join(', ');
+  const suffix = nodes.length > 3 ? ', ...' : '';
+  return `${nodes.length} selected (${previewNames}${suffix})`;
+}
+
 interface NodePanelProps {
   embedded?: boolean;
   showGraphSection?: boolean;
@@ -138,6 +155,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     commitPythonEnvs,
   } = useGraphManagementState({ enabled: showGraphSection });
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const updateNode = useGraphStore((state) => state.updateNode);
   const addNode = useGraphStore((state) => state.addNode);
@@ -150,10 +168,26 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const selectedNodeGraphicsDebug = useGraphStore((state) => state.selectedNodeGraphicsDebug);
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) || null;
+  const selectedNodeMap = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
+  const selectedNodes = selectedNodeIds.flatMap((nodeId) => {
+    const node = selectedNodeMap.get(nodeId);
+    return node ? [node] : [];
+  });
+  const firstSelectedNodeAppearance = selectedNodes[0]
+    ? resolveNodeCardAppearance(selectedNodes[0])
+    : null;
+  const hasFirstSelectedNodeAppearance = firstSelectedNodeAppearance !== null;
+  const firstSelectedNodeBackgroundColor = firstSelectedNodeAppearance?.backgroundColor ?? DEFAULT_NODE_CARD_BACKGROUND_COLOR;
+  const firstSelectedNodeBorderColor = firstSelectedNodeAppearance?.borderColor ?? DEFAULT_NODE_CARD_BORDER_COLOR;
   const selectedDrawing = graph?.drawings?.find((drawing) => drawing.id === selectedDrawingId) || null;
+  const isMultiNodeSelection = selectedNodes.length > 1;
+  const selectedNodeSetSummary = formatSelectedNodeSetSummary(selectedNodes);
 
   const [codeValue, setCodeValue] = useState('');
   const [nodeNameValue, setNodeNameValue] = useState('');
+  const [cardBackgroundColorDraft, setCardBackgroundColorDraft] = useState(DEFAULT_NODE_CARD_BACKGROUND_COLOR);
+  const [cardBorderColorDraft, setCardBorderColorDraft] = useState(DEFAULT_NODE_CARD_BORDER_COLOR);
+  const [cardColorDialogTarget, setCardColorDialogTarget] = useState<CardColorTarget | null>(null);
   const [numericValueDraft, setNumericValueDraft] = useState('0');
   const [numericMinDraft, setNumericMinDraft] = useState('0');
   const [numericMaxDraft, setNumericMaxDraft] = useState('100');
@@ -173,6 +207,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const [inputValidationError, setInputValidationError] = useState<string | null>(null);
   const [isGraphicsDebugExpanded, setIsGraphicsDebugExpanded] = useState(false);
   const hydratedNodeDraftSourceRef = useRef<string>('__init__');
+  const selectedNodeAppearanceSourceKey = selectedNodes.map((node) => `${node.id}:${node.version}`).join('|') || 'none';
 
   useEffect(() => {
     const draftSourceKey = selectedNode
@@ -224,6 +259,22 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
 
     setInputValidationError(null);
   }, [selectedNode]);
+
+  useEffect(() => {
+    if (!hasFirstSelectedNodeAppearance) {
+      setCardBackgroundColorDraft(DEFAULT_NODE_CARD_BACKGROUND_COLOR);
+      setCardBorderColorDraft(DEFAULT_NODE_CARD_BORDER_COLOR);
+      return;
+    }
+
+    setCardBackgroundColorDraft(firstSelectedNodeBackgroundColor);
+    setCardBorderColorDraft(firstSelectedNodeBorderColor);
+  }, [
+    firstSelectedNodeBackgroundColor,
+    firstSelectedNodeBorderColor,
+    hasFirstSelectedNodeAppearance,
+    selectedNodeAppearanceSourceKey,
+  ]);
 
   useEffect(() => {
     if (selectedDrawing) {
@@ -662,6 +713,14 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
   const isNumericInputNode = selectedNode?.config.type === NodeType.NUMERIC_INPUT;
   const isAnnotationNode = selectedNode?.config.type === NodeType.ANNOTATION;
+  const selectedNodeAppearances = selectedNodes.map((node) => resolveNodeCardAppearance(node));
+  const hasMixedCardBackgroundColor = new Set(
+    selectedNodeAppearances.map((appearance) => appearance.backgroundColor)
+  ).size > 1;
+  const hasMixedCardBorderColor = new Set(
+    selectedNodeAppearances.map((appearance) => appearance.borderColor)
+  ).size > 1;
+  const showNodeCardColorSection = selectedNodes.length > 0 && (isMultiNodeSelection || !isAnnotationNode);
   const supportsExecutionControls = Boolean(selectedNode && !isAnnotationNode);
   const supportsInputEditing = Boolean(selectedNode && !isNumericInputNode && !isAnnotationNode);
   const graphPythonEnvs = graph?.pythonEnvs ?? [];
@@ -694,6 +753,20 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     : annotationColorDialogTarget === 'border'
       ? annotationBorderColorDraft
       : annotationFontColorDraft;
+  const cardColorDialogOpen = cardColorDialogTarget !== null;
+  const cardColorDialogTitle = cardColorDialogTarget === 'background'
+    ? isMultiNodeSelection
+      ? 'Selected Card Background'
+      : 'Card Background'
+    : isMultiNodeSelection
+      ? 'Selected Card Border'
+      : 'Card Border';
+  const cardColorDialogDefaultColor = cardColorDialogTarget === 'background'
+    ? DEFAULT_NODE_CARD_BACKGROUND_COLOR
+    : DEFAULT_NODE_CARD_BORDER_COLOR;
+  const cardColorDialogInitialColor = cardColorDialogTarget === 'background'
+    ? cardBackgroundColorDraft
+    : cardBorderColorDraft;
 
   const applyAnnotationColorFromDialog = (color: string) => {
     if (annotationColorDialogTarget === 'background') {
@@ -708,6 +781,166 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     }
     setAnnotationColorDialogTarget(null);
   };
+
+  const commitSelectedNodeCardColors = useCallback((overrides: {
+    backgroundColor?: string;
+    borderColor?: string;
+  }) => {
+    if (!graph || selectedNodes.length === 0) {
+      return;
+    }
+
+    const nextBackgroundColor = overrides.backgroundColor !== undefined
+      ? normalizeColorString(overrides.backgroundColor, DEFAULT_NODE_CARD_BACKGROUND_COLOR)
+      : undefined;
+    const nextBorderColor = overrides.borderColor !== undefined
+      ? normalizeColorString(overrides.borderColor, DEFAULT_NODE_CARD_BORDER_COLOR)
+      : undefined;
+
+    if (nextBackgroundColor !== undefined) {
+      setCardBackgroundColorDraft(nextBackgroundColor);
+    }
+    if (nextBorderColor !== undefined) {
+      setCardBorderColorDraft(nextBorderColor);
+    }
+
+    const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
+    let didChange = false;
+    const version = Date.now().toString();
+    const nextNodes = graph.nodes.map((node) => {
+      if (!selectedNodeIdSet.has(node.id)) {
+        return node;
+      }
+
+      const currentAppearance = resolveNodeCardAppearance(node);
+      const resolvedBackgroundColor = nextBackgroundColor ?? currentAppearance.backgroundColor;
+      const resolvedBorderColor = nextBorderColor ?? currentAppearance.borderColor;
+      if (
+        resolvedBackgroundColor === currentAppearance.backgroundColor &&
+        resolvedBorderColor === currentAppearance.borderColor
+      ) {
+        return node;
+      }
+
+      didChange = true;
+      return {
+        ...node,
+        config: {
+          ...node.config,
+          config: {
+            ...(node.config.config ?? {}),
+            backgroundColor: resolvedBackgroundColor,
+            borderColor: resolvedBorderColor,
+          },
+        },
+        version,
+      };
+    });
+
+    if (!didChange) {
+      return;
+    }
+
+    void updateGraph({
+      ...graph,
+      nodes: nextNodes,
+      updatedAt: Date.now(),
+    });
+  }, [graph, selectedNodes, updateGraph]);
+
+  const applyNodeCardColorFromDialog = (color: string) => {
+    if (cardColorDialogTarget === 'background') {
+      commitSelectedNodeCardColors({ backgroundColor: color });
+    } else if (cardColorDialogTarget === 'border') {
+      commitSelectedNodeCardColors({ borderColor: color });
+    }
+    setCardColorDialogTarget(null);
+  };
+
+  const nodeCardColorSection = showNodeCardColorSection ? (
+    <div style={{
+      marginBottom: '16px',
+      padding: '10px',
+      border: '1px solid #e2e8f0',
+      borderRadius: '6px',
+      background: '#fff',
+    }}>
+      <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
+        Card Colors
+      </div>
+      {isMultiNodeSelection && (
+        <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
+          Applies to all selected node cards.
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+        <button
+          data-testid="node-card-background-color-input"
+          type="button"
+          onClick={() => setCardColorDialogTarget('background')}
+          style={{
+            width: '100%',
+            minHeight: '34px',
+            padding: '6px 8px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            background: '#ffffff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            color: '#0f172a',
+            fontSize: '11px',
+          }}
+        >
+          <span>{hasMixedCardBackgroundColor ? 'Background (mixed)' : 'Background'}</span>
+          <span
+            style={{
+              width: '14px',
+              height: '14px',
+              borderRadius: '50%',
+              border: '1px solid #334155',
+              background: cardBackgroundColorDraft,
+              flexShrink: 0,
+            }}
+          />
+        </button>
+        <button
+          data-testid="node-card-border-color-input"
+          type="button"
+          onClick={() => setCardColorDialogTarget('border')}
+          style={{
+            width: '100%',
+            minHeight: '34px',
+            padding: '6px 8px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            background: '#ffffff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            color: '#0f172a',
+            fontSize: '11px',
+          }}
+        >
+          <span>{hasMixedCardBorderColor ? 'Border (mixed)' : 'Border'}</span>
+          <span
+            style={{
+              width: '14px',
+              height: '14px',
+              borderRadius: '50%',
+              border: '1px solid #334155',
+              background: cardBorderColorDraft,
+              flexShrink: 0,
+            }}
+          />
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div
@@ -771,7 +1004,34 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
         </div>
       )}
 
-      {selectedNode ? (
+      {isMultiNodeSelection ? (
+        <div>
+          <h4
+            data-testid="multi-node-selection-summary"
+            style={{ marginBottom: '12px', lineHeight: 1.35 }}
+          >
+            {selectedNodeSetSummary}
+          </h4>
+
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              background: '#fff',
+              fontSize: '12px',
+              color: '#334155',
+              lineHeight: 1.5,
+            }}
+          >
+            <div>Selection size: {selectedNodes.length}</div>
+            <div>Editor actions in this view apply to the full selected set.</div>
+          </div>
+
+          {nodeCardColorSection}
+        </div>
+      ) : selectedNode ? (
         <div>
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Card Name:</label>
@@ -799,6 +1059,8 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
               }}
             />
           </div>
+
+          {nodeCardColorSection}
 
           {supportsExecutionControls && (
             <div style={{
@@ -1558,6 +1820,19 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
           </button>
         </div>
       )}
+      <ColorSelectionDialog
+        open={cardColorDialogOpen}
+        title={cardColorDialogTitle}
+        description={isMultiNodeSelection
+          ? `Choose a color to apply across ${selectedNodes.length} selected node cards.`
+          : 'Choose a card color.'}
+        initialColor={cardColorDialogInitialColor}
+        defaultColor={cardColorDialogDefaultColor}
+        confirmLabel={isMultiNodeSelection ? `Apply to ${selectedNodes.length}` : 'Use Color'}
+        allowOpacity
+        onCancel={() => setCardColorDialogTarget(null)}
+        onConfirm={applyNodeCardColorFromDialog}
+      />
       <ColorSelectionDialog
         open={annotationColorDialogOpen}
         title={annotationColorDialogTitle}
