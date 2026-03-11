@@ -59,6 +59,12 @@ npm run build
 npm run dev
 ```
 
+Meaning of "full verification":
+- `npm run lint`, `npm run test`, and `npm run build` must all finish successfully.
+- In plain language, that means all applicable automated checks and tests must complete and pass, not just a subset.
+- Partial runs, hanging runs, or targeted-only runs do not count as full verification.
+- The root `npm run test` command is expected to cover the full automated suite, including frontend e2e/browser tests.
+
 ## Common Tasks
 
 ### Add a Feature
@@ -107,3 +113,4 @@ When the user says: `feature: x should be working like y...`
 9. For bug fixes, always confirm behavior is fixed using a browser test when the bug affects UI/interaction
 10. Do not switch context to a new feature/bugfix while previous work is uncommitted; commit (or explicitly resolve with the user) before starting the next task
 11. After work is done and full verification has run successfully, commit the completed work
+12. Do not treat a narrower test command or a partially complete test run as "full verification"; if some automated tests were not run or did not finish, state that plainly and do not claim the repo is fully verified

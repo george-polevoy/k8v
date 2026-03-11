@@ -17,7 +17,8 @@
     "build:mcp": "cd packages/mcp-server && npm run build",
     "start:mcp": "cd packages/mcp-server && npm run start",
     "install:all": "npm install && cd packages/backend && npm install && cd ../frontend && npm install",
-    "test": "tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts packages/mcp-server/tests/*.test.ts",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts packages/mcp-server/tests/*.test.ts",
     "lint": "eslint --max-warnings=0 \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\"",
     "lint:fix": "eslint --fix \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\"",
     "test:e2e": "npm --prefix packages/frontend run test:e2e"
