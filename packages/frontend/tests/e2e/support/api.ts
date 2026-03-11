@@ -438,6 +438,98 @@ export async function createAnnotationArrowGraph(): Promise<{
   };
 }
 
+export async function createInlineInputReplacementGraph(): Promise<{
+  graphId: string;
+  sourceAId: string;
+  sourceBId: string;
+  targetId: string;
+}> {
+  const sourceAId = randomUUID();
+  const sourceBId = randomUUID();
+  const targetId = randomUUID();
+
+  const sourceA: InlineNodePayload = {
+    id: sourceAId,
+    type: 'inline_code',
+    position: { x: 120, y: 120 },
+    metadata: {
+      name: 'Source A',
+      inputs: [],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = 1;',
+      runtime: 'javascript_vm',
+    },
+    version: Date.now().toString(),
+  };
+
+  const sourceB: InlineNodePayload = {
+    id: sourceBId,
+    type: 'inline_code',
+    position: { x: 120, y: 300 },
+    metadata: {
+      name: 'Source B',
+      inputs: [],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = 2;',
+      runtime: 'javascript_vm',
+    },
+    version: `${Date.now() + 1}`,
+  };
+
+  const target: InlineNodePayload = {
+    id: targetId,
+    type: 'inline_code',
+    position: { x: 460, y: 210 },
+    metadata: {
+      name: 'Target',
+      inputs: [{ name: 'input', schema: { type: 'number' } }],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
+    },
+    config: {
+      type: 'inline_code',
+      code: 'outputs.output = inputs.input ?? 0;',
+      runtime: 'javascript_vm',
+    },
+    version: `${Date.now() + 2}`,
+  };
+
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: toAutotestGraphName(`e2e_single_inbound_${Date.now()}`),
+      nodes: [sourceA, sourceB, target],
+      connections: [
+        {
+          id: randomUUID(),
+          sourceNodeId: sourceAId,
+          sourcePort: 'output',
+          targetNodeId: targetId,
+          targetPort: 'input',
+        },
+      ],
+      drawings: [],
+    }),
+  });
+
+  const graph = await expectJsonResponse(response, 'Create single-inbound graph') as GraphResponse;
+  assert.ok(graph.id, 'Create single-inbound graph response should include graph id');
+  return {
+    graphId: graph.id,
+    sourceAId,
+    sourceBId,
+    targetId,
+  };
+}
+
 export interface GraphConnectionSnapshot {
   id: string;
   sourceNodeId: string;

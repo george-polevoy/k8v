@@ -11,6 +11,7 @@ import {
   withNodeCardSizeInProjection,
   withNodePositionInProjection,
 } from '../utils/projections';
+import { applyConnectionSet } from '../utils/connectionSlots';
 
 interface GraphStoreEditingState {
   graph: Graph | null;
@@ -144,12 +145,17 @@ export function createGraphEditingController({
     },
 
     addConnection(connection: Connection): void {
-      persistGraphEdit((graph) =>
-        withUpdatedAt({
+      persistGraphEdit((graph) => {
+        const result = applyConnectionSet(graph.nodes, graph.connections, connection);
+        if (!result.changed) {
+          return null;
+        }
+
+        return withUpdatedAt({
           ...graph,
-          connections: [...graph.connections, connection],
-        })
-      );
+          connections: result.connections,
+        });
+      });
     },
 
     deleteConnection(connectionId: string): void {

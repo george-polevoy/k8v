@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 3, 2026.
+This file tracks what is currently implemented in the codebase as of March 11, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -53,6 +53,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Delete selected node with `Delete`/`Backspace`.
 - Connector hover highlighting.
 - Drag from output port to input port to create connection.
+- Non-annotation input slots are single-inbound; dragging a new edge onto an occupied input rewires that slot instead of storing duplicate inbound edges.
 - Frontend cycle-prevention during connection creation.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
@@ -145,6 +146,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - Backend request validation via Zod.
 - Graph validation checks missing node references in connections.
+- Graph validation rejects multiple inbound connections that target the same input slot (or the same annotation anchor slot).
 - Graph validation enforces unique graph-level Python environment names.
 - Graph validation enforces that node `pythonEnv` references exist and are only used with `python_process` runtime.
 - Graph cycle rejection for new graphs (`POST`).

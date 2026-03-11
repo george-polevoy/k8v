@@ -284,6 +284,108 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
   }
 });
 
+test('addConnection rewires an occupied input instead of appending duplicate inbound edges', async () => {
+  const originalPut = axios.put;
+  let capturedPayload: any = null;
+
+  const graph: Graph = {
+    id: 'g-single-inbound',
+    name: 'Single Inbound Graph',
+    nodes: [
+      {
+        id: 'source-a',
+        type: 'numeric_input' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Source A',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as any,
+          config: { value: 1, min: 0, max: 10, step: 1 },
+        },
+        version: 'source-a-v1',
+      },
+      {
+        id: 'source-b',
+        type: 'numeric_input' as any,
+        position: { x: 0, y: 120 },
+        metadata: {
+          name: 'Source B',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as any,
+          config: { value: 2, min: 0, max: 10, step: 1 },
+        },
+        version: 'source-b-v1',
+      },
+      {
+        id: 'target',
+        type: 'inline_code' as any,
+        position: { x: 240, y: 40 },
+        metadata: {
+          name: 'Target',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+        },
+        version: 'target-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'conn-a',
+        sourceNodeId: 'source-a',
+        sourcePort: 'value',
+        targetNodeId: 'target',
+        targetPort: 'input',
+      },
+    ],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  (axios as any).put = async (_url: string, body: unknown) => {
+    capturedPayload = body;
+    return { data: body };
+  };
+
+  resetGraphStoreState({ graph });
+
+  try {
+    useGraphStore.getState().addConnection({
+      id: 'conn-b',
+      sourceNodeId: 'source-b',
+      sourcePort: 'value',
+      targetNodeId: 'target',
+      targetPort: 'input',
+    });
+    await delay(0);
+
+    const state = useGraphStore.getState();
+    assert.ok(capturedPayload, 'expected graph update payload');
+    assert.equal(capturedPayload.connections.length, 1);
+    assert.deepEqual(capturedPayload.connections[0], {
+      id: 'conn-b',
+      sourceNodeId: 'source-b',
+      sourcePort: 'value',
+      targetNodeId: 'target',
+      targetPort: 'input',
+    });
+    assert.equal(state.graph?.connections.length, 1);
+    assert.equal(state.graph?.connections[0]?.sourceNodeId, 'source-b');
+  } finally {
+    (axios as any).put = originalPut;
+  }
+});
+
 test('selectDrawing clears selected node and tracks drawing selection', () => {
   resetGraphStoreState({
     selectedNodeId: 'node-1',

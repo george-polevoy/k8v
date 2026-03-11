@@ -2173,6 +2173,56 @@ test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
   }
 });
 
+test('PUT /api/graphs/:id rejects multiple inbound connections on the same input slot', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceA = createNumericInputNode('source-a', 1);
+    const sourceB = createNumericInputNode('source-b', 2);
+    const target = createPassThroughNode('target');
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      name: 'Single Inbound Update Graph',
+      nodes: [sourceA, sourceB, target],
+      connections: [
+        {
+          id: 'conn-a',
+          sourceNodeId: 'source-a',
+          sourcePort: 'value',
+          targetNodeId: 'target',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...createdGraph,
+        connections: [
+          ...createdGraph.connections,
+          {
+            id: 'conn-b',
+            sourceNodeId: 'source-b',
+            sourcePort: 'value',
+            targetNodeId: 'target',
+            targetPort: 'input',
+          },
+        ],
+      }),
+    });
+
+    assert.equal(updateResponse.status, 400);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /multiple inbound connections/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', async () => {
   const ctx = await setupTestServer();
 

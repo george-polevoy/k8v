@@ -4,6 +4,7 @@ import type {
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
+import { dedupeConnectionsByTargetSlot } from '../utils/connectionSlots';
 import { normalizeHexColor } from '../utils/color';
 import {
   applyProjectionToNodes,
@@ -84,6 +85,9 @@ function normalizeGraphExecutionTimeoutMs(value: unknown): number {
 
 export function normalizeGraph(graph: Graph): Graph {
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
+  const connections = Array.isArray(graph.connections)
+    ? dedupeConnectionsByTargetSlot(graph.nodes, graph.connections)
+    : [];
   const projectionState = normalizeGraphProjectionState(
     graph.nodes,
     graph.projections,
@@ -98,6 +102,7 @@ export function normalizeGraph(graph: Graph): Graph {
   return {
     ...graph,
     nodes: projectedNodes,
+    connections,
     canvasBackground: normalizeCanvasBackground(
       activeProjection?.canvasBackground ?? graph.canvasBackground
     ),

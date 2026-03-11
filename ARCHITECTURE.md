@@ -86,6 +86,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 ## Directed Graph Semantics
 
 - Graph edges are directed from `sourceNodeId/sourcePort` (producer) to `targetNodeId/targetPort` (consumer).
+- Non-annotation target inputs are single-source: rewiring an occupied input replaces its prior inbound edge instead of allowing multiple inbound computational edges on one input slot.
 - Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
 - Runtime computation uses topological ordering so dependencies are computed before dependents.
 - Backend recompute queue processing follows upstream-to-downstream topological order.

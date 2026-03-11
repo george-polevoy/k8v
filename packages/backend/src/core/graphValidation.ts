@@ -5,6 +5,21 @@ import {
   filterComputationalConnections,
 } from './annotationConnections.js';
 
+function serializeConnectionTargetSlot(
+  nodeById: ReadonlyMap<string, Graph['nodes'][number]>,
+  connection: Graph['connections'][number]
+): string {
+  const targetNode = nodeById.get(connection.targetNodeId);
+  if (targetNode?.type !== 'annotation') {
+    return `${connection.targetNodeId}:${connection.targetPort}`;
+  }
+
+  const targetAnchor = connection.targetAnchor
+    ? `${connection.targetAnchor.side}:${connection.targetAnchor.offset}`
+    : '-';
+  return `${connection.targetNodeId}:${connection.targetPort}@${targetAnchor}`;
+}
+
 export function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
   const nodeById = buildGraphNodeMap(graph.nodes);
@@ -81,6 +96,16 @@ export function validateGraphStructure(graph: Graph): string | null {
     if (!nodeIds.has(connection.targetNodeId)) {
       return `Connection ${connection.id} references missing target node ${connection.targetNodeId}`;
     }
+  }
+
+  const occupiedTargetSlots = new Map<string, string>();
+  for (const connection of graph.connections) {
+    const targetSlot = serializeConnectionTargetSlot(nodeById, connection);
+    const existingConnectionId = occupiedTargetSlots.get(targetSlot);
+    if (existingConnectionId) {
+      return `Target slot ${targetSlot} cannot have multiple inbound connections`;
+    }
+    occupiedTargetSlots.set(targetSlot, connection.id);
   }
 
   const adjacency = new Map<string, string[]>();

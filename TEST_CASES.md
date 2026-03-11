@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 10, 2026.
+Last reviewed: March 11, 2026.
 
 ## Coverage Legend
 
@@ -36,6 +36,7 @@ Last reviewed: March 10, 2026.
 - `A-E2E-23` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: `Alt`-dragging a selected node set duplicates the nodes, keeps the originals in place, leaves the duplicate set selected, and copies internal links between the duplicated nodes.
 - `A-E2E-24` `packages/frontend/tests/e2e/toolbarColorDialogLayering.test.ts`: the pencil color dialog mounts outside the narrow toolbar floating window, keeps its full overlay size, and is centered in the viewport instead of being clipped inside the toolbar client area.
 - `A-E2E-25` `packages/frontend/tests/e2e/backgroundColor.test.ts`: the shared color dialog supports hue-slider and saturation/value-palette selection and persists the exact chosen graph background color.
+- `A-E2E-26` `packages/frontend/tests/e2e/inlineInputConnectionReplacement.test.ts`: dragging a new edge onto an occupied inline input replaces the previous inbound edge instead of persisting duplicate inbound connections.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -71,6 +72,8 @@ Last reviewed: March 10, 2026.
 - `A-FE-33` `packages/frontend/tests/connectionArrows.test.ts`: connection arrowhead sizing keeps the background arrow as outline padding around the foreground arrow instead of scaling the whole triangle with background stroke width.
 - `A-FE-34` `packages/frontend/tests/selectionDuplication.test.ts`: selected-node duplication clones node metadata/config, remaps internal connections, copies projection state, and clears stale compute timestamps on the duplicates.
 - `A-FE-35` `packages/frontend/tests/color.test.ts`: RGB/HSV color conversion helpers preserve canonical hues, handle grayscale zero-saturation colors, and round-trip hue/value choices back to RGB channels.
+- `A-FE-36` `packages/frontend/tests/graphStorePersistence.test.ts`: `loadGraph` normalizes duplicate inbound edges on the same input slot down to the last persisted connection.
+- `A-FE-37` `packages/frontend/tests/graphStoreEditing.test.ts`: `addConnection` rewires an occupied target input instead of appending a second inbound edge.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -138,6 +141,7 @@ Last reviewed: March 10, 2026.
 - `A-BE-65` `packages/backend/tests/app.test.ts`: annotation-linked connections round-trip persisted edge anchors and are excluded from DAG validation.
 - `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
 - `A-BE-67` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` traverses annotation-linked nodes and can project annotation `sourceAnchor`/`targetAnchor` fields for those links.
+- `A-BE-68` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects connection updates that would leave multiple inbound edges on one target input slot.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -284,6 +288,7 @@ Last reviewed: March 10, 2026.
 | Delete selected node with `Delete`/`Backspace` | `M-CANVAS-08` | Manual |
 | Connector hover highlighting | `M-CANVAS-05` | Manual |
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
+| Dragging a new edge onto an occupied input rewires that slot instead of persisting duplicate inbound edges | `A-E2E-26`, `A-FE-36`, `A-FE-37`, `M-MCP-11` | Automated + Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
 | Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
@@ -334,6 +339,7 @@ Last reviewed: March 10, 2026.
 | Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
 | Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `M-STATUS-04` | Manual |
 | Backend request validation via Zod | `A-BE-02`, `A-BE-03` | Automated |
+| Reject duplicate inbound connections on the same target slot | `A-BE-68`, `A-FE-36`, `A-FE-37`, `M-MCP-11` | Automated + Manual |
 | Graph-level script execution timeout is configurable (default 30 seconds, no max cap) | `A-BE-49`, `A-BE-50`, `A-BE-51`, `A-E2E-12`, `A-FE-27` | Automated |
 | Graph python env names are unique | `A-BE-22` | Automated |
 | MCP graph Python env management | `M-MCP-07` | Manual |
@@ -355,6 +361,6 @@ Last reviewed: March 10, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, and selection Alt-drag duplication (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.
