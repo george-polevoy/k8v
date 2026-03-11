@@ -7,7 +7,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "snapshot:canvas": "node scripts/captureCanvasSnapshot.mjs",
-    "test:e2e": "find tests/e2e -name '*.test.ts' -print0 | xargs -0 tsx --test --test-concurrency=1"
+    "test:e2e": "sh -c 'find tests/e2e -name \"*.test.ts\" | LC_ALL=C sort | while IFS= read -r file; do tsx --test \"$file\" || exit $?; done'"
   },
   "dependencies": {
     "axios": "^1.6.2",

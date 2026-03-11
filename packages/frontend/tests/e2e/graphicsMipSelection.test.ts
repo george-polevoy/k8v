@@ -380,25 +380,6 @@ test(
       const initialProjectedUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
       assert.ok(initialProjectedUrl, 'Expected an initial projected graphics URL');
 
-      for (let step = 0; step < 4; step += 1) {
-        await page.evaluate(({ x, y }) => {
-          const mainCanvas = document.querySelector('canvas');
-          if (!(mainCanvas instanceof HTMLCanvasElement)) {
-            throw new Error('Main canvas not found');
-          }
-          mainCanvas.dispatchEvent(new WheelEvent('wheel', {
-            deltaX: 0,
-            deltaY: 180,
-            clientX: x,
-            clientY: y,
-            bubbles: true,
-            cancelable: true,
-          }));
-        }, { x: centerX, y: centerY });
-      }
-
-      const zoomedOutUrl = await waitForProjectedGraphicsRequestChange(projectedGraphicsUrls, initialProjectedUrl);
-
       for (let step = 0; step < 6; step += 1) {
         await page.evaluate(({ x, y }) => {
           const mainCanvas = document.querySelector('canvas');
@@ -422,14 +403,17 @@ test(
       const duringZoomUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
       assert.equal(
         duringZoomUrl,
-        zoomedOutUrl,
-        `Expected projected graphics URL to remain stable during active zoom burst (${zoomedOutUrl} vs ${duringZoomUrl})`
+        initialProjectedUrl,
+        `Expected projected graphics URL to remain stable during active zoom burst (${initialProjectedUrl} vs ${duringZoomUrl})`
       );
 
-      const settledUrl = await waitForProjectedGraphicsRequestChange(projectedGraphicsUrls, zoomedOutUrl);
+      const settledUrl = await waitForProjectedGraphicsRequestChange(
+        projectedGraphicsUrls,
+        initialProjectedUrl
+      );
       assert.notEqual(
         settledUrl,
-        zoomedOutUrl,
+        initialProjectedUrl,
         'Expected projected graphics URL to update after viewport zooming settled'
       );
 

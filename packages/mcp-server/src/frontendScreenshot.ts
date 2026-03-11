@@ -49,72 +49,70 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
       deviceScaleFactor: 1,
     });
 
-    if (graphData) {
-      await context.route(/\/api\/.*/, async (route) => {
-        const request = route.request();
-        const requestUrl = new URL(request.url());
-        const method = request.method().toUpperCase();
-        const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
+    await context.route(/\/api\/.*/, async (route) => {
+      const request = route.request();
+      const requestUrl = new URL(request.url());
+      const method = request.method().toUpperCase();
+      const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
 
-        if (method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(graphData),
-          });
-          return;
-        }
-
-        if (method === 'GET' && requestUrl.pathname === '/api/graphs') {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              graphs: [
-                {
-                  id: graphData.id,
-                  name: graphData.name,
-                  updatedAt: graphData.updatedAt,
-                },
-              ],
-            }),
-          });
-          return;
-        }
-
-        if (method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(graphData),
-          });
-          return;
-        }
-
-        const requestHeaders = request.headers();
-        const proxyHeaders = Object.fromEntries(
-          Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
-        );
-        const requestBody = method === 'GET' || method === 'HEAD'
-          ? undefined
-          : request.postData() ?? undefined;
-        const proxyResponse = await fetch(proxyUrl, {
-          method,
-          headers: proxyHeaders,
-          body: requestBody,
-        });
-        const buffer = Buffer.from(await proxyResponse.arrayBuffer());
-        const responseHeaders: Record<string, string> = {};
-        proxyResponse.headers.forEach((value, key) => {
-          responseHeaders[key] = value;
-        });
+      if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
         await route.fulfill({
-          status: proxyResponse.status,
-          headers: responseHeaders,
-          body: buffer,
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(graphData),
         });
+        return;
+      }
+
+      if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            graphs: [
+              {
+                id: graphData.id,
+                name: graphData.name,
+                updatedAt: graphData.updatedAt,
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (graphData && method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(graphData),
+        });
+        return;
+      }
+
+      const requestHeaders = request.headers();
+      const proxyHeaders = Object.fromEntries(
+        Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
+      );
+      const requestBody = method === 'GET' || method === 'HEAD'
+        ? undefined
+        : request.postData() ?? undefined;
+      const proxyResponse = await fetch(proxyUrl, {
+        method,
+        headers: proxyHeaders,
+        body: requestBody,
       });
-    }
+      const buffer = Buffer.from(await proxyResponse.arrayBuffer());
+      const responseHeaders: Record<string, string> = {};
+      proxyResponse.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+      await route.fulfill({
+        status: proxyResponse.status,
+        headers: responseHeaders,
+        body: buffer,
+      });
+    });
 
     const page = await context.newPage();
     await page.addInitScript((targetGraphId: string) => {
