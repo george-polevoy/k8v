@@ -2030,6 +2030,61 @@ test('POST /api/graphs rejects duplicate drawing ids', async () => {
   }
 });
 
+test('POST /api/graphs rejects duplicate node ids', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [
+        createValidInlineNode(),
+        {
+          ...createPassThroughNode('node-1'),
+          position: { x: 180, y: 40 },
+        },
+      ],
+    });
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /node ids must be unique/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs/:id rejects duplicate node ids', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode(), createPassThroughNode('node-2')],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodes: [
+          createdGraph.nodes[0],
+          {
+            ...createPassThroughNode(createdGraph.nodes[0].id),
+            position: { x: 180, y: 40 },
+          },
+        ],
+        connections: [],
+      }),
+    });
+
+    assert.equal(updateResponse.status, 400);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /node ids must be unique/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs rejects duplicate drawing path ids within a drawing', async () => {
   const ctx = await setupTestServer();
 

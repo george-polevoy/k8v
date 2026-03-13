@@ -53,6 +53,13 @@ function attachProcessLogs(processInfo: ManagedProcess): void {
   processInfo.child.stderr?.on('data', onOutput('stderr'));
 }
 
+function releaseProcessPipes(processInfo: ManagedProcess): void {
+  processInfo.child.stdout?.removeAllListeners('data');
+  processInfo.child.stderr?.removeAllListeners('data');
+  processInfo.child.stdout?.destroy();
+  processInfo.child.stderr?.destroy();
+}
+
 function startProcess(name: string, commandArgs: string[], envOverrides: Record<string, string>): ManagedProcess {
   const child = spawn('npm', commandArgs, {
     cwd: REPO_ROOT,
@@ -132,6 +139,7 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
   }
   if (processInfo.child.exitCode !== null) {
     debugLog(`stopProcess skipped (${processInfo.name} already exited: ${processInfo.child.exitCode})`);
+    releaseProcessPipes(processInfo);
     return;
   }
 
@@ -143,6 +151,7 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
   ]);
 
   if (exited) {
+    releaseProcessPipes(processInfo);
     debugLog(`Process ${processInfo.name} exited after SIGTERM`);
     return;
   }
@@ -153,6 +162,7 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
     once(processInfo.child, 'exit').then(() => undefined),
     delay(2_000).then(() => undefined),
   ]);
+  releaseProcessPipes(processInfo);
   debugLog(`Process ${processInfo.name} stop sequence completed`);
 }
 

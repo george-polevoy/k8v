@@ -5,20 +5,6 @@ import { launchBrowser } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL, E2E_FRONTEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
-const NUMERIC_NODE_WIDTH = 220;
-
-interface CanvasBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface NodeScreenPosition {
-  centerX: number;
-  centerY: number;
-}
-
 async function openCanvasForGraphWithTimeout(
   page: import('playwright').Page,
   graphId: string
@@ -37,15 +23,6 @@ async function openCanvasForGraphWithTimeout(
     state: 'visible',
     timeout: 60_000,
   });
-}
-
-function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
-  const centerX = canvasBox.x + (canvasBox.width / 2);
-  const centerY = canvasBox.y + (canvasBox.height / 2);
-  return {
-    centerX,
-    centerY,
-  };
 }
 
 async function createTwoNumericNodeGraph(): Promise<{ graphId: string; selectedNodeId: string; otherNodeId: string }> {
@@ -181,35 +158,24 @@ test(
 
       await openCanvasForGraphWithTimeout(page, graphId);
 
-      const canvas = page.locator('canvas').first();
-      const canvasBox = await canvas.boundingBox();
-      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-      const nodeBox = resolveCenteredNodePosition(canvasBox);
-
       await page.locator('[data-testid="sidebar-toggle-node"]').click();
       const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-      const candidateOffsets = [-360, -260, -160, -80, 0, 80, 160, 260, 360];
-      let selectedExpectedNode = false;
-      for (const offset of candidateOffsets) {
-        const headerClickX = nodeBox.centerX + offset + (NUMERIC_NODE_WIDTH / 2) - 96;
-        const headerClickY = nodeBox.centerY - 30;
-        await page.mouse.click(headerClickX, headerClickY);
-
-        try {
-          await nodeNameInput.waitFor({
-            state: 'visible',
-            timeout: 1_000,
-          });
-          const selectedName = await nodeNameInput.inputValue();
-          if (selectedName === 'Selected Numeric Input') {
-            selectedExpectedNode = true;
-            break;
-          }
-        } catch {
-          // Continue scanning candidate click locations until the expected node is selected.
-        }
-      }
-      assert.equal(selectedExpectedNode, true);
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((nodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(nodeId);
+      }, selectedNodeId);
+      await nodeNameInput.waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.waitForFunction((expectedName: string) => {
+        const input = document.querySelector('[data-testid="node-name-input"]');
+        return input instanceof HTMLInputElement && input.value === expectedName;
+      }, 'Selected Numeric Input', {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       await page.locator('[data-testid="sidebar-toggle-output"]').click();
       const outputSection = page.locator('[data-testid="sidebar-content-output"]');

@@ -144,6 +144,8 @@ Last reviewed: March 13, 2026.
 - `A-BE-68` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects connection updates that would leave multiple inbound edges on one target input slot.
 - `A-BE-69` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `library` node payloads.
 - `A-BE-70` `packages/backend/tests/app.test.ts`: `/api/library-nodes` is not exposed.
+- `A-BE-71` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects duplicate node ids.
+- `A-BE-72` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects duplicate node ids.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -347,6 +349,7 @@ Last reviewed: March 13, 2026.
 | MCP graph Python env management | `M-MCP-07` | Manual |
 | Node `pythonEnv` references are valid and runtime-compatible | `A-BE-23`, `A-BE-24`, `A-BE-26`, `A-BE-27` | Automated |
 | Library nodes are not supported or exposed by backend APIs | `A-BE-69`, `A-BE-70` | Automated |
+| Graph node ids must remain unique on create and update | `A-BE-71`, `A-BE-72` | Automated |
 | Validate missing node references in connections | `M-VALID-01` | Manual |
 | Reject cycles on `POST` | `A-BE-05` | Automated |
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |

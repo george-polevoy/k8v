@@ -21,11 +21,19 @@ function serializeConnectionTargetSlot(
 }
 
 export function validateGraphStructure(graph: Graph): string | null {
-  const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  const nodeById = buildGraphNodeMap(graph.nodes);
+  const nodeIds = new Set<string>();
   const drawingIds = new Set<string>();
   const pythonEnvNames = new Set<string>();
   const projectionIds = new Set<string>();
+
+  for (const node of graph.nodes) {
+    if (nodeIds.has(node.id)) {
+      return `Graph node ids must be unique. Duplicate id: ${node.id}`;
+    }
+    nodeIds.add(node.id);
+  }
+
+  const nodeById = buildGraphNodeMap(graph.nodes);
 
   if (!Array.isArray(graph.projections) || graph.projections.length === 0) {
     return 'Graph must include at least one projection';
