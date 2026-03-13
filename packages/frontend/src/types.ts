@@ -55,11 +55,8 @@ export interface NodeMetadata {
 
 export enum NodeType {
   INLINE_CODE = 'inline_code',
-  LIBRARY = 'library',
   SUBGRAPH = 'subgraph',
-  EXTERNAL_INPUT = 'external_input',
   NUMERIC_INPUT = 'numeric_input',
-  EXTERNAL_OUTPUT = 'external_output',
   ANNOTATION = 'annotation',
 }
 
@@ -68,7 +65,6 @@ export type RuntimeId = 'javascript_vm' | 'python_process';
 export interface NodeConfig {
   type: NodeType;
   code?: string;
-  libraryId?: string;
   subgraphId?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;

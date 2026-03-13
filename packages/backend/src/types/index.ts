@@ -34,11 +34,8 @@ export type NodeMetadata = z.infer<typeof NodeMetadata>;
 // Node types
 export enum NodeType {
   INLINE_CODE = 'inline_code',
-  LIBRARY = 'library',
   SUBGRAPH = 'subgraph',
-  EXTERNAL_INPUT = 'external_input',
   NUMERIC_INPUT = 'numeric_input',
-  EXTERNAL_OUTPUT = 'external_output',
   ANNOTATION = 'annotation',
 }
 
@@ -160,7 +157,6 @@ export type GraphProjection = z.infer<typeof GraphProjection>;
 export const NodeConfig = z.object({
   type: z.nativeEnum(NodeType),
   code: z.string().optional(), // For inline code nodes
-  libraryId: z.string().optional(), // For library nodes
   subgraphId: z.string().optional(), // For subgraph nodes
   runtime: z.string().min(1).optional(), // Runtime identifier for executable nodes
   pythonEnv: z.string().trim().min(1).optional(), // Named graph-level Python env for python_process runtime

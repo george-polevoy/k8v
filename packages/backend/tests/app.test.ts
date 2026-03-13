@@ -248,6 +248,101 @@ test('POST /api/graphs accepts python_process runtime in node config', async () 
   }
 });
 
+test('POST /api/graphs rejects legacy library node payloads', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const legacyLibraryNode = {
+      id: 'library-1',
+      type: 'library',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'Legacy Library',
+        inputs: [],
+        outputs: [],
+      },
+      config: {
+        type: 'library',
+      },
+      version: '1',
+    };
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [legacyLibraryNode],
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('library node manifest API is not exposed', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await fetch(`${ctx.baseUrl}/api/library-nodes`);
+    assert.equal(response.status, 404);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects legacy external_input node payloads', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const legacyExternalInputNode = {
+      id: 'external-input-1',
+      type: 'external_input',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'Legacy External Input',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'external_input',
+      },
+      version: '1',
+    };
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [legacyExternalInputNode],
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs rejects legacy external_output node payloads', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const legacyExternalOutputNode = {
+      id: 'external-output-1',
+      type: 'external_output',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'Legacy External Output',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [],
+      },
+      config: {
+        type: 'external_output',
+      },
+      version: '1',
+    };
+
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [legacyExternalOutputNode],
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs accepts numeric_input nodes and compute returns numeric value', async () => {
   const ctx = await setupTestServer();
 

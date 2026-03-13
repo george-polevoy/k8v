@@ -49,20 +49,11 @@ export class NodeExecutor {
         graphicsOutput = result.graphicsOutput;
         break;
       }
-      case NodeType.LIBRARY:
-        outputs = await this.executeLibraryNode(node, inputs);
-        break;
       case NodeType.SUBGRAPH:
         outputs = await this.executeSubgraph(node, inputs);
         break;
-      case NodeType.EXTERNAL_INPUT:
-        outputs = await this.executeExternalInput(node, inputs);
-        break;
       case NodeType.NUMERIC_INPUT:
         outputs = await this.executeNumericInput(node);
-        break;
-      case NodeType.EXTERNAL_OUTPUT:
-        outputs = await this.executeExternalOutput(node, inputs);
         break;
       case NodeType.ANNOTATION:
         outputs = await this.executeAnnotationNode();
@@ -117,27 +108,6 @@ export class NodeExecutor {
   }
 
   /**
-   * Execute library node
-   */
-  private async executeLibraryNode(node: GraphNode, _inputs: Record<string, any>): Promise<Record<string, any>> {
-    if (!node.config.libraryId) {
-      throw new Error(`Library node ${node.id} has no libraryId`);
-    }
-
-    const library = await this.dataStore.getLibraryNode(node.config.libraryId);
-    if (!library) {
-      throw new Error(`Library node ${node.config.libraryId} not found`);
-    }
-
-    // Execute library node logic
-    // This would call the library's execution function
-    // For now, return a placeholder
-    return {
-      result: `Library node ${library.name} executed with inputs`,
-    };
-  }
-
-  /**
    * Execute subgraph node
    */
   private async executeSubgraph(node: GraphNode, _inputs: Record<string, any>): Promise<Record<string, any>> {
@@ -151,34 +121,12 @@ export class NodeExecutor {
       throw new Error(`Subgraph ${node.config.subgraphId} not found`);
     }
 
-    // Map inputs to external input nodes in subgraph
-    const externalInputNodes = subgraph.nodes.filter(
-      (n: GraphNode) => n.config.type === NodeType.EXTERNAL_INPUT
-    );
+    void subgraph;
 
-    for (const inputNode of externalInputNodes) {
-      // Set inputs on external input nodes
-      // This would be handled by the graph engine
-      void inputNode; // Placeholder to prevent unused variable warning
-    }
-
-    // Execute subgraph (would use GraphEngine)
-    // For now, return placeholder
+    // Reusable subgraph execution is still roadmap-only, so keep a placeholder result.
     return {
       result: `Subgraph ${node.config.subgraphId} executed`,
     };
-  }
-
-  /**
-   * Execute external input node
-   */
-  private async executeExternalInput(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
-    // External input nodes pass through their configured inputs
-    const outputs: Record<string, any> = {};
-    for (const output of node.metadata.outputs) {
-      outputs[output.name] = node.config.config?.[output.name] || inputs[output.name];
-    }
-    return outputs;
   }
 
   /**
@@ -188,14 +136,6 @@ export class NodeExecutor {
     const { value } = this.resolveNumericInputConfig(node);
     const outputName = node.metadata.outputs[0]?.name ?? 'value';
     return { [outputName]: value };
-  }
-
-  /**
-   * Execute external output node
-   */
-  private async executeExternalOutput(node: GraphNode, inputs: Record<string, any>): Promise<Record<string, any>> {
-    // External output nodes pass through their inputs as outputs
-    return inputs;
   }
 
   /**

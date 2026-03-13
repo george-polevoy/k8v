@@ -29,14 +29,22 @@ function loadGraph(graphPath) {
       nodes: [
         {
           id: 'n1',
-          type: 'external_input',
+          type: 'numeric_input',
           position: { x: -260, y: 40 },
           metadata: {
-            name: 'Input',
+            name: 'Source',
             inputs: [],
-            outputs: [{ name: 'output', schema: { type: 'object' } }],
+            outputs: [{ name: 'value', schema: { type: 'number' } }],
           },
-          config: { type: 'external_input' },
+          config: {
+            type: 'numeric_input',
+            config: {
+              value: 5,
+              min: 0,
+              max: 10,
+              step: 1,
+            },
+          },
           version: String(now),
         },
         {
@@ -45,8 +53,24 @@ function loadGraph(graphPath) {
           position: { x: 40, y: 20 },
           metadata: {
             name: 'Transform',
-            inputs: [{ name: 'input', schema: { type: 'object' } }],
-            outputs: [{ name: 'output', schema: { type: 'object' } }],
+            inputs: [{ name: 'input', schema: { type: 'number' } }],
+            outputs: [{ name: 'output', schema: { type: 'number' } }],
+          },
+          config: {
+            type: 'inline_code',
+            runtime: 'javascript_vm',
+            code: 'outputs.output = (inputs.input ?? 0) * 2;',
+          },
+          version: String(now),
+        },
+        {
+          id: 'n3',
+          type: 'inline_code',
+          position: { x: 360, y: 60 },
+          metadata: {
+            name: 'Result',
+            inputs: [{ name: 'input', schema: { type: 'number' } }],
+            outputs: [{ name: 'output', schema: { type: 'number' } }],
           },
           config: {
             type: 'inline_code',
@@ -55,24 +79,12 @@ function loadGraph(graphPath) {
           },
           version: String(now),
         },
-        {
-          id: 'n3',
-          type: 'external_output',
-          position: { x: 360, y: 60 },
-          metadata: {
-            name: 'Output',
-            inputs: [{ name: 'input', schema: { type: 'object' } }],
-            outputs: [],
-          },
-          config: { type: 'external_output' },
-          version: String(now),
-        },
       ],
       connections: [
         {
           id: 'c1',
           sourceNodeId: 'n1',
-          sourcePort: 'output',
+          sourcePort: 'value',
           targetNodeId: 'n2',
           targetPort: 'input',
         },

@@ -62,47 +62,6 @@ export function createInlineCodeNode(options: CreateNodeOptions): GraphNode {
 }
 
 /**
- * Factory function for creating library nodes.
- */
-export function createLibraryNode(options: CreateNodeOptions & { libraryId: string }): GraphNode {
-  return {
-    id: uuidv4(),
-    type: NodeType.LIBRARY,
-    position: options.position,
-    metadata: {
-      name: options.name || 'Library Node',
-      inputs: [],
-      outputs: [],
-    },
-    config: {
-      type: NodeType.LIBRARY,
-      libraryId: options.libraryId,
-    },
-    version: Date.now().toString(),
-  };
-}
-
-/**
- * Factory function for creating external input nodes.
- */
-export function createExternalInputNode(options: CreateNodeOptions): GraphNode {
-  return {
-    id: uuidv4(),
-    type: NodeType.EXTERNAL_INPUT,
-    position: options.position,
-    metadata: {
-      name: options.name || 'External Input',
-      inputs: [],
-      outputs: [{ name: 'output', schema: { type: 'object' } }],
-    },
-    config: {
-      type: NodeType.EXTERNAL_INPUT,
-    },
-    version: Date.now().toString(),
-  };
-}
-
-/**
  * Factory function for creating numeric input nodes.
  */
 export function createNumericInputNode(options: CreateNodeOptions): GraphNode {
@@ -123,26 +82,6 @@ export function createNumericInputNode(options: CreateNodeOptions): GraphNode {
         max: 100,
         step: 1,
       },
-    },
-    version: Date.now().toString(),
-  };
-}
-
-/**
- * Factory function for creating external output nodes.
- */
-export function createExternalOutputNode(options: CreateNodeOptions): GraphNode {
-  return {
-    id: uuidv4(),
-    type: NodeType.EXTERNAL_OUTPUT,
-    position: options.position,
-    metadata: {
-      name: options.name || 'External Output',
-      inputs: [{ name: 'input', schema: { type: 'object' } }],
-      outputs: [],
-    },
-    config: {
-      type: NodeType.EXTERNAL_OUTPUT,
     },
     version: Date.now().toString(),
   };

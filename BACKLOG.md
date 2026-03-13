@@ -136,3 +136,20 @@ Status: DONE
   - `npm run test`
   - `npx tsx --test packages/frontend/tests/e2e/annotationCard.test.ts`
   - `npx tsx --test packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`
+
+## Untriaged Future Roadmap
+
+These items are intentionally not prioritized yet and should not be treated as active or queued delivery work.
+
+### R-001 Reusable Components
+Status: UNTRIAGED
+
+- Investigate reusable graph packaging for future workflows.
+- Decide whether that should look like reusable subgraphs, library nodes, templates, or another model.
+- Do not treat reusable library nodes as currently supported behavior.
+
+### R-002 Boundary Nodes
+Status: UNTRIAGED
+
+- Revisit whether graph-boundary node types are needed at all.
+- Do not treat external input/output boundary nodes as currently supported behavior.

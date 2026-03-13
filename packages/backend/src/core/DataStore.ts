@@ -51,15 +51,6 @@ export class DataStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-
-      CREATE TABLE IF NOT EXISTS library_nodes (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        manifest TEXT NOT NULL,
-        graph_id TEXT,
-        version TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
     `);
 
     this.migrateComputationResultsSchemaIfNeeded();
@@ -482,50 +473,6 @@ export class DataStore {
     const stmt = this.db.prepare('DELETE FROM graphs WHERE id = ?');
     const result = stmt.run(graphId);
     return result.changes > 0;
-  }
-
-  /**
-   * Store library node
-   */
-  async storeLibraryNode(manifest: any, graphId?: string): Promise<void> {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO library_nodes 
-      (id, name, manifest, graph_id, version, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      manifest.id,
-      manifest.name,
-      JSON.stringify(manifest),
-      graphId || null,
-      manifest.version,
-      manifest.createdAt || Date.now()
-    );
-  }
-
-  /**
-   * Get library node manifest
-   */
-  async getLibraryNode(libraryId: string): Promise<any | null> {
-    const stmt = this.db.prepare('SELECT manifest FROM library_nodes WHERE id = ?');
-    const row = stmt.get(libraryId) as { manifest: string } | undefined;
-
-    if (!row) {
-      return null;
-    }
-
-    return JSON.parse(row.manifest);
-  }
-
-  /**
-   * List all library nodes
-   */
-  async listLibraryNodes(): Promise<any[]> {
-    const stmt = this.db.prepare('SELECT manifest FROM library_nodes');
-    const rows = stmt.all();
-
-    return rows.map((row: any) => JSON.parse(row.manifest));
   }
 
   /**

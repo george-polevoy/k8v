@@ -23,16 +23,21 @@ function createGraph(initialInput: number): Graph {
     nodes: [
       {
         id: 'input-node',
-        type: NodeType.EXTERNAL_INPUT,
+        type: NodeType.NUMERIC_INPUT,
         position: { x: 0, y: 0 },
         metadata: {
-          name: 'Input',
+          name: 'Numeric Input',
           inputs: [],
-          outputs: [{ name: 'output', schema: { type: 'number' } }],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.EXTERNAL_INPUT,
-          config: { output: initialInput },
+          type: NodeType.NUMERIC_INPUT,
+          config: {
+            value: initialInput,
+            min: 0,
+            max: 100,
+            step: 1,
+          },
         },
         version: 'input-v1',
       },
@@ -73,7 +78,7 @@ function createGraph(initialInput: number): Graph {
       {
         id: 'c1',
         sourceNodeId: 'input-node',
-        sourcePort: 'output',
+        sourcePort: 'value',
         targetNodeId: 'upstream-node',
         targetPort: 'input',
       },
@@ -104,7 +109,13 @@ test('GraphEngine recomputes downstream node after upstream result changes', asy
 
     const inputNode = graph.nodes.find((node) => node.id === 'input-node');
     assert.ok(inputNode, 'expected input node to exist');
-    inputNode.config = { ...inputNode.config, config: { output: 2 } };
+    inputNode.config = {
+      ...inputNode.config,
+      config: {
+        ...inputNode.config.config,
+        value: 2,
+      },
+    };
     inputNode.version = 'input-v2';
     graph.updatedAt = Date.now();
 

@@ -154,7 +154,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Runtime and Execution Engine
 
-- NodeExecutor supports inline code, library, subgraph, external input, numeric input, external output node types.
+- NodeExecutor supports inline code, numeric input, and annotation node types.
 - `annotation` nodes are presentation-only and excluded from backend recompute execution.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`).
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
@@ -164,6 +164,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Python runtime normalizes PNG outputs from bytes/base64 and provides `outputPng`/`outputPNG` helpers for image rendering.
 - Python runtime accepts per-execution `pythonBin` and `cwd` overrides, enabling node-level env selection.
 - Pluggable runtime architecture is in place for future runtimes.
+- Reusable library nodes are not implemented and are not currently triaged.
+- Reusable subgraph packaging remains future roadmap work, not current functionality.
+- External input/output boundary nodes are not implemented and are not currently triaged.
 
 ## Debugging and Tooling
 

@@ -6,10 +6,7 @@ import ColorSelectionDialog from './ColorSelectionDialog';
 import {
   createAnnotationNode,
   createInlineCodeNode,
-  createLibraryNode,
-  createExternalInputNode,
   createNumericInputNode,
-  createExternalOutputNode,
 } from '../utils/nodeFactory';
 import {
   DEFAULT_ANNOTATION_BACKGROUND_COLOR,
@@ -64,29 +61,10 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
           outputNames: inferInlineOutputPortNames(code),
         });
         break;
-      case NodeType.LIBRARY:
-        newNode = createLibraryNode({
-          position,
-          name: name || undefined,
-          libraryId: ''
-        });
-        break;
-      case NodeType.EXTERNAL_INPUT:
-        newNode = createExternalInputNode({
-          position,
-          name: name || undefined
-        });
-        break;
       case NodeType.NUMERIC_INPUT:
         newNode = createNumericInputNode({
           position,
           name: name || undefined,
-        });
-        break;
-      case NodeType.EXTERNAL_OUTPUT:
-        newNode = createExternalOutputNode({
-          position,
-          name: name || undefined
         });
         break;
       case NodeType.ANNOTATION:
@@ -168,10 +146,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
           }}
         >
           <option value={NodeType.INLINE_CODE}>Inline Code</option>
-          <option value={NodeType.LIBRARY}>Library Node</option>
-          <option value={NodeType.EXTERNAL_INPUT}>External Input</option>
           <option value={NodeType.NUMERIC_INPUT}>Numeric Input</option>
-          <option value={NodeType.EXTERNAL_OUTPUT}>External Output</option>
           <option value={NodeType.ANNOTATION}>Annotation</option>
         </select>
       </div>

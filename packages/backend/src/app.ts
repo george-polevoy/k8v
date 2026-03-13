@@ -5,9 +5,7 @@ import { DataStore } from './core/DataStore.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
 import { RecomputeManager } from './core/RecomputeManager.js';
-import { validate } from './http/validate.js';
 import { createGraphRouter } from './routes/graphRoutes.js';
-import { v4 as uuidv4 } from 'uuid';
 
 interface AppDependencies {
   dataStore: DataStore;
@@ -20,13 +18,6 @@ const GraphicsBinaryQuerySchema = z.object({
   maxPixels: z.coerce.number().int().positive().optional(),
 });
 
-const CreateLibraryNodeSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-  graphId: z.string().optional(),
-  version: z.string().optional().default('1.0.0'),
-});
-
 export function createApp(deps?: AppDependencies) {
   const app = express();
   app.use(cors());
@@ -37,44 +28,6 @@ export function createApp(deps?: AppDependencies) {
     deps?.graphEngine ?? new GraphEngine(dataStore, new NodeExecutor(dataStore));
   const recomputeManager = new RecomputeManager(dataStore, graphEngine);
   app.use('/api/graphs', createGraphRouter({ dataStore, recomputeManager }));
-
-  app.get('/api/library-nodes', async (_req, res) => {
-    try {
-      const libraries = await dataStore.listLibraryNodes();
-      res.json({ libraries });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.get('/api/library-nodes/:id', async (req, res) => {
-    try {
-      const library = await dataStore.getLibraryNode(req.params.id);
-      if (!library) {
-        return res.status(404).json({ error: 'Library node not found' });
-      }
-      res.json(library);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post('/api/library-nodes', validate(CreateLibraryNodeSchema), async (req, res) => {
-    try {
-      const manifest = {
-        id: uuidv4(),
-        name: req.body.name,
-        description: req.body.description,
-        version: req.body.version,
-        createdAt: Date.now(),
-      };
-
-      await dataStore.storeLibraryNode(manifest, req.body.graphId);
-      res.json(manifest);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
 
   app.get('/api/nodes/:id/result', async (req, res) => {
     try {

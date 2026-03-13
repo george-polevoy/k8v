@@ -13,9 +13,8 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Named Inputs/Outputs**: Nodes have metadata defining named inputs and outputs
 - **Multiple Node Types**:
   - Inline code nodes
-  - Library nodes with retrievable manifests
-- **Reusable Subgraphs**: Wrap interlinked parts of graph into reusable library nodes
-- **Visual Programming**: Create library nodes using the graph as a visual programming language
+  - Numeric input nodes
+  - Annotation nodes
 - **Node Panel Editing**: Edit card names and manage input ports (add, rename, reorder, delete)
 - **Graph Panel Management**: Select graph, create graph, rename current graph, and delete current graph from dedicated graph panel
 - **Floating Overlay Panels**: Toolbar and right-side panels are draggable overlay windows above the canvas
@@ -29,6 +28,11 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Graph Python Envs**: Graphs can define named Python envs (`name`, `pythonPath`, `cwd`) and Python nodes can bind to them via `pythonEnv`
 - **Python PNG Outputs**: Python nodes can render PNG graphics from data URLs, raw base64, or raw bytes via output helpers
 - **Canvas Output Projection**: `python_process` nodes project latest graphics output directly below the node card on canvas
+
+## Roadmap Notes
+
+- Reusable library nodes are not currently implemented or triaged.
+- Reusable subgraph packaging is also future roadmap work, not a supported feature today.
 
 ## Architecture
 

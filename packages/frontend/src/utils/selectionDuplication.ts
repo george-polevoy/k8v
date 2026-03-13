@@ -94,7 +94,6 @@ function cloneNodeConfig(config: NodeConfig): NodeConfig {
   return {
     type: config.type,
     code: config.code,
-    libraryId: config.libraryId,
     subgraphId: config.subgraphId,
     runtime: config.runtime,
     pythonEnv: config.pythonEnv,

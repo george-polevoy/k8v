@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 11, 2026.
+Last reviewed: March 13, 2026.
 
 ## Coverage Legend
 
@@ -142,6 +142,10 @@ Last reviewed: March 11, 2026.
 - `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
 - `A-BE-67` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` traverses annotation-linked nodes and can project annotation `sourceAnchor`/`targetAnchor` fields for those links.
 - `A-BE-68` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects connection updates that would leave multiple inbound edges on one target input slot.
+- `A-BE-69` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `library` node payloads.
+- `A-BE-70` `packages/backend/tests/app.test.ts`: `/api/library-nodes` is not exposed.
+- `A-BE-71` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `external_input` node payloads.
+- `A-BE-72` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `external_output` node payloads.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -344,11 +348,13 @@ Last reviewed: March 11, 2026.
 | Graph python env names are unique | `A-BE-22` | Automated |
 | MCP graph Python env management | `M-MCP-07` | Manual |
 | Node `pythonEnv` references are valid and runtime-compatible | `A-BE-23`, `A-BE-24`, `A-BE-26`, `A-BE-27` | Automated |
+| Library nodes are not supported or exposed by backend APIs | `A-BE-69`, `A-BE-70` | Automated |
+| External input/output node types are not supported by backend validation | `A-BE-71`, `A-BE-72` | Automated |
 | Validate missing node references in connections | `M-VALID-01` | Manual |
 | Reject cycles on `POST` | `A-BE-05` | Automated |
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |
 | Reject updates on legacy cyclic graphs | `A-BE-07` | Automated |
-| NodeExecutor supports inline/library/subgraph/external/numeric I/O | `A-BE-10`, `A-BE-11`, `A-BE-12`, `A-BE-34`, `A-BE-35` | Automated |
+| NodeExecutor supports current inline runtime selection and `numeric_input` execution | `A-BE-10`, `A-BE-11`, `A-BE-12`, `A-BE-34`, `A-BE-35` | Automated |
 | Annotation nodes are non-executable presentation nodes and annotation-linked edges stay out of DAG validation/execution | `A-BE-52`, `A-BE-53`, `A-BE-65`, `A-BE-66` | Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |

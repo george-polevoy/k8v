@@ -24,12 +24,11 @@ k8v is a flow-based modeling software that enables visual programming through an
 #### DataStore (`packages/backend/src/core/DataStore.ts`)
 - Persists computation results in structured format (JSON)
 - Stores graph metadata in SQLite
-- Manages library node manifests
 - Serializes outputs and schemas separately for type inference
 - Persists graphics as id-addressable artifacts with PNG mip-map levels and metadata-only compute responses
 
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
-- Executes different node types (inline code, library, subgraph, external I/O)
+- Executes current node types (inline code, numeric input, annotation)
 - Infers data schemas from outputs
 - Delegates inline code execution to runtime implementations (`packages/backend/src/core/execution/`)
 - Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout)
@@ -107,20 +106,18 @@ k8v is a flow-based modeling software that enables visual programming through an
   outputs.product = inputs.a * inputs.b;
   ```
 
-### Library Nodes
-- Pre-built nodes with retrievable manifests
-- Stored in library system
-- Can be reused across graphs
+### Numeric Input Nodes
+- Provide persisted scalar values directly from node configuration
+- Useful for simple graph parameters and demos without additional boundary-node types
 
-### Subgraph Nodes
-- Wrapped interlinked parts of a graph
-- Can be used as reusable components
-- External inputs/outputs define interface
+### Annotation Nodes
+- Presentation-only note cards on the canvas
+- Excluded from dependency ordering and backend execution
 
-### External Input/Output Nodes
-- Define graph boundaries
-- External inputs: data entry points
-- External outputs: data exit points
+## Future Roadmap Notes
+
+- Reusable library nodes are not implemented and are not currently triaged.
+- Reusable subgraph packaging remains future roadmap work rather than a supported runtime feature.
 
 ## Schema Inference
 

@@ -32,11 +32,8 @@ export type RuntimeId = 'javascript_vm' | string;
 
 export type NodeType =
   | 'inline_code'
-  | 'library'
   | 'subgraph'
-  | 'external_input'
   | 'numeric_input'
-  | 'external_output'
   | 'annotation';
 
 export interface DataSchema {
@@ -92,7 +89,6 @@ export interface GraphNode {
   config: {
     type: NodeType;
     code?: string;
-    libraryId?: string;
     subgraphId?: string;
     runtime?: RuntimeId;
     pythonEnv?: string;
