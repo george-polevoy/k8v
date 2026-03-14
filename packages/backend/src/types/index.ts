@@ -131,6 +131,8 @@ export const DEFAULT_GRAPH_CONNECTION_STROKE: GraphConnectionStroke = {
 
 export const DEFAULT_GRAPH_PROJECTION_ID = 'default';
 export const DEFAULT_GRAPH_PROJECTION_NAME = 'Default';
+export const DEFAULT_GRAPH_CAMERA_ID = 'default-camera';
+export const DEFAULT_GRAPH_CAMERA_NAME = 'Default Camera';
 export const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 
 export const GraphProjection = z.object({
@@ -152,6 +154,44 @@ export const GraphProjection = z.object({
 });
 
 export type GraphProjection = z.infer<typeof GraphProjection>;
+
+export const GraphCameraViewport = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  scale: z.number().finite().positive(),
+});
+
+export type GraphCameraViewport = z.infer<typeof GraphCameraViewport>;
+
+export const GraphCameraWindowAxisHorizontal = z.object({
+  edge: z.enum(['left', 'right']),
+  ratio: z.number().finite().min(0).max(1),
+});
+
+export type GraphCameraWindowAxisHorizontal = z.infer<typeof GraphCameraWindowAxisHorizontal>;
+
+export const GraphCameraWindowAxisVertical = z.object({
+  edge: z.enum(['top', 'bottom']),
+  ratio: z.number().finite().min(0).max(1),
+});
+
+export type GraphCameraWindowAxisVertical = z.infer<typeof GraphCameraWindowAxisVertical>;
+
+export const GraphCameraWindowPosition = z.object({
+  horizontal: GraphCameraWindowAxisHorizontal,
+  vertical: GraphCameraWindowAxisVertical,
+});
+
+export type GraphCameraWindowPosition = z.infer<typeof GraphCameraWindowPosition>;
+
+export const GraphCamera = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  viewport: GraphCameraViewport.optional(),
+  floatingWindows: z.record(GraphCameraWindowPosition).default({}),
+});
+
+export type GraphCamera = z.infer<typeof GraphCamera>;
 
 // Node configuration
 export const NodeConfig = z.object({
@@ -215,6 +255,7 @@ export const Graph = z.object({
   connectionStroke: GraphConnectionStroke.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
+  cameras: z.array(GraphCamera).optional(),
   pythonEnvs: z.array(PythonEnvironment).default([]),
   drawings: z.array(GraphDrawing).default([]),
   createdAt: z.number(),

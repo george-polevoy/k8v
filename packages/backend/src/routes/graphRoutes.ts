@@ -12,6 +12,7 @@ import {
 } from '../core/graphQuery.js';
 import {
   normalizeConnectionStrokeValue,
+  normalizeGraphCameras,
   normalizeGraphProjections,
   syncActiveProjectionLayout,
 } from '../core/graphNormalization.js';
@@ -28,6 +29,7 @@ import {
   DEFAULT_CANVAS_BACKGROUND,
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   Graph,
+  GraphCamera,
   GraphConnectionStroke,
   GraphDrawing,
   GraphProjection,
@@ -50,6 +52,7 @@ const CreateGraphSchema = z.object({
   connectionStroke: GraphConnectionStroke.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
+  cameras: z.array(GraphCamera).optional().default([]),
   pythonEnvs: z.array(PythonEnvironment).optional().default([]),
   drawings: z.array(GraphDrawing).optional().default([]),
 });
@@ -64,6 +67,7 @@ const UpdateGraphSchema = z.object({
   connectionStroke: GraphConnectionStroke.optional(),
   projections: z.array(GraphProjection).optional(),
   activeProjectionId: z.string().trim().min(1).optional(),
+  cameras: z.array(GraphCamera).optional(),
   pythonEnvs: z.array(PythonEnvironment).optional(),
   drawings: z.array(GraphDrawing).optional(),
   ifMatchUpdatedAt: z.number().optional(),
@@ -280,6 +284,7 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
         connectionStroke: normalizeConnectionStrokeValue(req.body.connectionStroke),
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
+        cameras: normalizeGraphCameras(req.body.cameras),
         pythonEnvs: req.body.pythonEnvs,
         drawings: req.body.drawings,
         createdAt: Date.now(),
@@ -358,6 +363,7 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
         connectionStroke: normalizeConnectionStrokeValue(mergedConnectionStroke),
         projections: projectionState.projections,
         activeProjectionId: projectionState.activeProjectionId,
+        cameras: normalizeGraphCameras(req.body.cameras ?? existing.cameras),
         pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],
         drawings: req.body.drawings ?? existing.drawings ?? [],
         updatedAt: Date.now(),

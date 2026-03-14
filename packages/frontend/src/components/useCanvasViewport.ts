@@ -10,13 +10,13 @@ import type {
   GraphNode,
   Position,
 } from '../types';
+import { resolveGraphCamera } from '../utils/cameras';
 import { clamp, snapToPixel } from '../utils/canvasHelpers';
 import {
   resolveGraphWorldBounds,
   resolveViewportFitTransform,
 } from '../utils/canvasViewportFit';
 import { resolveGraphCanvasBackground } from '../utils/canvasBackground';
-import { readGraphViewportTransform } from '../utils/uiPersistence';
 
 export interface MinimapTransform {
   minX: number;
@@ -93,6 +93,7 @@ interface UseCanvasViewportParams {
   viewportRef: MutableRefObject<Container | null>;
   textNodesRef: MutableRefObject<Set<Text>>;
   graphRef: MutableRefObject<Graph | null>;
+  selectedCameraIdRef: MutableRefObject<string | null>;
   selectedNodeIdsRef: MutableRefObject<string[]>;
   selectedDrawingIdRef: MutableRefObject<string | null>;
   nodeVisualsRef: MutableRefObject<Map<string, NodeVisualLike>>;
@@ -121,6 +122,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     viewportRef,
     textNodesRef,
     graphRef,
+    selectedCameraIdRef,
     selectedNodeIdsRef,
     selectedDrawingIdRef,
     nodeVisualsRef,
@@ -413,7 +415,6 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     const resetViewport = () => {
       viewport.scale.set(1);
       viewport.position.set(app.screen.width / 2, app.screen.height / 2);
-      persistViewportTransform();
       updateTextResolutionForScale(1);
       drawMinimap();
       requestViewportDrivenGraphRefresh();
@@ -459,7 +460,6 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     });
     viewport.scale.set(nextTransform.scale);
     viewport.position.set(nextTransform.x, nextTransform.y);
-    persistViewportTransform();
     updateTextResolutionForScale(nextTransform.scale);
     drawMinimap();
     requestViewportDrivenGraphRefresh();
@@ -473,29 +473,28 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     graphRef,
     nodePositionsRef,
     nodeVisualsRef,
-    persistViewportTransform,
     requestViewportDrivenGraphRefresh,
     updateTextResolutionForScale,
     viewportRef,
   ]);
 
-  const restoreViewportFromPersistence = useCallback((): boolean => {
+  const restoreViewportFromSelectedCamera = useCallback((): boolean => {
     const currentGraph = graphRef.current;
     const viewport = viewportRef.current;
     if (!currentGraph || !viewport) {
       return false;
     }
 
-    const persistedTransform = readGraphViewportTransform(currentGraph.id);
-    if (!persistedTransform) {
+    const selectedCamera = resolveGraphCamera(currentGraph.cameras, selectedCameraIdRef.current);
+    if (!selectedCamera.viewport) {
       return false;
     }
 
-    const scale = clamp(persistedTransform.scale, config.minZoom, config.maxZoom);
+    const scale = clamp(selectedCamera.viewport.scale, config.minZoom, config.maxZoom);
     viewport.scale.set(scale);
     viewport.position.set(
-      snapToPixel(persistedTransform.x),
-      snapToPixel(persistedTransform.y)
+      snapToPixel(selectedCamera.viewport.x),
+      snapToPixel(selectedCamera.viewport.y)
     );
     updateTextResolutionForScale(scale);
     return true;
@@ -503,6 +502,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     config.maxZoom,
     config.minZoom,
     graphRef,
+    selectedCameraIdRef,
     updateTextResolutionForScale,
     viewportRef,
   ]);
@@ -613,7 +613,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     drawMinimap,
     fitViewportToGraph,
     handleMinimapPointerDown,
-    restoreViewportFromPersistence,
+    restoreViewportFromSelectedCamera,
     setViewportRegionForScreenshot,
     startProjectionTransition,
     updateTextResolutionForScale,

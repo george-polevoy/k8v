@@ -31,6 +31,32 @@ export interface GraphProjection {
   canvasBackground?: CanvasBackgroundSettings;
 }
 
+export type FloatingWindowHorizontalEdge = 'left' | 'right';
+export type FloatingWindowVerticalEdge = 'top' | 'bottom';
+
+export interface GraphCameraViewport {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export interface GraphCameraWindowAxis<TEdge extends string> {
+  edge: TEdge;
+  ratio: number;
+}
+
+export interface GraphCameraWindowPosition {
+  horizontal: GraphCameraWindowAxis<FloatingWindowHorizontalEdge>;
+  vertical: GraphCameraWindowAxis<FloatingWindowVerticalEdge>;
+}
+
+export interface GraphCamera {
+  id: string;
+  name: string;
+  viewport?: GraphCameraViewport;
+  floatingWindows?: Record<string, GraphCameraWindowPosition>;
+}
+
 export interface PortDefinition {
   name: string;
   schema: DataSchema;
@@ -130,6 +156,7 @@ export interface Graph {
   connectionStroke?: GraphConnectionStrokeSettings;
   projections?: GraphProjection[];
   activeProjectionId?: string;
+  cameras?: GraphCamera[];
   pythonEnvs?: PythonEnvironment[];
   drawings?: GraphDrawing[];
   createdAt: number;

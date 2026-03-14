@@ -394,7 +394,7 @@ test.after(async () => {
 });
 
 test(
-  'canvas multi-selection supports marquee selection, ctrl toggle/add, shared resize/delete, and space pan',
+  'canvas multi-selection supports marquee selection, ctrl toggle/add, shared resize/delete, and space pan from an active selection',
   { timeout: 150_000 },
   async () => {
     const { graphId, nodeIds } = await createMultiNodeGraph();
@@ -570,10 +570,13 @@ test(
       );
 
       const viewportBeforePan = await waitForViewportTransform(page, () => true);
+      const leftRectBeforePan = await resolveNodeScreenRect(graphId, nodeIds.left, viewportBeforePan, canvasBox);
       const rightRectBeforePan = await resolveNodeScreenRect(graphId, nodeIds.right, viewportBeforePan, canvasBox);
+      const leftPositionBeforePan = await getNodePosition(graphId, nodeIds.left);
+      const middlePositionBeforePan = await getNodePosition(graphId, nodeIds.middle);
       const panStartPoint = {
-        x: canvasBox.x + 280,
-        y: canvasBox.y + 80,
+        x: leftRectBeforePan.x + (leftRectBeforePan.width * 0.5),
+        y: leftRectBeforePan.y + (leftRectBeforePan.height * 0.5),
       };
       const panDelta = {
         x: 160,
@@ -593,13 +596,25 @@ test(
       assert.ok(
         approxEqual(viewportAfterPan.x - viewportBeforePan.x, panDelta.x, 2) &&
         approxEqual(viewportAfterPan.y - viewportBeforePan.y, panDelta.y, 2),
-        `Space-drag should pan viewport. Before=${JSON.stringify(viewportBeforePan)} After=${JSON.stringify(viewportAfterPan)}`
+        `Space-drag from a selected node should pan viewport. Before=${JSON.stringify(viewportBeforePan)} After=${JSON.stringify(viewportAfterPan)}`
       );
       const rightRectAfterPan = await resolveNodeScreenRect(graphId, nodeIds.right, viewportAfterPan, canvasBox);
       assert.ok(
         approxEqual(rightRectAfterPan.x - rightRectBeforePan.x, panDelta.x, 2) &&
         approxEqual(rightRectAfterPan.y - rightRectBeforePan.y, panDelta.y, 2),
         'Space-drag should move node screen positions with the viewport'
+      );
+      const leftPositionAfterPan = await getNodePosition(graphId, nodeIds.left);
+      const middlePositionAfterPan = await getNodePosition(graphId, nodeIds.middle);
+      assert.deepEqual(
+        leftPositionAfterPan,
+        leftPositionBeforePan,
+        'Space-drag should not move the selected node in graph coordinates'
+      );
+      assert.deepEqual(
+        middlePositionAfterPan,
+        middlePositionBeforePan,
+        'Space-drag should not move the rest of the selected set in graph coordinates'
       );
 
       await canvas.evaluate((canvasElement) => {

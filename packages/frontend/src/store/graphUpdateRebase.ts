@@ -1,6 +1,7 @@
 import type {
   Connection,
   Graph,
+  GraphCamera,
   GraphDrawing,
   GraphNode,
   GraphProjection,
@@ -18,6 +19,7 @@ const GRAPH_UPDATE_KEYS = [
   'connectionStroke',
   'projections',
   'activeProjectionId',
+  'cameras',
   'pythonEnvs',
   'drawings',
 ] as const;
@@ -145,6 +147,188 @@ function mergeEntityArraysById<T extends { id: string }>(
     }
 
     replacements.set(item.id, item);
+  }
+
+  for (const item of localAddedItems) {
+    const latestItem = latestById.get(item.id);
+    if (!latestItem) {
+      continue;
+    }
+    if (!areValuesEqual(latestItem, item)) {
+      return null;
+    }
+  }
+
+  for (const deletedId of localDeletedIds) {
+    const baseItem = baseById.get(deletedId);
+    const latestItem = latestById.get(deletedId);
+    if (!baseItem || !latestItem) {
+      continue;
+    }
+    if (!areValuesEqual(latestItem, baseItem)) {
+      return null;
+    }
+  }
+
+  const merged = latestItems
+    .filter((item) => !localDeletedIds.has(item.id))
+    .map((item) => replacements.get(item.id) ?? item);
+
+  for (const item of localAddedItems) {
+    if (!latestById.has(item.id)) {
+      merged.push(item);
+    }
+  }
+
+  return merged;
+}
+
+function mergeRecordByKey<T>(
+  baseRecord: Record<string, T>,
+  localRecord: Record<string, T>,
+  latestRecord: Record<string, T>
+): Record<string, T> | null {
+  const baseKeys = new Set(Object.keys(baseRecord));
+  const localKeys = new Set(Object.keys(localRecord));
+  const latestKeys = new Set(Object.keys(latestRecord));
+
+  for (const key of baseKeys) {
+    const localHasKey = localKeys.has(key);
+    const latestHasKey = latestKeys.has(key);
+    const baseValue = baseRecord[key];
+    const latestValue = latestRecord[key];
+
+    if (!localHasKey) {
+      if (latestHasKey && !areValuesEqual(latestValue, baseValue)) {
+        return null;
+      }
+      continue;
+    }
+
+    const localValue = localRecord[key];
+    if (!latestHasKey) {
+      if (!areValuesEqual(localValue, baseValue)) {
+        return null;
+      }
+      continue;
+    }
+
+    if (areValuesEqual(localValue, baseValue)) {
+      continue;
+    }
+
+    if (!areValuesEqual(latestValue, baseValue) && !areValuesEqual(latestValue, localValue)) {
+      return null;
+    }
+  }
+
+  for (const key of localKeys) {
+    if (baseKeys.has(key)) {
+      continue;
+    }
+
+    const localValue = localRecord[key];
+    if (!latestKeys.has(key)) {
+      continue;
+    }
+
+    if (!areValuesEqual(latestRecord[key], localValue)) {
+      return null;
+    }
+  }
+
+  const merged: Record<string, T> = {};
+  for (const [key, value] of Object.entries(latestRecord)) {
+    if (!baseKeys.has(key) || localKeys.has(key)) {
+      merged[key] = value;
+    }
+  }
+
+  for (const [key, value] of Object.entries(localRecord)) {
+    if (!baseKeys.has(key) || !areValuesEqual(value, baseRecord[key])) {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
+}
+
+function mergeGraphCamera(
+  baseCamera: GraphCamera,
+  localCamera: GraphCamera,
+  latestCamera: GraphCamera
+): GraphCamera | null {
+  let mergedName = latestCamera.name;
+  if (!areValuesEqual(localCamera.name, baseCamera.name)) {
+    const merged = mergeScalarField(baseCamera.name, localCamera.name, latestCamera.name);
+    if (merged === null) {
+      return null;
+    }
+    mergedName = merged;
+  }
+
+  let mergedViewport = latestCamera.viewport;
+  if (!areValuesEqual(localCamera.viewport, baseCamera.viewport)) {
+    const merged = mergeScalarField(baseCamera.viewport, localCamera.viewport, latestCamera.viewport);
+    if (merged === null) {
+      return null;
+    }
+    mergedViewport = merged;
+  }
+
+  let mergedFloatingWindows = latestCamera.floatingWindows ?? {};
+  if (!areValuesEqual(localCamera.floatingWindows ?? {}, baseCamera.floatingWindows ?? {})) {
+    const merged = mergeRecordByKey(
+      baseCamera.floatingWindows ?? {},
+      localCamera.floatingWindows ?? {},
+      latestCamera.floatingWindows ?? {}
+    );
+    if (!merged) {
+      return null;
+    }
+    mergedFloatingWindows = merged;
+  }
+
+  return {
+    ...latestCamera,
+    name: mergedName,
+    viewport: mergedViewport,
+    floatingWindows: mergedFloatingWindows,
+  };
+}
+
+function mergeGraphCameras(
+  baseItems: GraphCamera[],
+  localItems: GraphCamera[],
+  latestItems: GraphCamera[]
+): GraphCamera[] | null {
+  const baseById = mapById(baseItems);
+  const localById = mapById(localItems);
+  const latestById = mapById(latestItems);
+  const localDeletedIds = new Set(
+    baseItems
+      .filter((item) => !localById.has(item.id))
+      .map((item) => item.id)
+  );
+  const localAddedItems = localItems.filter((item) => !baseById.has(item.id));
+  const replacements = new Map<string, GraphCamera>();
+
+  for (const localItem of localItems) {
+    const baseItem = baseById.get(localItem.id);
+    if (!baseItem || areValuesEqual(localItem, baseItem)) {
+      continue;
+    }
+
+    const latestItem = latestById.get(localItem.id);
+    if (!latestItem) {
+      return null;
+    }
+
+    const merged = mergeGraphCamera(baseItem, localItem, latestItem);
+    if (!merged) {
+      return null;
+    }
+    replacements.set(localItem.id, merged);
   }
 
   for (const item of localAddedItems) {
@@ -361,6 +545,18 @@ export function rebaseGraphUpdate(
       return { ok: false };
     }
     rebased.projections = merged;
+  }
+
+  if (hasOwnGraphUpdateKey(updates, 'cameras')) {
+    const merged = mergeGraphCameras(
+      baseGraph.cameras ?? [],
+      updates.cameras ?? [],
+      latestGraph.cameras ?? []
+    );
+    if (!merged) {
+      return { ok: false };
+    }
+    rebased.cameras = merged;
   }
 
   return {

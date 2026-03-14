@@ -7,6 +7,7 @@ import type {
 } from './graphStoreTypes';
 
 interface GraphStoreUiState {
+  selectedCameraId: string | null;
   selectedNodeId: string | null;
   selectedNodeIds: string[];
   selectedDrawingId: string | null;
@@ -43,6 +44,16 @@ export function createGraphStoreUiController({
   setState,
 }: CreateGraphStoreUiControllerParams) {
   return {
+    selectCamera(cameraId: string | null): void {
+      const normalizedCameraId = cameraId && cameraId.trim() ? cameraId : null;
+      const state = getState();
+      if (state.selectedCameraId === normalizedCameraId) {
+        return;
+      }
+
+      setState({ selectedCameraId: normalizedCameraId });
+    },
+
     selectNode(nodeId: string | null): void {
       const nextNodeIds = nodeId ? [nodeId] : [];
       const state = getState();

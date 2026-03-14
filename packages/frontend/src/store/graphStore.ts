@@ -14,7 +14,11 @@ import {
   readCurrentGraphId,
   saveCurrentGraphId,
 } from './graphLocalStorage';
-import { clearGraphViewportTransform } from '../utils/uiPersistence';
+import {
+  clearCurrentCameraId as clearWindowCurrentCameraId,
+  readCurrentCameraId as readWindowCurrentCameraId,
+  saveCurrentCameraId as saveWindowCurrentCameraId,
+} from './graphCameraSessionStorage';
 import { createRecomputeStatusPollController } from './recomputeStatusPolling';
 import {
   buildGraphStateUpdate,
@@ -34,6 +38,7 @@ import {
   type BackendRecomputeStatus,
 } from './graphStoreState';
 import { createGraphStoreUiController } from './graphStoreUi';
+import { resolveSelectedGraphCameraId } from '../utils/cameras';
 import type {
   GraphSummary,
   NodeGraphicsComputationDebug,
@@ -52,6 +57,7 @@ export type {
 
 interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationState {
   graphSummaries: GraphSummary[];
+  selectedCameraId: string | null;
   selectedNodeGraphicsDebug: NodeGraphicsComputationDebug | null;
   drawingEnabled: boolean;
   drawingColor: PencilColor;
@@ -73,6 +79,7 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
   addConnection: (connection: Connection) => void;
   deleteConnection: (connectionId: string) => void;
   deleteConnections: (connectionIds: string[]) => void;
+  selectCamera: (cameraId: string | null) => void;
   selectNode: (nodeId: string | null) => void;
   setNodeSelection: (nodeIds: string[]) => void;
   toggleNodeSelection: (nodeId: string) => void;
@@ -145,6 +152,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       updatedAt: graph.updatedAt,
     });
     saveCurrentGraphId(graph.id);
+    const selectedCameraId = resolveSelectedGraphCameraId(graph.cameras, get().selectedCameraId);
+    saveWindowCurrentCameraId(graph.id, selectedCameraId);
     recomputeStatusPolling.start(graph.id);
   };
 
@@ -177,6 +186,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
       set((currentState) => buildGraphStateUpdate({
         graph: latestGraph,
+        selectedCameraId: currentState.selectedCameraId,
         selectedNodeId: currentState.selectedNodeId,
         selectedNodeIds: currentState.selectedNodeIds,
         selectedDrawingId: currentState.selectedDrawingId,
@@ -214,6 +224,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   return {
     graph: null,
     graphSummaries: [],
+    selectedCameraId: null,
     selectedNodeId: null,
     selectedNodeIds: [],
     selectedDrawingId: null,
@@ -234,6 +245,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         const graph = normalizeGraph(await graphApi.fetchGraph(id));
         set(buildGraphStateUpdate({
           graph,
+          selectedCameraId: readWindowCurrentCameraId(graph.id),
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
           error: null,
@@ -260,6 +272,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         const newGraph = normalizeGraph(await graphApi.createGraph(name));
         set(buildGraphStateUpdate({
           graph: newGraph,
+          selectedCameraId: readWindowCurrentCameraId(newGraph.id),
           nodeExecutionStates: {},
           nodeGraphicsOutputs: {},
           error: null,
@@ -284,7 +297,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         await graphApi.deleteGraph(id);
         removeGraphSummary(id);
         clearCurrentGraphIdIfMatches(id);
-        clearGraphViewportTransform(id);
+        clearWindowCurrentCameraId(id);
 
         if (deletingCurrentGraph) {
           await get().loadLatestGraph();
@@ -305,6 +318,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         const graph = normalizeGraph(await graphApi.fetchLatestGraph());
         set(buildGraphStateUpdate({
           graph,
+          selectedCameraId: readWindowCurrentCameraId(graph.id),
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
           error: null,
@@ -398,6 +412,21 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     updateGraph: graphPersistence.updateGraph,
 
+    selectCamera: (cameraId) => {
+      const graph = get().graph;
+      const graphId = graph?.id;
+      const resolvedCameraId = graph
+        ? resolveSelectedGraphCameraId(graph.cameras, cameraId)
+        : null;
+      graphUi.selectCamera(resolvedCameraId);
+      if (!graphId || !resolvedCameraId) {
+        if (graphId && !resolvedCameraId) {
+          clearWindowCurrentCameraId(graphId);
+        }
+        return;
+      }
+      saveWindowCurrentCameraId(graphId, resolvedCameraId);
+    },
     addNode: graphEditing.addNode,
     updateNode: graphEditing.updateNode,
     updateNodePosition: graphEditing.updateNodePosition,

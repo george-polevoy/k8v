@@ -1,5 +1,9 @@
 import { DEFAULT_RUNTIME_ID, PYTHON_RUNTIME_ID } from './execution/types.js';
-import { DEFAULT_GRAPH_PROJECTION_ID, type Graph } from '../types/index.js';
+import {
+  DEFAULT_GRAPH_CAMERA_ID,
+  DEFAULT_GRAPH_PROJECTION_ID,
+  type Graph,
+} from '../types/index.js';
 import {
   buildGraphNodeMap,
   filterComputationalConnections,
@@ -25,6 +29,7 @@ export function validateGraphStructure(graph: Graph): string | null {
   const drawingIds = new Set<string>();
   const pythonEnvNames = new Set<string>();
   const projectionIds = new Set<string>();
+  const cameraIds = new Set<string>();
 
   for (const node of graph.nodes) {
     if (nodeIds.has(node.id)) {
@@ -52,6 +57,19 @@ export function validateGraphStructure(graph: Graph): string | null {
   }
   if (!projectionIds.has(graph.activeProjectionId)) {
     return `Graph active projection "${graph.activeProjectionId}" does not exist`;
+  }
+
+  if (!Array.isArray(graph.cameras) || graph.cameras.length === 0) {
+    return 'Graph must include at least one camera';
+  }
+  for (const camera of graph.cameras) {
+    if (cameraIds.has(camera.id)) {
+      return `Graph camera ids must be unique. Duplicate id: ${camera.id}`;
+    }
+    cameraIds.add(camera.id);
+  }
+  if (!cameraIds.has(DEFAULT_GRAPH_CAMERA_ID)) {
+    return `Graph must include "${DEFAULT_GRAPH_CAMERA_ID}" camera`;
   }
 
   for (const pythonEnv of graph.pythonEnvs ?? []) {

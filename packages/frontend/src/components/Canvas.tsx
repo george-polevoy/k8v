@@ -48,6 +48,10 @@ import {
   resolveNodeRenderTargetPosition,
 } from '../utils/canvasNodeRender';
 import { colorStringToPixi } from '../utils/color';
+import {
+  resolveGraphCamera,
+  updateGraphCamera,
+} from '../utils/cameras';
 import { buildGraphicsImageUrl } from '../utils/graphics';
 import {
   DEFAULT_NODE_CARD_BACKGROUND_COLOR,
@@ -116,7 +120,12 @@ import {
   ANNOTATION_CONNECTION_PORT,
   resolveConnectionAnchorPoint,
 } from '../utils/annotationConnections';
-import { saveGraphViewportTransform } from '../utils/uiPersistence';
+
+declare global {
+  interface Window {
+    __k8vFlushViewportCameraState?: () => void;
+  }
+}
 
 const ANNOTATION_TEXT_INSET_X = 8;
 const ANNOTATION_TEXT_INSET_Y = 8;
@@ -223,6 +232,7 @@ function buildAnnotationOverlayTransformCss(transform: AnnotationOverlayTransfor
 
 function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const graph = useGraphStore((state) => state.graph);
+  const selectedCameraId = useGraphStore((state) => state.selectedCameraId);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
@@ -286,6 +296,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const hoveredOutputPortKeyRef = useRef<string | null>(null);
   const connectionDragStateRef = useRef<ConnectionDragState | null>(null);
   const selectedConnectionIdRef = useRef<string | null>(null);
+  const selectedCameraIdRef = useRef<string | null>(selectedCameraId);
   const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
   const selectedNodeIdsRef = useRef<string[]>(selectedNodeIds);
   const selectedDrawingIdRef = useRef<string | null>(selectedDrawingId);
@@ -300,6 +311,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const graphicsTextureCacheRef = useRef<Map<string, GraphicsTextureCacheEntry>>(new Map());
   const pendingGraphicsTextureLoadsRef = useRef<Map<string, Texture>>(new Map());
   const graphRef = useRef(graph);
+  const previousGraphRef = useRef(graph);
   const selectedNodeGraphicsDebugRef = useRef<NodeGraphicsComputationDebug | null>(null);
   const projectionTransitionRef = useRef<ProjectionTransitionState | null>(null);
   const renderGraphRef = useRef<() => void>(() => {});
@@ -324,6 +336,16 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const viewportSyncRafRef = useRef<number | null>(null);
   const viewportSettledRenderTimeoutRef = useRef<number | null>(null);
   const viewportGraphicsSettledRenderTimeoutRef = useRef<number | null>(null);
+  const viewportCameraPersistTimeoutRef = useRef<number | null>(null);
+  const pendingViewportCameraStateRef = useRef<{
+    graphId: string;
+    cameraId: string;
+    viewport: {
+      x: number;
+      y: number;
+      scale: number;
+    };
+  } | null>(null);
   const lastViewportInteractionAtRef = useRef(Number.NEGATIVE_INFINITY);
   const viewportScaleSensitiveRefreshRequestedRef = useRef(false);
   const drawConnectionsRef = useRef<() => void>(() => {});
@@ -332,11 +354,13 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const updateTextResolutionForScaleRef = useRef<(scale: number) => void>(() => {});
   const [canvasReady, setCanvasReady] = useState(false);
   const [annotationOverlays, setAnnotationOverlays] = useState<AnnotationOverlayEntry[]>([]);
+  selectedCameraIdRef.current = selectedCameraId;
   selectedNodeIdRef.current = selectedNodeId;
   selectedNodeIdsRef.current = selectedNodeIds;
   selectedDrawingIdRef.current = selectedDrawingId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
   nodeGraphicsOutputsRef.current = nodeGraphicsOutputs;
+  graphRef.current = graph;
   drawingEnabledRef.current = drawingEnabled;
   drawingColorRef.current = drawingColor;
   drawingThicknessRef.current = drawingThickness;
@@ -349,6 +373,100 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     app.start();
   }, []);
 
+  const persistViewportCameraState = useCallback((cameraState: {
+    graphId: string;
+    cameraId: string;
+    viewport: {
+      x: number;
+      y: number;
+      scale: number;
+    };
+  }) => {
+    if (enableMcpScreenshotBridge) {
+      return;
+    }
+
+    const currentGraph = graphRef.current;
+    if (
+      !currentGraph ||
+      currentGraph.id !== cameraState.graphId
+    ) {
+      return;
+    }
+
+    const currentCamera = resolveGraphCamera(currentGraph.cameras, cameraState.cameraId);
+    if (
+      currentCamera.viewport?.x === cameraState.viewport.x &&
+      currentCamera.viewport?.y === cameraState.viewport.y &&
+      currentCamera.viewport?.scale === cameraState.viewport.scale
+    ) {
+      return;
+    }
+
+    void updateGraph({
+      cameras: updateGraphCamera(currentGraph.cameras, cameraState.cameraId, (camera) => ({
+        ...camera,
+        viewport: cameraState.viewport,
+      })),
+    });
+  }, [enableMcpScreenshotBridge, updateGraph]);
+
+  const commitPendingViewportCameraState = useCallback(() => {
+    const pendingCameraState = pendingViewportCameraStateRef.current;
+    if (!pendingCameraState) {
+      return;
+    }
+
+    pendingViewportCameraStateRef.current = null;
+    persistViewportCameraState(pendingCameraState);
+  }, [persistViewportCameraState]);
+
+  const flushViewportStateForCamera = useCallback((cameraId: string | null) => {
+    if (enableMcpScreenshotBridge) {
+      pendingViewportCameraStateRef.current = null;
+      return;
+    }
+
+    if (!cameraId) {
+      return;
+    }
+
+    if (viewportCameraPersistTimeoutRef.current !== null) {
+      window.clearTimeout(viewportCameraPersistTimeoutRef.current);
+      viewportCameraPersistTimeoutRef.current = null;
+    }
+
+    const currentGraph = graphRef.current;
+    const viewport = viewportRef.current;
+    if (!currentGraph || !viewport) {
+      return;
+    }
+
+    pendingViewportCameraStateRef.current = null;
+    persistViewportCameraState({
+      graphId: currentGraph.id,
+      cameraId,
+      viewport: {
+        x: snapToPixel(viewport.position.x),
+        y: snapToPixel(viewport.position.y),
+        scale: clamp(Math.abs(viewport.scale.x || 1), MIN_ZOOM, MAX_ZOOM),
+      },
+    });
+  }, [enableMcpScreenshotBridge, persistViewportCameraState]);
+
+  const flushSelectedCameraViewportState = useCallback(() => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph) {
+      return;
+    }
+
+    const activeCameraId = resolveGraphCamera(
+      currentGraph.cameras,
+      selectedCameraIdRef.current
+    ).id;
+    flushViewportStateForCamera(activeCameraId);
+  }, [flushViewportStateForCamera]);
+
   const persistViewportTransform = useCallback(() => {
     if (enableMcpScreenshotBridge) {
       return;
@@ -360,12 +478,29 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       return;
     }
 
-    saveGraphViewportTransform(currentGraph.id, {
-      x: snapToPixel(viewport.position.x),
-      y: snapToPixel(viewport.position.y),
-      scale: clamp(Math.abs(viewport.scale.x || 1), MIN_ZOOM, MAX_ZOOM),
-    });
-  }, [enableMcpScreenshotBridge, graphRef, viewportRef]);
+    const currentCameraId = resolveGraphCamera(
+      currentGraph.cameras,
+      selectedCameraIdRef.current
+    ).id;
+
+    pendingViewportCameraStateRef.current = {
+      graphId: currentGraph.id,
+      cameraId: currentCameraId,
+      viewport: {
+        x: snapToPixel(viewport.position.x),
+        y: snapToPixel(viewport.position.y),
+        scale: clamp(Math.abs(viewport.scale.x || 1), MIN_ZOOM, MAX_ZOOM),
+      },
+    };
+
+    if (viewportCameraPersistTimeoutRef.current !== null) {
+      window.clearTimeout(viewportCameraPersistTimeoutRef.current);
+    }
+    viewportCameraPersistTimeoutRef.current = window.setTimeout(() => {
+      viewportCameraPersistTimeoutRef.current = null;
+      commitPendingViewportCameraState();
+    }, VIEWPORT_INTERACTION_SETTLE_MS);
+  }, [commitPendingViewportCameraState, enableMcpScreenshotBridge, graphRef, viewportRef]);
 
   const requestViewportDrivenGraphRefresh = useCallback(() => {
     if (viewportRefreshRafRef.current !== null) {
@@ -489,14 +624,28 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         window.clearTimeout(viewportGraphicsSettledRenderTimeoutRef.current);
         viewportGraphicsSettledRenderTimeoutRef.current = null;
       }
+
+      if (viewportCameraPersistTimeoutRef.current !== null) {
+        window.clearTimeout(viewportCameraPersistTimeoutRef.current);
+        viewportCameraPersistTimeoutRef.current = null;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    window.__k8vFlushViewportCameraState = flushSelectedCameraViewportState;
+    return () => {
+      if (window.__k8vFlushViewportCameraState === flushSelectedCameraViewportState) {
+        delete window.__k8vFlushViewportCameraState;
+      }
+    };
+  }, [flushSelectedCameraViewportState]);
 
   const {
     drawMinimap,
     fitViewportToGraph,
     handleMinimapPointerDown,
-    restoreViewportFromPersistence,
+    restoreViewportFromSelectedCamera,
     setViewportRegionForScreenshot,
     startProjectionTransition,
     updateTextResolutionForScale,
@@ -507,6 +656,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     viewportRef,
     textNodesRef,
     graphRef,
+    selectedCameraIdRef,
     selectedNodeIdsRef,
     selectedDrawingIdRef,
     nodeVisualsRef,
@@ -533,6 +683,41 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       projectionTransitionDurationMs: PROJECTION_TRANSITION_DURATION_MS,
     },
   });
+
+  const selectedCameraViewportSignature = graph
+    ? (() => {
+      const selectedCamera = resolveGraphCamera(graph.cameras, selectedCameraId);
+      const viewportState = selectedCamera.viewport;
+      return viewportState
+        ? `${graph.id}:${selectedCamera.id}:${viewportState.x}:${viewportState.y}:${viewportState.scale}`
+        : `${graph.id}:${selectedCamera.id}:none`;
+    })()
+    : 'no-graph';
+
+  useEffect(() => {
+    if (!canvasReady || !viewportInitializedRef.current) {
+      return;
+    }
+
+    if (!restoreViewportFromSelectedCamera()) {
+      fitViewportToGraph();
+      return;
+    }
+
+    syncAnnotationOverlayTransform();
+    drawMinimapRef.current();
+    requestViewportDrivenGraphRefresh();
+    requestCanvasAnimationLoop();
+  }, [
+    canvasReady,
+    fitViewportToGraph,
+    requestCanvasAnimationLoop,
+    requestViewportDrivenGraphRefresh,
+    restoreViewportFromSelectedCamera,
+    selectedCameraViewportSignature,
+    syncAnnotationOverlayTransform,
+    viewportInitializedRef,
+  ]);
 
   useMcpScreenshotBridge({
     enabled: enableMcpScreenshotBridge,
@@ -739,6 +924,26 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       maxZoom: MAX_ZOOM,
     },
   });
+
+  const beginViewportPanInteraction = useCallback((event: FederatedPointerEvent): boolean => {
+    if (drawingEnabledRef.current || !spacePressedRef.current) {
+      return false;
+    }
+
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return false;
+    }
+
+    panStateRef.current = {
+      pointerX: event.global.x,
+      pointerY: event.global.y,
+      viewportX: viewport.position.x,
+      viewportY: viewport.position.y,
+    };
+    applyCanvasCursor();
+    return true;
+  }, [applyCanvasCursor]);
 
   const renderGraph = useCallback(() => {
     incrementCanvasDebugCounter('fullRenderCount');
@@ -1201,6 +1406,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           event.stopPropagation();
           const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
           canvas?.focus({ preventScroll: true });
+          if (beginViewportPanInteraction(event)) {
+            return;
+          }
 
           const sourcePosition = nodePositionsRef.current.get(node.id) ?? node.position;
           connectionDragStateRef.current = {
@@ -1266,6 +1474,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             event.stopPropagation();
             const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
             canvas?.focus({ preventScroll: true });
+            if (beginViewportPanInteraction(event)) {
+              return;
+            }
 
             const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
             const localPoint = container.toLocal(new Point(event.global.x, event.global.y));
@@ -1434,6 +1645,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
           event.stopPropagation();
           const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
           canvas?.focus({ preventScroll: true });
+          if (beginViewportPanInteraction(event)) {
+            return;
+          }
 
           requestCanvasAnimationLoop();
           selectedConnectionIdRef.current = null;
@@ -1504,6 +1718,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             event.stopPropagation();
             const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
             canvas?.focus({ preventScroll: true });
+            if (beginViewportPanInteraction(event)) {
+              return;
+            }
 
             selectedConnectionIdRef.current = null;
             selectedNodeIdRef.current = node.id;
@@ -1577,6 +1794,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         event.stopPropagation();
         const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
         canvas?.focus({ preventScroll: true });
+        if (beginViewportPanInteraction(event)) {
+          return;
+        }
 
         if (event.ctrlKey || event.metaKey) {
           selectedConnectionIdRef.current = null;
@@ -1653,6 +1873,10 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
 
       container.on('pointertap', (event: FederatedPointerEvent) => {
         if (drawingEnabledRef.current) {
+          return;
+        }
+        if (spacePressedRef.current) {
+          event.stopPropagation();
           return;
         }
         if (event.ctrlKey || event.metaKey) {
@@ -1737,6 +1961,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         event.stopPropagation();
         const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
         canvas?.focus({ preventScroll: true });
+        if (beginViewportPanInteraction(event)) {
+          return;
+        }
 
         const currentPosition = drawingPositionsRef.current.get(drawing.id) ?? drawing.position;
         drawingDragStateRef.current = {
@@ -1757,6 +1984,10 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       });
 
       container.on('pointertap', (event: FederatedPointerEvent) => {
+        if (spacePressedRef.current) {
+          event.stopPropagation();
+          return;
+        }
         const dragState = drawingDragStateRef.current;
         if (dragState?.drawingId === drawing.id && dragState.moved) {
           event.stopPropagation();
@@ -1843,6 +2074,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
             event.stopPropagation();
             const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
             canvas?.focus({ preventScroll: true });
+            if (beginViewportPanInteraction(event)) {
+              return;
+            }
 
             const nodeStates = new Map<string, {
               x: number;
@@ -1955,7 +2189,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawFreehandStrokes();
 
     if (!viewportInitializedRef.current) {
-      if (!restoreViewportFromPersistence()) {
+      if (!restoreViewportFromSelectedCamera()) {
         fitViewportToGraph();
       }
       viewportInitializedRef.current = true;
@@ -1979,9 +2213,10 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawConnections,
     drawFreehandStrokes,
     drawMinimap,
+    beginViewportPanInteraction,
     fitViewportToGraph,
     getNodeGraphicsTextureForNode,
-    restoreViewportFromPersistence,
+    restoreViewportFromSelectedCamera,
     releaseUnusedNodeGraphicsTextures,
     refreshCanvasBackgroundTexture,
     requestCanvasAnimationLoop,
@@ -2009,6 +2244,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     renderGraph,
     renderGraphRef,
     graphRef,
+    previousGraphRef,
     lastGraphIdRef,
     viewportInitializedRef,
     projectionTransitionRef,

@@ -19,6 +19,7 @@ interface UseCanvasGraphEffectsParams {
   renderGraph: () => void;
   renderGraphRef: MutableRefObject<() => void>;
   graphRef: MutableRefObject<Graph | null>;
+  previousGraphRef: MutableRefObject<Graph | null>;
   lastGraphIdRef: MutableRefObject<string | null>;
   viewportInitializedRef: MutableRefObject<boolean>;
   projectionTransitionRef: MutableRefObject<ProjectionTransitionState | null>;
@@ -63,6 +64,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
     renderGraph,
     renderGraphRef,
     graphRef,
+    previousGraphRef,
     lastGraphIdRef,
     viewportInitializedRef,
     projectionTransitionRef,
@@ -100,7 +102,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
   }, [renderGraph, renderGraphRef]);
 
   useEffect(() => {
-    const previousGraph = graphRef.current;
+    const previousGraph = previousGraphRef.current;
     const shouldAnimateProjectionSwitch = Boolean(
       previousGraph &&
       graph &&
@@ -114,6 +116,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
     }
 
     graphRef.current = graph;
+    previousGraphRef.current = graph;
 
     const nextGraphId = graph?.id ?? null;
     if (lastGraphIdRef.current !== nextGraphId) {
@@ -141,6 +144,7 @@ export function useCanvasGraphEffects(params: UseCanvasGraphEffectsParams): void
   }, [
     graph,
     graphRef,
+    previousGraphRef,
     lastGraphIdRef,
     projectionTransitionRef,
     renderGraphRef,

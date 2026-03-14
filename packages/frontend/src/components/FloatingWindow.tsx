@@ -1,20 +1,14 @@
 import { ReactNode, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useGraphStore } from '../store/graphStore';
 import {
-  readFloatingWindowPosition,
-  saveFloatingWindowPosition,
-} from '../utils/uiPersistence';
-
-const VIEWPORT_PADDING_PX = 8;
-
-interface WindowPosition {
-  x: number;
-  y: number;
-}
-
-interface WindowSize {
-  width: number;
-  height: number;
-}
+  clampFloatingWindowPositionToViewport,
+  resolveFloatingWindowCameraLayout,
+  resolveFloatingWindowPositionFromCamera,
+  resolveGraphCamera,
+  updateGraphCamera,
+  type FloatingWindowPosition,
+  type FloatingWindowSize,
+} from '../utils/cameras';
 
 interface DragState {
   pointerStartX: number;
@@ -26,27 +20,25 @@ interface DragState {
 interface FloatingWindowProps {
   id: string;
   title: string;
-  initialPosition: WindowPosition;
+  initialPosition: FloatingWindowPosition;
   width: number;
   height?: number;
   zIndex?: number;
   children: ReactNode;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
+function getViewportSize(): { width: number; height: number } {
+  if (typeof window === 'undefined') {
+    return { width: 0, height: 0 };
+  }
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
 }
 
-function clampPositionToViewport(position: WindowPosition, size: WindowSize): WindowPosition {
-  if (typeof window === 'undefined') {
-    return position;
-  }
-  const maxX = Math.max(VIEWPORT_PADDING_PX, window.innerWidth - size.width - VIEWPORT_PADDING_PX);
-  const maxY = Math.max(VIEWPORT_PADDING_PX, window.innerHeight - size.height - VIEWPORT_PADDING_PX);
-  return {
-    x: clamp(position.x, VIEWPORT_PADDING_PX, maxX),
-    y: clamp(position.y, VIEWPORT_PADDING_PX, maxY),
-  };
+function arePositionsClose(left: FloatingWindowPosition, right: FloatingWindowPosition): boolean {
+  return Math.abs(left.x - right.x) < 0.5 && Math.abs(left.y - right.y) < 0.5;
 }
 
 function FloatingWindow({
@@ -58,29 +50,83 @@ function FloatingWindow({
   zIndex = 20,
   children,
 }: FloatingWindowProps) {
-  const [position, setPosition] = useState<WindowPosition>(() => {
-    const savedPosition = readFloatingWindowPosition(id);
-    return clampPositionToViewport(savedPosition ?? initialPosition, {
-      width,
-      height: height ?? 0,
-    });
-  });
-  const [windowSize, setWindowSize] = useState<WindowSize>({
+  const graph = useGraphStore((state) => state.graph);
+  const selectedCameraId = useGraphStore((state) => state.selectedCameraId);
+  const updateGraph = useGraphStore((state) => state.updateGraph);
+  const [position, setPosition] = useState<FloatingWindowPosition>(() => (
+    clampFloatingWindowPositionToViewport(
+      initialPosition,
+      { width, height: height ?? 0 },
+      getViewportSize()
+    )
+  ));
+  const [windowSize, setWindowSize] = useState<FloatingWindowSize>({
     width,
     height: height ?? 0,
   });
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const positionRef = useRef(position);
   const windowSizeRef = useRef(windowSize);
+
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
 
   useEffect(() => {
     windowSizeRef.current = windowSize;
   }, [windowSize]);
 
-  useEffect(() => {
-    saveFloatingWindowPosition(id, position);
-  }, [id, position]);
+  const persistWindowPositionToCamera = useCallback((nextPosition: FloatingWindowPosition) => {
+    if (!graph) {
+      return;
+    }
+
+    const viewportSize = getViewportSize();
+    const currentCamera = resolveGraphCamera(graph.cameras, selectedCameraId);
+    const nextLayout = resolveFloatingWindowCameraLayout(
+      nextPosition,
+      windowSizeRef.current,
+      viewportSize
+    );
+    const currentWindowPosition = currentCamera.floatingWindows?.[id];
+    if (
+      currentWindowPosition?.horizontal.edge === nextLayout.horizontal.edge &&
+      currentWindowPosition?.vertical.edge === nextLayout.vertical.edge &&
+      currentWindowPosition?.horizontal.ratio === nextLayout.horizontal.ratio &&
+      currentWindowPosition?.vertical.ratio === nextLayout.vertical.ratio
+    ) {
+      return;
+    }
+
+    void updateGraph({
+      cameras: updateGraphCamera(graph.cameras, currentCamera.id, (camera) => ({
+        ...camera,
+        floatingWindows: {
+          ...(camera.floatingWindows ?? {}),
+          [id]: nextLayout,
+        },
+      })),
+    });
+  }, [graph, id, selectedCameraId, updateGraph]);
+
+  const applyCameraWindowPosition = useCallback(() => {
+    if (isDragging) {
+      return;
+    }
+
+    const viewportSize = getViewportSize();
+    const currentCamera = resolveGraphCamera(graph?.cameras, selectedCameraId);
+    const nextPosition = resolveFloatingWindowPositionFromCamera(
+      currentCamera.floatingWindows?.[id],
+      windowSizeRef.current,
+      viewportSize,
+      initialPosition
+    );
+
+    setPosition((current) => arePositionsClose(current, nextPosition) ? current : nextPosition);
+  }, [graph?.cameras, id, initialPosition, isDragging, selectedCameraId]);
 
   const updateMeasuredWindowSize = useCallback(() => {
     const element = containerRef.current;
@@ -97,7 +143,6 @@ function FloatingWindow({
         ? current
         : nextSize
     ));
-    setPosition((current) => clampPositionToViewport(current, nextSize));
   }, []);
 
   useEffect(() => {
@@ -115,14 +160,18 @@ function FloatingWindow({
   }, [updateMeasuredWindowSize]);
 
   useEffect(() => {
+    applyCameraWindowPosition();
+  }, [applyCameraWindowPosition, graph?.id, graph?.updatedAt, selectedCameraId, windowSize]);
+
+  useEffect(() => {
     const handleViewportResize = () => {
-      setPosition((current) => clampPositionToViewport(current, windowSizeRef.current));
+      applyCameraWindowPosition();
     };
     window.addEventListener('resize', handleViewportResize);
     return () => {
       window.removeEventListener('resize', handleViewportResize);
     };
-  }, []);
+  }, [applyCameraWindowPosition]);
 
   const handleDragPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
@@ -149,16 +198,21 @@ function FloatingWindow({
       if (!dragState) {
         return;
       }
-      const nextPosition = {
-        x: dragState.originX + (event.clientX - dragState.pointerStartX),
-        y: dragState.originY + (event.clientY - dragState.pointerStartY),
-      };
-      setPosition(clampPositionToViewport(nextPosition, windowSizeRef.current));
+      const nextPosition = clampFloatingWindowPositionToViewport(
+        {
+          x: dragState.originX + (event.clientX - dragState.pointerStartX),
+          y: dragState.originY + (event.clientY - dragState.pointerStartY),
+        },
+        windowSizeRef.current,
+        getViewportSize()
+      );
+      setPosition(nextPosition);
     };
 
     const handlePointerUp = () => {
       dragStateRef.current = null;
       setIsDragging(false);
+      persistWindowPositionToCamera(positionRef.current);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -170,7 +224,7 @@ function FloatingWindow({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [isDragging]);
+  }, [isDragging, persistWindowPositionToCamera]);
 
   return (
     <section

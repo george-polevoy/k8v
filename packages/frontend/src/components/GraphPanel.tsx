@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useGraphStore } from '../store/graphStore';
 import {
   CanvasBackgroundSettings,
   GraphConnectionStrokeSettings,
@@ -8,6 +9,13 @@ import {
   DEFAULT_GRAPH_CONNECTION_STROKE,
   normalizeGraphConnectionStroke,
 } from '../utils/connectionStroke';
+import {
+  DEFAULT_GRAPH_CAMERA_ID,
+  getNextCameraName,
+  normalizeGraphCameraState,
+  removeGraphCamera,
+  resolveGraphCamera,
+} from '../utils/cameras';
 import {
   applyProjectionToNodes,
   cloneProjectionNodeCardSizes,
@@ -29,6 +37,13 @@ const DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS = DEFAULT_GRAPH_EXECUTION_TIMEOUT_
 
 function formatProjectionOptionLabel(name: string, id: string): string {
   if (id === DEFAULT_GRAPH_PROJECTION_ID) {
+    return `${name} (${id})`;
+  }
+  return `${name} (${id.slice(0, 8)})`;
+}
+
+function formatCameraOptionLabel(name: string, id: string): string {
+  if (id === DEFAULT_GRAPH_CAMERA_ID) {
     return `${name} (${id})`;
   }
   return `${name} (${id.slice(0, 8)})`;
@@ -99,6 +114,8 @@ interface GraphPanelProps {
 type ConnectionStrokeColorTarget = 'foreground' | 'background' | null;
 
 function GraphPanel({ embedded = false }: GraphPanelProps) {
+  const selectedCameraId = useGraphStore((state) => state.selectedCameraId);
+  const selectCamera = useGraphStore((state) => state.selectCamera);
   const {
     graph,
     graphSummaries,
@@ -139,6 +156,16 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const [executionTimeoutSecondsValue, setExecutionTimeoutSecondsValue] = useState(
     String(DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS)
   );
+
+  const flushCurrentCameraViewportState = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    (window as Window & {
+      __k8vFlushViewportCameraState?: () => void;
+    }).__k8vFlushViewportCameraState?.();
+  }, []);
 
   useEffect(() => {
     if (graph) {
@@ -431,6 +458,70 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     });
   }, [graph, refreshGraphSummaries, runGraphAction, updateGraph]);
 
+  const handleAddCamera = useCallback(async () => {
+    const currentGraph = useGraphStore.getState().graph ?? graph;
+    if (!currentGraph) {
+      return;
+    }
+
+    flushCurrentCameraViewportState();
+
+    const latestGraph = useGraphStore.getState().graph ?? currentGraph;
+    const latestSelectedCameraId = useGraphStore.getState().selectedCameraId ?? selectedCameraId;
+    const cameraOptions = normalizeGraphCameraState(latestGraph.cameras);
+    const sourceCamera = resolveGraphCamera(cameraOptions, latestSelectedCameraId);
+    const nextCamera = {
+      id: uuidv4(),
+      name: getNextCameraName(cameraOptions.map((camera) => camera.name)),
+      viewport: sourceCamera.viewport ? { ...sourceCamera.viewport } : undefined,
+      floatingWindows: Object.fromEntries(
+        Object.entries(sourceCamera.floatingWindows ?? {}).map(([windowId, windowPosition]) => [
+          windowId,
+          {
+            horizontal: { ...windowPosition.horizontal },
+            vertical: { ...windowPosition.vertical },
+          },
+        ])
+      ),
+    };
+
+    await runGraphAction(async () => {
+      await updateGraph({
+        cameras: [...cameraOptions, nextCamera],
+      });
+      selectCamera(nextCamera.id);
+    });
+  }, [flushCurrentCameraViewportState, graph, runGraphAction, selectCamera, selectedCameraId, updateGraph]);
+
+  const handleRemoveCamera = useCallback(async () => {
+    if (!graph) {
+      return;
+    }
+
+    const cameraOptions = normalizeGraphCameraState(graph.cameras);
+    const activeCamera = resolveGraphCamera(cameraOptions, selectedCameraId);
+    if (activeCamera.id === DEFAULT_GRAPH_CAMERA_ID) {
+      return;
+    }
+    if (cameraOptions.length <= 1) {
+      return;
+    }
+
+    const remainingCameras = removeGraphCamera(cameraOptions, activeCamera.id);
+    if (remainingCameras.length === 0) {
+      return;
+    }
+    const nextSelectedCameraId = remainingCameras.find((camera) => camera.id === DEFAULT_GRAPH_CAMERA_ID)?.id
+      ?? remainingCameras[0].id;
+
+    await runGraphAction(async () => {
+      await updateGraph({
+        cameras: remainingCameras,
+      });
+      selectCamera(nextSelectedCameraId);
+    });
+  }, [graph, runGraphAction, selectCamera, selectedCameraId, updateGraph]);
+
   const projectionState = graph
     ? normalizeGraphProjectionState(
       graph.nodes,
@@ -441,11 +532,19 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     : null;
   const projectionOptions = projectionState?.projections ?? [];
   const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+  const cameraOptions = graph ? normalizeGraphCameraState(graph.cameras) : [];
+  const activeCameraId = selectedCameraId ?? cameraOptions[0]?.id ?? DEFAULT_GRAPH_CAMERA_ID;
   const canRemoveActiveProjection = Boolean(
     graph &&
     !isGraphActionInFlight &&
     projectionOptions.length > 1 &&
     activeProjectionId !== DEFAULT_GRAPH_PROJECTION_ID
+  );
+  const canRemoveActiveCamera = Boolean(
+    graph &&
+    !isGraphActionInFlight &&
+    cameraOptions.length > 1 &&
+    activeCameraId !== DEFAULT_GRAPH_CAMERA_ID
   );
   const isConnectionStrokeColorDialogOpen = connectionStrokeColorTarget !== null;
   const connectionStrokeDialogTitle = connectionStrokeColorTarget === 'background'
@@ -584,6 +683,88 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           }
           afterCreate={
             <>
+              <div
+                style={{
+                  marginTop: '10px',
+                  padding: '8px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  background: '#f8fafc',
+                }}
+              >
+                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
+                  Cameras
+                </div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
+                  Current camera for this window
+                </label>
+                <select
+                  data-testid="camera-select"
+                  value={graph ? activeCameraId : ''}
+                  disabled={!graph || isGraphActionInFlight}
+                  onChange={(event) => {
+                    flushCurrentCameraViewportState();
+                    selectCamera(event.target.value);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginBottom: '8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  {cameraOptions.map((camera) => (
+                    <option key={camera.id} value={camera.id}>
+                      {formatCameraOptionLabel(camera.name, camera.id)}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
+                  Selecting a camera only changes this browser window. Camera contents are shared on the graph.
+                </div>
+                <button
+                  data-testid="camera-add"
+                  disabled={!graph || isGraphActionInFlight}
+                  onClick={() => {
+                    void handleAddCamera();
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '7px 8px',
+                    background: '#475569',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Add Camera
+                </button>
+                <button
+                  data-testid="camera-remove"
+                  disabled={!canRemoveActiveCamera}
+                  onClick={() => {
+                    void handleRemoveCamera();
+                  }}
+                  style={{
+                    width: '100%',
+                    marginTop: '8px',
+                    padding: '7px 8px',
+                    background: '#b91c1c',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: canRemoveActiveCamera ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  Remove Current Camera
+                </button>
+              </div>
+
               <div
                 style={{
                   marginTop: '10px',

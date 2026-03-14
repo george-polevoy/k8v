@@ -31,7 +31,7 @@ Last reviewed: March 14, 2026.
 - `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
 - `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: annotation cards create persisted presentation-only arrows from arbitrary card edges to standard node ports and other annotation edges.
-- `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport.
+- `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport even when the drag starts on a selected node.
 - `A-E2E-22` `packages/frontend/tests/e2e/nodePanelMultiSelectionColors.test.ts`: node panel summarizes multi-node selection as a named set and applies shared node-card background/border color changes across all selected nodes.
 - `A-E2E-23` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: `Alt`-dragging a selected node set duplicates the nodes, keeps the originals in place, leaves the duplicate set selected, and copies internal links between the duplicated nodes.
 - `A-E2E-24` `packages/frontend/tests/e2e/toolbarColorDialogLayering.test.ts`: the pencil color dialog mounts outside the narrow toolbar floating window, keeps its full overlay size, and is centered in the viewport instead of being clipped inside the toolbar client area.
@@ -39,6 +39,7 @@ Last reviewed: March 14, 2026.
 - `A-E2E-26` `packages/frontend/tests/e2e/inlineInputConnectionReplacement.test.ts`: dragging a new edge onto an occupied inline input replaces the previous inbound edge instead of persisting duplicate inbound connections.
 - `A-E2E-27` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: floating toolbar/sidebar window positions and the current graph viewport pan/zoom restore after a browser refresh.
 - `A-E2E-28` `packages/frontend/tests/e2e/graphCollaborationSync.test.ts`: multiple browser sessions auto-detect remote graph updates, reflect them without refresh, and preserve unrelated subset edits (for example rename + node drag).
+- `A-E2E-29` `packages/frontend/tests/e2e/graphCameras.test.ts`: graph cameras can be created, switched, and removed, restore per-camera viewport/floating-window layouts, and keep the current camera selection scoped to each browser window.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -76,7 +77,7 @@ Last reviewed: March 14, 2026.
 - `A-FE-35` `packages/frontend/tests/color.test.ts`: RGB/HSV color conversion helpers preserve canonical hues, handle grayscale zero-saturation colors, and round-trip hue/value choices back to RGB channels.
 - `A-FE-36` `packages/frontend/tests/graphStorePersistence.test.ts`: `loadGraph` normalizes duplicate inbound edges on the same input slot down to the last persisted connection.
 - `A-FE-37` `packages/frontend/tests/graphStoreEditing.test.ts`: `addConnection` rewires an occupied target input instead of appending a second inbound edge.
-- `A-FE-38` `packages/frontend/tests/uiPersistence.test.ts`: UI persistence helpers round-trip floating-window and per-graph viewport state, reject malformed values, and clear deleted graph viewport state.
+- `A-FE-38` `packages/frontend/tests/cameras.test.ts`: camera helpers inject the default camera, round-trip floating-window edge-ratio layouts across viewport sizes, and persist current camera selection per graph/window.
 - `A-FE-39` `packages/frontend/tests/projections.test.ts`: `syncActiveProjectionLayout` rewrites only the active projection from current node coordinates/card sizes.
 - `A-FE-40` `packages/frontend/tests/graphStorePersistence.test.ts`: non-overlapping stale graph updates are rebased onto the latest graph state and retried after a `409` conflict.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: recompute-status polling refreshes the current graph when remote `graphUpdatedAt` advances.
@@ -153,6 +154,8 @@ Last reviewed: March 14, 2026.
 - `A-BE-71` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects duplicate node ids.
 - `A-BE-72` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects duplicate node ids.
 - `A-BE-73` `packages/backend/tests/app.test.ts`: nodes-only `PUT /api/graphs/:id` updates sync the active projection layout while preserving non-active projection metadata.
+- `A-BE-74` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default camera metadata when cameras are omitted.
+- `A-BE-75` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` preserves the default camera when a camera update would otherwise remove all cameras.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -178,6 +181,9 @@ Last reviewed: March 14, 2026.
 - `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates/card sizes/background and switch active projection.
 - `M-GRAPH-11`: Graph panel projection controls can remove the active non-default projection, while always keeping at least one projection.
 - `M-GRAPH-12`: Graph panel connection-stroke controls persist per-graph foreground/background colors and 2x width ratio.
+- `M-GRAPH-13`: Graph panel camera controls can add a new camera cloned from the current viewport/floating-window state and switch between cameras.
+- `M-GRAPH-14`: Different browser windows can keep different current-camera selections while sharing the same graph camera contents.
+- `M-GRAPH-15`: Graph panel camera controls can remove the active non-default camera while keeping the default camera undeletable.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
 - `M-CANVAS-02`: Shift + wheel scrolls horizontally and Alt + wheel scrolls vertically without zoom.
 - `M-CANVAS-03`: Holding `Space` while dragging empty space pans viewport.
@@ -261,8 +267,11 @@ Last reviewed: March 14, 2026.
 | Graph panel graph creation | `M-GRAPH-04` | Manual |
 | Graph panel graph rename | `M-GRAPH-05` | Manual |
 | Graph panel graph deletion with fallback graph selection | `A-FE-16`, `A-E2E-02`, `A-BE-36`, `M-GRAPH-08` | Automated + Manual |
+| Graph panel camera management (select + add + remove current non-default camera) | `A-E2E-29`, `M-GRAPH-13`, `M-GRAPH-15` | Automated + Manual |
 | Graph panel projection management (add + select + remove active projection) | `M-GRAPH-10`, `M-GRAPH-11` | Manual |
 | Graph updates reject removing all projections (at least one projection must remain) | `A-BE-43`, `M-GRAPH-11` | Automated + Manual |
+| Graph stores shared cameras with per-camera viewport/floating-window layout and always keeps a default camera | `A-FE-38`, `A-E2E-29`, `A-BE-74`, `A-BE-75` | Automated |
+| Current camera selection is scoped to the current browser window instead of the whole graph | `A-E2E-29`, `A-FE-38`, `M-GRAPH-14` | Automated + Manual |
 | Connections-only graph updates preserve node layout/projection metadata | `A-BE-56` | Automated |
 | New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
@@ -272,7 +281,7 @@ Last reviewed: March 14, 2026.
 | Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
 | Canvas remains full viewport while toolbar/right sidebar render as draggable floating windows during resize | `A-E2E-17` | Automated |
-| Floating toolbar/right sidebar window positions persist across browser refresh | `A-E2E-27`, `A-FE-38` | Automated |
+| Floating toolbar/right sidebar window positions persist across browser refresh as part of the active camera | `A-E2E-27`, `A-E2E-29`, `A-FE-38` | Automated |
 | Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
 | Shared color-selection dialogs layer outside floating windows and are not clipped by narrow panel client areas | `A-E2E-24` | Automated |
 | Shared color-selection dialogs support hue, saturation/value, RGB, and optional opacity controls | `A-E2E-25`, `A-FE-35` | Automated |
@@ -286,7 +295,7 @@ Last reviewed: March 14, 2026.
 | Pinch zoom | `A-E2E-10`, `M-CANVAS-25` | Automated + Manual |
 | Two-finger trackpad scroll pans viewport | `A-E2E-10`, `A-FE-26`, `M-CANVAS-25` | Automated + Manual |
 | Modifier wheel directional scroll (`Shift` horizontal, `Alt` vertical) | `A-E2E-10`, `A-FE-26`, `M-CANVAS-02` | Automated + Manual |
-| Empty-canvas `Space`-drag pans viewport | `A-E2E-21`, `M-CANVAS-03` | Automated + Manual |
+| `Space`-drag pans the viewport even when the drag starts on a selected node | `A-E2E-21`, `M-CANVAS-03` | Automated + Manual |
 | Empty-canvas drag marquee-selects nodes without panning | `A-E2E-21`, `M-CANVAS-29` | Automated + Manual |
 | Multi-node selection supports `Ctrl` toggle/additive marquee without browser context menu interference, shared move/resize, and delete | `A-E2E-21`, `A-FE-31`, `M-CANVAS-30` | Automated + Manual |
 | Alt-dragging a selected node set duplicates the nodes, preserves their internal links, and keeps the duplicate set selected | `A-E2E-23`, `A-FE-34`, `M-CANVAS-31` | Automated + Manual |
@@ -314,7 +323,7 @@ Last reviewed: March 14, 2026.
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
-| Current graph viewport pan/zoom state persists across browser refresh | `A-E2E-27`, `A-FE-38` | Automated |
+| Current graph viewport pan/zoom state persists across browser refresh as part of the active camera | `A-E2E-27`, `A-E2E-29`, `A-FE-38` | Automated |
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
 | Canvas pencil color selection via reusable color dialog (default white) | `A-FE-20`, `A-BE-39`, `M-CANVAS-14` | Automated + Manual |
 | Canvas pencil thickness selection (1/3/9 px) | `M-CANVAS-15` | Manual |

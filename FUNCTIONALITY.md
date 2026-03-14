@@ -21,10 +21,14 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel backend recompute worker setting: edit per-graph `recomputeConcurrency` (`1-32`).
+- Graph panel camera management: select the current camera for this browser window, add cameras cloned from the current camera state, and remove non-default cameras.
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.
 - New projections clone node coordinates, node card dimensions, and projection background from the currently selected projection.
 - Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
+- Graph stores shared camera objects with viewport pan/zoom and floating window layout state; default camera is always present.
+- Current camera selection is window-local per graph (scoped to the current browser tab/window rather than shared across all viewers).
 - Graph update API rejects projection updates that remove all projections (at least one projection must remain).
+- Graph update API normalizes camera updates so the default camera always remains present.
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Graph panel projection background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog for the active projection.
 - Graph panel connection stroke management: configure per-graph foreground/background connector colors and widths (background width auto-locked to 2x foreground).
@@ -39,7 +43,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Pinch zoom (trackpad gesture) keeps pointer-focused zoom with higher sensitivity than mouse wheel.
 - Two-finger trackpad scroll pans viewport.
 - Shift + wheel scrolls horizontally; Alt + wheel scrolls vertically.
-- Empty-canvas click-drag performs marquee node selection; holding `Space` converts empty-canvas drag into viewport panning.
+- Holding `Space` converts canvas drag into viewport panning, including when the pointer starts on a selected node or drawing instead of empty canvas.
 - Canvas supports multi-node selection with marquee drag, `Ctrl`-click toggle, and additive `Ctrl`-drag marquee selection.
 - Multi-selected nodes keep per-node selected styling, expose shared move/resize handles, and delete together.
 - Alt-dragging a selected node set duplicates the selected nodes, keeps the originals in place, and copies any internal links between the duplicated nodes.
@@ -71,7 +75,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `annotation` node cards support all-side resize handles (north/south/east/west + corners) and persist updated size/position.
 - `annotation` node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
 - Minimap/navigation assistant with click-to-center behavior.
-- Current graph viewport pan/zoom state persists across browser refresh.
+- Current graph viewport pan/zoom state persists across browser refresh as part of the active camera.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
 - Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
@@ -82,7 +86,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing paths and handles are rendered in canvas and minimap.
 - Canvas fills the full viewport while UI chrome is rendered as floating overlays.
 - Toolbar and right-side panel stack are draggable floating windows, so layout remains stable during window resizing.
-- Floating toolbar and right sidebar window positions persist across browser refresh.
+- Floating toolbar and right sidebar window positions persist across browser refresh as part of the active camera.
+- Floating window layouts are stored as nearest-edge padding ratios, so the same camera can reopen cleanly in different browser window sizes without layout hysteresis.
 - Shared color-selection dialogs render as viewport overlays outside floating toolbar/sidebar windows, so larger dialogs are not clipped by narrow panel client areas.
 - Shared color-selection dialogs support rectangular saturation/value picking, linear hue selection, RGB sliders, preset swatches, and optional opacity control.
 - Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.

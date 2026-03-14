@@ -1086,6 +1086,60 @@ test('POST /api/graphs initializes default projection metadata when omitted', as
   }
 });
 
+test('POST /api/graphs initializes default camera metadata when omitted', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const response = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(response.status, 200);
+    const graph = await response.json();
+
+    assert.ok(Array.isArray(graph.cameras));
+    assert.equal(graph.cameras.length, 1);
+    assert.equal(graph.cameras[0].id, 'default-camera');
+    assert.equal(graph.cameras[0].name, 'Default Camera');
+    assert.deepEqual(graph.cameras[0].floatingWindows, {});
+    assert.equal(graph.cameras[0].viewport, undefined);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs preserves the default camera when camera updates would otherwise remove all cameras', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [createValidInlineNode()],
+    });
+    assert.equal(createResponse.status, 200);
+    const graph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        cameras: [],
+        ifMatchUpdatedAt: graph.updatedAt,
+      }),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+    assert.deepEqual(updatedGraph.cameras, [
+      {
+        id: 'default-camera',
+        name: 'Default Camera',
+        floatingWindows: {},
+      },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs preserves oversized fallback node card dimensions', async () => {
   const ctx = await setupTestServer();
 

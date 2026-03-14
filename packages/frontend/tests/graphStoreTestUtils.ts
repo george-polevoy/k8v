@@ -27,9 +27,14 @@ export const makeGraph = (id: string): Graph => ({
 });
 
 export function resetGraphStoreState(overrides: Partial<ReturnType<typeof useGraphStore.getState>> = {}): void {
+  if (!(globalThis as any).sessionStorage) {
+    (globalThis as any).sessionStorage = new MemoryLocalStorage();
+  }
+
   useGraphStore.setState({
     graph: null,
     graphSummaries: [],
+    selectedCameraId: null,
     selectedNodeId: null,
     selectedNodeIds: [],
     selectedDrawingId: null,

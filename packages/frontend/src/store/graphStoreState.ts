@@ -3,6 +3,7 @@ import type {
   GraphicsArtifact,
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
+import { normalizeGraphCameraState } from '../utils/cameras';
 import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
 import { dedupeConnectionsByTargetSlot } from '../utils/connectionSlots';
 import { normalizeHexColor } from '../utils/color';
@@ -111,6 +112,7 @@ export function normalizeGraph(graph: Graph): Graph {
     activeProjectionId: projectionState.activeProjectionId,
     executionTimeoutMs: normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs),
     connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
+    cameras: normalizeGraphCameraState(graph.cameras),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
     drawings: drawings.map((drawing) => ({
       ...drawing,

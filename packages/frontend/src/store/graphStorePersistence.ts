@@ -1,4 +1,5 @@
 import type { Graph } from '../types';
+import { resolveSelectedGraphCameraId } from '../utils/cameras';
 import {
   buildNodeGraphicsOutputMapForGraph,
   buildNodeStateMapForGraph,
@@ -18,6 +19,7 @@ import type {
 
 export interface GraphStorePersistenceState {
   graph: Graph | null;
+  selectedCameraId: string | null;
   selectedNodeId: string | null;
   selectedNodeIds: string[];
   selectedDrawingId: string | null;
@@ -46,6 +48,7 @@ interface GraphStateUpdateParams {
   isLoading?: boolean;
   error?: string | null;
   selectionMode?: GraphSelectionMode;
+  selectedCameraId?: string | null;
   selectedNodeId?: string | null;
   selectedNodeIds?: string[];
   selectedDrawingId?: string | null;
@@ -73,9 +76,15 @@ export function buildGraphStateUpdate({
   selectedNodeId,
   selectedNodeIds,
   selectedDrawingId,
+  selectedCameraId,
 }: GraphStateUpdateParams): GraphStorePersistenceStateUpdate {
+  const reconciledSelectedCameraId = resolveSelectedGraphCameraId(
+    graph.cameras,
+    selectedCameraId
+  );
   const nextState: GraphStorePersistenceStateUpdate = {
     graph,
+    selectedCameraId: reconciledSelectedCameraId,
     isLoading,
     error,
     nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
@@ -140,7 +149,7 @@ export function createGraphUpdatePersistenceController({
     },
 
     async updateGraph(updates: Partial<Graph>): Promise<void> {
-      const { graph, nodeExecutionStates, nodeGraphicsOutputs } = getState();
+      const { graph, nodeExecutionStates, nodeGraphicsOutputs, selectedCameraId } = getState();
       if (!graph) {
         return;
       }
@@ -157,6 +166,7 @@ export function createGraphUpdatePersistenceController({
 
       setState(buildGraphStateUpdate({
         graph: updatedGraph,
+        selectedCameraId,
         nodeExecutionStates,
         nodeGraphicsOutputs,
         error: null,
@@ -173,6 +183,7 @@ export function createGraphUpdatePersistenceController({
         setState((state) =>
           buildGraphStateUpdate({
             graph: persistedGraph,
+            selectedCameraId: state.selectedCameraId,
             selectedNodeId: state.selectedNodeId,
             selectedNodeIds: state.selectedNodeIds,
             selectedDrawingId: state.selectedDrawingId,
@@ -202,6 +213,7 @@ export function createGraphUpdatePersistenceController({
               setState((state) =>
                 buildGraphStateUpdate({
                   graph: rebasedGraph,
+                  selectedCameraId: state.selectedCameraId,
                   selectedNodeId: state.selectedNodeId,
                   selectedNodeIds: state.selectedNodeIds,
                   selectedDrawingId: state.selectedDrawingId,
@@ -221,6 +233,7 @@ export function createGraphUpdatePersistenceController({
               setState((state) =>
                 buildGraphStateUpdate({
                   graph: persistedGraph,
+                  selectedCameraId: state.selectedCameraId,
                   selectedNodeId: state.selectedNodeId,
                   selectedNodeIds: state.selectedNodeIds,
                   selectedDrawingId: state.selectedDrawingId,
@@ -238,6 +251,7 @@ export function createGraphUpdatePersistenceController({
             setState((state) =>
               buildGraphStateUpdate({
                 graph: latestGraph,
+                selectedCameraId: state.selectedCameraId,
                 selectedNodeId: state.selectedNodeId,
                 selectedNodeIds: state.selectedNodeIds,
                 selectedDrawingId: state.selectedDrawingId,
@@ -257,6 +271,7 @@ export function createGraphUpdatePersistenceController({
 
             setState(buildGraphStateUpdate({
               graph,
+              selectedCameraId,
               nodeExecutionStates,
               nodeGraphicsOutputs,
               error: resolveErrorMessage(
@@ -271,6 +286,7 @@ export function createGraphUpdatePersistenceController({
 
         setState(buildGraphStateUpdate({
           graph,
+          selectedCameraId,
           nodeExecutionStates,
           nodeGraphicsOutputs,
           error: resolveErrorMessage(error, 'Failed to update graph'),
