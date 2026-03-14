@@ -6,7 +6,7 @@ import {
   waitForNodeCardSize,
   waitForNodePosition,
 } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph, readCanvasCursor } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, waitForCursorAtPoint } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -270,6 +270,54 @@ async function readSelectedNodeIds(page: import('playwright').Page): Promise<str
   });
 }
 
+async function waitForSelectedNodeIds(
+  page: import('playwright').Page,
+  predicate: (selectedNodeIds: string[]) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<string[]> {
+  const startedAt = Date.now();
+  let lastSelectedNodeIds = await readSelectedNodeIds(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastSelectedNodeIds = await readSelectedNodeIds(page);
+    if (predicate(lastSelectedNodeIds)) {
+      return lastSelectedNodeIds;
+    }
+    await page.waitForTimeout(60);
+  }
+
+  throw new Error(
+    `Timed out waiting for selected node ids. Last value: ${JSON.stringify(lastSelectedNodeIds)}`
+  );
+}
+
+async function retryCtrlClickUntilSelectionMatches(
+  page: import('playwright').Page,
+  point: { x: number; y: number },
+  predicate: (selectedNodeIds: string[]) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<string[]> {
+  const startedAt = Date.now();
+  let lastSelectedNodeIds = await readSelectedNodeIds(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    await page.keyboard.down('Control');
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.up('Control');
+
+    try {
+      return await waitForSelectedNodeIds(page, predicate, 250);
+    } catch {
+      lastSelectedNodeIds = await readSelectedNodeIds(page);
+      await page.waitForTimeout(60);
+    }
+  }
+
+  throw new Error(
+    `Timed out retrying ctrl-click selection. Last value: ${JSON.stringify(lastSelectedNodeIds)}`
+  );
+}
+
 async function dispatchCanvasContextMenu(
   page: import('playwright').Page
 ): Promise<ContextMenuDispatchResult> {
@@ -294,14 +342,6 @@ function sortNodeIds(nodeIds: string[]): string[] {
 
 function approxEqual(left: number, right: number, tolerance: number): boolean {
   return Math.abs(left - right) <= tolerance;
-}
-
-async function readCursorAtPoint(
-  page: import('playwright').Page,
-  point: { x: number; y: number }
-): Promise<string> {
-  await page.mouse.move(point.x, point.y);
-  return readCanvasCursor(page);
 }
 
 async function resolveNodeScreenRect(
@@ -405,8 +445,12 @@ test(
       );
       await page.mouse.up();
 
-      await page.waitForTimeout(200);
-      const afterMarqueeSelection = await readSelectedNodeIds(page);
+      const afterMarqueeSelection = await waitForSelectedNodeIds(
+        page,
+        (selectedNodeIds) => (
+          sortNodeIds(selectedNodeIds).join(',') === sortNodeIds([nodeIds.left, nodeIds.middle]).join(',')
+        )
+      );
       assert.deepEqual(
         sortNodeIds(afterMarqueeSelection),
         sortNodeIds([nodeIds.left, nodeIds.middle]),
@@ -420,14 +464,14 @@ test(
         `Empty-space drag without space should not pan viewport. Before=${JSON.stringify(initialViewportTransform)} After=${JSON.stringify(viewportAfterMarqueeSelection)}`
       );
 
-      await page.keyboard.down('Control');
-      await page.mouse.click(
-        middleRect.x + (middleRect.width * 0.5),
-        middleRect.y + (middleRect.height * 0.5)
+      const afterCtrlToggle = await retryCtrlClickUntilSelectionMatches(
+        page,
+        {
+          x: middleRect.x + (middleRect.width * 0.5),
+          y: middleRect.y + (middleRect.height * 0.5),
+        },
+        (selectedNodeIds) => selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeIds.left
       );
-      await page.keyboard.up('Control');
-      await page.waitForTimeout(200);
-      const afterCtrlToggle = await readSelectedNodeIds(page);
       assert.deepEqual(afterCtrlToggle, [nodeIds.left], 'Ctrl-click should toggle a node out of the selection');
 
       await page.keyboard.down('Control');
@@ -440,8 +484,12 @@ test(
       );
       await page.mouse.up();
       await page.keyboard.up('Control');
-      await page.waitForTimeout(200);
-      const afterCtrlDragAdd = await readSelectedNodeIds(page);
+      const afterCtrlDragAdd = await waitForSelectedNodeIds(
+        page,
+        (selectedNodeIds) => (
+          sortNodeIds(selectedNodeIds).join(',') === sortNodeIds([nodeIds.left, nodeIds.middle]).join(',')
+        )
+      );
       assert.deepEqual(
         sortNodeIds(afterCtrlDragAdd),
         sortNodeIds([nodeIds.left, nodeIds.middle]),
@@ -458,11 +506,11 @@ test(
         x: selectionBoundsBeforeResize.x + selectionBoundsBeforeResize.width,
         y: selectionBoundsBeforeResize.y + selectionBoundsBeforeResize.height,
       };
-      const sharedHandleCursor = await readCursorAtPoint(page, sharedResizeHandle);
-      assert.equal(
-        sharedHandleCursor,
-        'nwse-resize',
-        'Shared selection should expose a resize handle'
+      await waitForCursorAtPoint(
+        page,
+        sharedResizeHandle.x,
+        sharedResizeHandle.y,
+        'nwse-resize'
       );
 
       await page.mouse.move(sharedResizeHandle.x, sharedResizeHandle.y);

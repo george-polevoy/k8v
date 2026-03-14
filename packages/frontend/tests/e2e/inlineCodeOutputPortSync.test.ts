@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createEmptyGraph, waitForGraphNodeByName } from './support/api.ts';
-import { launchBrowser } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_FRONTEND_URL } from './support/config.ts';
+import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 interface CanvasBox {
@@ -13,14 +13,17 @@ interface CanvasBox {
   height: number;
 }
 
-interface ScreenRegion {
+interface ViewportTransform {
   x: number;
   y: number;
-  width: number;
-  height: number;
+  scale: number;
 }
 
-function isPointInsideRegion(x: number, y: number, region: ScreenRegion): boolean {
+const NEW_NODE_POSITION = { x: 400, y: 300 };
+const NEW_NODE_WIDTH = 220;
+const NEW_NODE_HEIGHT = 68;
+
+function isPointInsideRegion(x: number, y: number, region: CanvasBox): boolean {
   return (
     x >= region.x &&
     x <= (region.x + region.width) &&
@@ -29,10 +32,10 @@ function isPointInsideRegion(x: number, y: number, region: ScreenRegion): boolea
   );
 }
 
-async function getFloatingWindowRegions(page: import('playwright').Page): Promise<ScreenRegion[]> {
+async function getFloatingWindowRegions(page: import('playwright').Page): Promise<CanvasBox[]> {
   const floatingWindows = page.locator('[data-testid^="floating-window-"]');
   const count = await floatingWindows.count();
-  const regions: ScreenRegion[] = [];
+  const regions: CanvasBox[] = [];
   for (let index = 0; index < count; index += 1) {
     const bounds = await floatingWindows.nth(index).boundingBox();
     if (bounds) {
@@ -40,6 +43,43 @@ async function getFloatingWindowRegions(page: import('playwright').Page): Promis
     }
   }
   return regions;
+}
+
+async function readViewportTransform(page: import('playwright').Page): Promise<ViewportTransform> {
+  return page.evaluate(() => {
+    const debugCounters = (window as Window & {
+      __k8vCanvasDebug?: {
+        viewportX?: unknown;
+        viewportY?: unknown;
+        viewportScale?: unknown;
+      };
+    }).__k8vCanvasDebug;
+
+    return {
+      x: typeof debugCounters?.viewportX === 'number' ? debugCounters.viewportX : Number.NaN,
+      y: typeof debugCounters?.viewportY === 'number' ? debugCounters.viewportY : Number.NaN,
+      scale: typeof debugCounters?.viewportScale === 'number' ? debugCounters.viewportScale : Number.NaN,
+    };
+  });
+}
+
+async function waitForViewportTransform(
+  page: import('playwright').Page,
+  predicate: (transform: ViewportTransform) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<ViewportTransform> {
+  const startedAt = Date.now();
+  let lastTransform = await readViewportTransform(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    lastTransform = await readViewportTransform(page);
+    if (predicate(lastTransform)) {
+      return lastTransform;
+    }
+    await page.waitForTimeout(60);
+  }
+
+  throw new Error(`Timed out waiting for viewport transform. Last value: ${JSON.stringify(lastTransform)}`);
 }
 
 async function ensureNodeSelected(
@@ -51,9 +91,39 @@ async function ensureNodeSelected(
     return;
   }
 
+  const viewportTransform = await waitForViewportTransform(page, (transform) =>
+    Number.isFinite(transform.x) &&
+    Number.isFinite(transform.y) &&
+    Number.isFinite(transform.scale)
+  );
+  const nodeRect = {
+    x: canvasBox.x + viewportTransform.x + (NEW_NODE_POSITION.x * viewportTransform.scale),
+    y: canvasBox.y + viewportTransform.y + (NEW_NODE_POSITION.y * viewportTransform.scale),
+    width: NEW_NODE_WIDTH * viewportTransform.scale,
+    height: NEW_NODE_HEIGHT * viewportTransform.scale,
+  };
+  const nodeClickCandidates = [
+    { x: nodeRect.x + (nodeRect.width * 0.5), y: nodeRect.y + 20 * viewportTransform.scale },
+    { x: nodeRect.x + 32 * viewportTransform.scale, y: nodeRect.y + 20 * viewportTransform.scale },
+    { x: nodeRect.x + (nodeRect.width * 0.5), y: nodeRect.y + (nodeRect.height * 0.5) },
+    { x: nodeRect.x + (nodeRect.width * 0.75), y: nodeRect.y + (nodeRect.height * 0.5) },
+  ];
+
   const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const blockedRegions = await getFloatingWindowRegions(page);
+
+    for (const point of nodeClickCandidates) {
+      if (blockedRegions.some((region) => isPointInsideRegion(point.x, point.y, region))) {
+        continue;
+      }
+      await page.mouse.click(point.x, point.y);
+      await page.waitForTimeout(60);
+      if (await nodeNameInput.isVisible()) {
+        return;
+      }
+    }
+
     for (let y = canvasBox.y + 40; y <= (canvasBox.y + canvasBox.height - 40); y += 70) {
       for (let x = canvasBox.x + 40; x <= (canvasBox.x + canvasBox.width - 40); x += 70) {
         if (blockedRegions.some((region) => isPointInsideRegion(x, y, region))) {
@@ -106,25 +176,6 @@ async function waitForNodeOutputs(
   );
 }
 
-async function openGraphForTest(
-  page: import('playwright').Page,
-  graphId: string
-): Promise<void> {
-  await page.addInitScript((savedGraphId: string) => {
-    window.localStorage.clear();
-    window.localStorage.setItem('k8v-current-graph-id', savedGraphId);
-  }, graphId);
-
-  await page.goto(E2E_FRONTEND_URL, {
-    waitUntil: 'domcontentloaded',
-    timeout: E2E_ASSERT_TIMEOUT_MS,
-  });
-  await page.locator('canvas').first().waitFor({
-    state: 'visible',
-    timeout: E2E_ASSERT_TIMEOUT_MS,
-  });
-}
-
 test(
   'editing inline code in node panel syncs inferred output ports',
   { timeout: 90_000 },
@@ -139,7 +190,12 @@ test(
       });
       const page = await context.newPage();
 
-      await openGraphForTest(page, graphId);
+      await page.addInitScript(() => {
+        (window as Window & {
+          __k8vCanvasDebug?: Record<string, unknown>;
+        }).__k8vCanvasDebug = {};
+      });
+      await openCanvasForGraph(page, graphId);
 
       await page.locator('button[title="Add Node"]').click();
 

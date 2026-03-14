@@ -40,6 +40,7 @@ export interface BackendNodeExecutionState {
 export interface BackendRecomputeStatus {
   graphId?: string;
   statusVersion?: number;
+  graphUpdatedAt?: number;
   nodeStates?: Record<string, BackendNodeExecutionState>;
 }
 

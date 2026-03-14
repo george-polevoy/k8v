@@ -5,6 +5,12 @@ import {
   normalizeGraph,
   resolveErrorMessage,
 } from './graphStoreState';
+import {
+  applyGraphUpdatePayload,
+  deriveGraphUpdatePayload,
+  rebaseGraphUpdate,
+  type GraphUpdatePayload,
+} from './graphUpdateRebase';
 import type {
   NodeExecutionState,
   NodeGraphicsOutputMap,
@@ -47,7 +53,7 @@ interface GraphStateUpdateParams {
 
 interface GraphPersistenceApi {
   fetchGraph(graphId: string): Promise<Graph>;
-  updateGraph(graphId: string, graph: Graph & { ifMatchUpdatedAt: number }): Promise<Graph>;
+  updateGraph(graphId: string, graph: GraphUpdatePayload & { ifMatchUpdatedAt: number }): Promise<Graph>;
 }
 
 interface CreateGraphUpdatePersistenceControllerParams {
@@ -112,20 +118,42 @@ export function createGraphUpdatePersistenceController({
   syncPersistedGraph,
 }: CreateGraphUpdatePersistenceControllerParams) {
   let latestUpdateRequestId = 0;
+  let pendingUpdateCount = 0;
 
   const isLatestRequest = (requestId: number) => requestId === latestUpdateRequestId;
 
+  const sendGraphUpdate = async (
+    graphId: string,
+    baseGraph: Graph,
+    updates: GraphUpdatePayload
+  ): Promise<Graph> => {
+    const payload = {
+      ...updates,
+      ifMatchUpdatedAt: baseGraph.updatedAt,
+    };
+    return normalizeGraph(await api.updateGraph(graphId, payload));
+  };
+
   return {
+    hasPendingUpdates(): boolean {
+      return pendingUpdateCount > 0;
+    },
+
     async updateGraph(updates: Partial<Graph>): Promise<void> {
       const { graph, nodeExecutionStates, nodeGraphicsOutputs } = getState();
       if (!graph) {
         return;
       }
 
-      const updatedGraph = normalizeGraph({ ...graph, ...updates } as Graph);
+      const updatePayload = deriveGraphUpdatePayload(graph, updates);
+      if (Object.keys(updatePayload).length === 0) {
+        return;
+      }
+
+      const updatedGraph = applyGraphUpdatePayload(graph, updatePayload);
       const requestId = latestUpdateRequestId + 1;
       latestUpdateRequestId = requestId;
-      const ifMatchUpdatedAt = graph.updatedAt;
+      pendingUpdateCount += 1;
 
       setState(buildGraphStateUpdate({
         graph: updatedGraph,
@@ -136,10 +164,7 @@ export function createGraphUpdatePersistenceController({
       }));
 
       try {
-        const persistedGraph = normalizeGraph(await api.updateGraph(graph.id, {
-          ...updatedGraph,
-          ifMatchUpdatedAt,
-        }));
+        const persistedGraph = await sendGraphUpdate(graph.id, graph, updatePayload);
 
         if (!isLatestRequest(requestId)) {
           return;
@@ -168,6 +193,45 @@ export function createGraphUpdatePersistenceController({
           try {
             const latestGraph = normalizeGraph(await api.fetchGraph(graph.id));
             if (!isLatestRequest(requestId)) {
+              return;
+            }
+
+            const rebased = rebaseGraphUpdate(graph, updatePayload, latestGraph);
+            if (rebased.ok) {
+              const rebasedGraph = applyGraphUpdatePayload(latestGraph, rebased.updates);
+              setState((state) =>
+                buildGraphStateUpdate({
+                  graph: rebasedGraph,
+                  selectedNodeId: state.selectedNodeId,
+                  selectedNodeIds: state.selectedNodeIds,
+                  selectedDrawingId: state.selectedDrawingId,
+                  nodeExecutionStates: state.nodeExecutionStates,
+                  nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                  error: null,
+                  isLoading: false,
+                  selectionMode: 'reconcile',
+                })
+              );
+
+              const persistedGraph = await sendGraphUpdate(graph.id, latestGraph, rebased.updates);
+              if (!isLatestRequest(requestId)) {
+                return;
+              }
+
+              setState((state) =>
+                buildGraphStateUpdate({
+                  graph: persistedGraph,
+                  selectedNodeId: state.selectedNodeId,
+                  selectedNodeIds: state.selectedNodeIds,
+                  selectedDrawingId: state.selectedDrawingId,
+                  nodeExecutionStates: state.nodeExecutionStates,
+                  nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                  error: null,
+                  isLoading: false,
+                  selectionMode: 'reconcile',
+                })
+              );
+              syncPersistedGraph(persistedGraph);
               return;
             }
 
@@ -212,6 +276,8 @@ export function createGraphUpdatePersistenceController({
           error: resolveErrorMessage(error, 'Failed to update graph'),
           isLoading: false,
         }));
+      } finally {
+        pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
       }
     },
   };

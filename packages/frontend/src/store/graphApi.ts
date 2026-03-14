@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { ComputationResult, Graph } from '../types';
 import type { BackendRecomputeStatus } from './graphStoreState';
+import type { GraphUpdatePayload } from './graphUpdateRebase';
 
 export const graphApi = {
   async fetchGraph(graphId: string): Promise<Graph> {
@@ -27,7 +28,7 @@ export const graphApi = {
     return response.data;
   },
 
-  async updateGraph(graphId: string, graph: Graph & { ifMatchUpdatedAt: number }): Promise<Graph> {
+  async updateGraph(graphId: string, graph: GraphUpdatePayload & { ifMatchUpdatedAt: number }): Promise<Graph> {
     const response = await axios.put(`/api/graphs/${graphId}`, graph);
     return response.data as Graph;
   },

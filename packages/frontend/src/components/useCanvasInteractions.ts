@@ -17,11 +17,6 @@ import type {
 import { NodeType } from '../types';
 import { resolveAnnotationEdgeDropTarget } from '../utils/annotationConnections';
 import {
-  DEFAULT_GRAPH_PROJECTION_ID,
-  withNodeCardSizeInProjection,
-  withNodePositionInProjection,
-} from '../utils/projections';
-import {
   computeRectFromPoints,
   computeNodeResizeDraft,
   computeSelectionResizeDraft,
@@ -244,7 +239,7 @@ interface UseCanvasInteractionsParams {
   addDrawingPath: (drawingId: string, path: DrawingPath) => void;
   updateNodePosition: (nodeId: string, position: Position) => void;
   updateDrawingPosition: (drawingId: string, position: Position) => void;
-  updateGraph: (graph: Graph) => void | Promise<void>;
+  updateGraph: (graph: Partial<Graph>) => void | Promise<void>;
   deleteConnection: (connectionId: string) => void;
   deleteDrawing: (drawingId: string) => void;
   selectNode: (nodeId: string | null) => void;
@@ -331,7 +326,6 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       return;
     }
 
-    const activeProjectionId = currentGraph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
     const nextNodes = currentGraph.nodes.map((node) => {
       const nodeState = nodeStates.get(node.id);
       if (!nodeState) {
@@ -354,26 +348,8 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       };
     });
 
-    const nextProjections = (currentGraph.projections ?? []).map((projection) => {
-      if (projection.id !== activeProjectionId) {
-        return projection;
-      }
-
-      let nextProjection = projection;
-      for (const [nodeId, nodeState] of nodeStates.entries()) {
-        nextProjection = withNodePositionInProjection(nextProjection, nodeId, nodeState.position);
-        if (nodeState.size) {
-          nextProjection = withNodeCardSizeInProjection(nextProjection, nodeId, nodeState.size);
-        }
-      }
-      return nextProjection;
-    });
-
     void updateGraph({
-      ...currentGraph,
       nodes: nextNodes,
-      projections: nextProjections,
-      updatedAt: Date.now(),
     });
   }, [graphRef, updateGraph]);
 
@@ -388,19 +364,6 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     const nextConnections = currentGraph.connections.filter(
       (connection) => !nodeIdSet.has(connection.sourceNodeId) && !nodeIdSet.has(connection.targetNodeId)
     );
-    const nextProjections = (currentGraph.projections ?? []).map((projection) => {
-      const nextNodePositions = { ...projection.nodePositions };
-      const nextNodeCardSizes = { ...projection.nodeCardSizes };
-      for (const nodeId of nodeIdSet) {
-        delete nextNodePositions[nodeId];
-        delete nextNodeCardSizes[nodeId];
-      }
-      return {
-        ...projection,
-        nodePositions: nextNodePositions,
-        nodeCardSizes: nextNodeCardSizes,
-      };
-    });
 
     selectedNodeIdsRef.current = [];
     selectedNodeIdRef.current = null;
@@ -410,11 +373,8 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     nodeCardDraftPositionsRef.current.clear();
     nodeCardDraftSizesRef.current.clear();
     void updateGraph({
-      ...currentGraph,
       nodes: nextNodes,
       connections: nextConnections,
-      projections: nextProjections,
-      updatedAt: Date.now(),
     });
   }, [
     graphRef,
@@ -507,7 +467,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     for (const [duplicateNodeId, position] of nextCurrentNodePositions.entries()) {
       nodeCardDraftPositionsRef.current.set(duplicateNodeId, position);
     }
-    void updateGraph(duplication.graph);
+    void updateGraph({
+      nodes: duplication.graph.nodes,
+      connections: duplication.graph.connections,
+      projections: duplication.graph.projections,
+    });
 
     return {
       pointerX: selectionDragState.pointerX,

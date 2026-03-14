@@ -170,7 +170,6 @@ export function useGraphManagementState(
       await updateGraph({
         nodes: resolution.nextNodes,
         pythonEnvs: resolution.normalizedEnvs,
-        updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
       setPythonEnvValidationError(null);

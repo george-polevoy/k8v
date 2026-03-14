@@ -8,7 +8,7 @@ export async function launchBrowser(): Promise<Browser> {
   });
 }
 
-export async function openCanvasForGraph(page: Page, graphId: string): Promise<void> {
+async function openCanvasForGraphOnce(page: Page, graphId: string): Promise<void> {
   const graphLoadResponse = page.waitForResponse((response) =>
     response.request().method() === 'GET' &&
     response.url().endsWith(`/api/graphs/${graphId}`) &&
@@ -41,6 +41,25 @@ export async function openCanvasForGraph(page: Page, graphId: string): Promise<v
   }, graphId, {
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
+}
+
+export async function openCanvasForGraph(page: Page, graphId: string): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await openCanvasForGraphOnce(page, graphId);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1) {
+        break;
+      }
+      await page.goto('about:blank', { waitUntil: 'load', timeout: E2E_ASSERT_TIMEOUT_MS }).catch(() => undefined);
+    }
+  }
+
+  throw lastError;
 }
 
 export async function readCanvasCursor(page: Page): Promise<string> {

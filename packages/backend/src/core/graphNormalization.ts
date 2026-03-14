@@ -165,6 +165,33 @@ function buildProjectionNodeCardSizeMap(
   return map;
 }
 
+export function syncActiveProjectionLayout(
+  projections: GraphProjection[] | undefined,
+  nodes: GraphNode[],
+  activeProjectionId: string | undefined
+): GraphProjection[] | undefined {
+  if (!Array.isArray(projections) || projections.length === 0) {
+    return projections;
+  }
+
+  const normalizedActiveProjectionId =
+    typeof activeProjectionId === 'string' && activeProjectionId.trim()
+      ? activeProjectionId.trim()
+      : DEFAULT_GRAPH_PROJECTION_ID;
+  const nodePositions = buildProjectionNodePositionMap(nodes);
+  const nodeCardSizes = buildProjectionNodeCardSizeMap(nodes);
+
+  return projections.map((projection) => (
+    projection.id === normalizedActiveProjectionId
+      ? {
+          ...projection,
+          nodePositions,
+          nodeCardSizes,
+        }
+      : projection
+  ));
+}
+
 export function normalizeGraphProjections(
   nodes: GraphNode[],
   projections: GraphProjection[] | undefined,

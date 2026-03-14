@@ -13,6 +13,7 @@ import {
 import {
   normalizeConnectionStrokeValue,
   normalizeGraphProjections,
+  syncActiveProjectionLayout,
 } from '../core/graphNormalization.js';
 import {
   buildGraphNodeMap,
@@ -326,9 +327,18 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       const inboundConnectionChangedNodeIds = req.body.connections
         ? collectInboundConnectionChangedNodeIds(existing.nodes, existing.connections, mergedNodes, mergedConnections)
         : new Set<string>();
+      const projectionInput = req.body.projections ?? (
+        req.body.nodes
+          ? syncActiveProjectionLayout(
+              existing.projections,
+              mergedNodes,
+              req.body.activeProjectionId ?? existing.activeProjectionId
+            )
+          : existing.projections
+      );
       const projectionState = normalizeGraphProjections(
         mergedNodes,
-        req.body.projections ?? existing.projections,
+        projectionInput,
         req.body.activeProjectionId ?? existing.activeProjectionId,
         mergedCanvasBackground,
         req.body.canvasBackground
@@ -409,7 +419,10 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       }
 
       const status = await recomputeManager.getGraphStatus(graph.id);
-      res.json(status);
+      res.json({
+        ...status,
+        graphUpdatedAt: graph.updatedAt,
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

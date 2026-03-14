@@ -93,6 +93,8 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
+  let remoteSyncInFlight = false;
+
   const graphComputation = createGraphComputationController({
     api: graphApi,
     getState: () => get(),
@@ -106,6 +108,14 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const currentGraph = get().graph;
       if (!currentGraph || currentGraph.id !== graphId) {
         return;
+      }
+
+      if (
+        typeof status.graphUpdatedAt === 'number' &&
+        status.graphUpdatedAt > currentGraph.updatedAt &&
+        !graphPersistence.hasPendingUpdates()
+      ) {
+        void syncCurrentGraphFromRemote(graphId);
       }
 
       graphComputation.applyBackendRecomputeStatus(currentGraph, status);
@@ -144,6 +154,52 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     setState: (partial) => set(partial as Parameters<typeof set>[0]),
     syncPersistedGraph,
   });
+
+  const syncCurrentGraphFromRemote = async (graphId: string): Promise<void> => {
+    if (remoteSyncInFlight) {
+      return;
+    }
+
+    remoteSyncInFlight = true;
+    try {
+      const latestGraph = normalizeGraph(await graphApi.fetchGraph(graphId));
+      const state = get();
+      const currentGraph = state.graph;
+      if (!currentGraph || currentGraph.id !== graphId) {
+        return;
+      }
+      if (graphPersistence.hasPendingUpdates()) {
+        return;
+      }
+      if (currentGraph.updatedAt >= latestGraph.updatedAt) {
+        return;
+      }
+
+      set((currentState) => buildGraphStateUpdate({
+        graph: latestGraph,
+        selectedNodeId: currentState.selectedNodeId,
+        selectedNodeIds: currentState.selectedNodeIds,
+        selectedDrawingId: currentState.selectedDrawingId,
+        nodeExecutionStates: currentState.nodeExecutionStates,
+        nodeGraphicsOutputs: currentState.nodeGraphicsOutputs,
+        error: null,
+        isLoading: false,
+        selectionMode: 'reconcile',
+      }));
+      await graphComputation.hydrateNodeExecutionStates(latestGraph);
+
+      if (get().graph?.id !== graphId) {
+        return;
+      }
+      syncPersistedGraph(latestGraph);
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        removeGraphSummary(graphId);
+      }
+    } finally {
+      remoteSyncInFlight = false;
+    }
+  };
 
   const graphEditing = createGraphEditingController({
     getState: () => get(),

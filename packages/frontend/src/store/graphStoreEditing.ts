@@ -6,11 +6,6 @@ import type {
   GraphNode,
   Position,
 } from '../types';
-import {
-  DEFAULT_GRAPH_PROJECTION_ID,
-  withNodeCardSizeInProjection,
-  withNodePositionInProjection,
-} from '../utils/projections';
 import { applyConnectionSet } from '../utils/connectionSlots';
 
 interface GraphStoreEditingState {
@@ -34,30 +29,24 @@ export function createGraphEditingController({
   getState,
   setState,
 }: CreateGraphEditingControllerParams) {
-  const persistGraphEdit = (buildNextGraph: (graph: Graph) => Graph | null): void => {
+  const persistGraphEdit = (buildUpdates: (graph: Graph) => Partial<Graph> | null): void => {
     const { graph, updateGraph } = getState();
     if (!graph) {
       return;
     }
 
-    const nextGraph = buildNextGraph(graph);
-    if (!nextGraph) {
+    const updates = buildUpdates(graph);
+    if (!updates) {
       return;
     }
 
-    void updateGraph(nextGraph);
+    void updateGraph(updates);
   };
-
-  const withUpdatedAt = <T extends Graph>(graph: T): T => ({
-    ...graph,
-    updatedAt: Date.now(),
-  });
 
   return {
     addNode(node: GraphNode): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           nodes: [...graph.nodes, node],
         })
       );
@@ -65,8 +54,7 @@ export function createGraphEditingController({
 
     updateNode(nodeId: string, updates: Partial<GraphNode>): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           nodes: graph.nodes.map((node) =>
             node.id === nodeId ? { ...node, ...updates, version: Date.now().toString() } : node
           ),
@@ -75,51 +63,33 @@ export function createGraphEditingController({
     },
 
     updateNodePosition(nodeId: string, position: Position): void {
-      persistGraphEdit((graph) => {
-        const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-        return withUpdatedAt({
-          ...graph,
-          nodes: graph.nodes.map((node) =>
-            node.id === nodeId ? { ...node, position } : node
-          ),
-          projections: (graph.projections ?? []).map((projection) =>
-            projection.id === activeProjectionId
-              ? withNodePositionInProjection(projection, nodeId, position)
-              : projection
-          ),
-        });
-      });
+      persistGraphEdit((graph) => ({
+        nodes: graph.nodes.map((node) =>
+          node.id === nodeId ? { ...node, position } : node
+        ),
+      }));
     },
 
     updateNodeCardSize(nodeId: string, width: number, height: number): void {
-      persistGraphEdit((graph) => {
-        const activeProjectionId = graph.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-        return withUpdatedAt({
-          ...graph,
-          nodes: graph.nodes.map((node) => {
-            if (node.id !== nodeId) {
-              return node;
-            }
+      persistGraphEdit((graph) => ({
+        nodes: graph.nodes.map((node) => {
+          if (node.id !== nodeId) {
+            return node;
+          }
 
-            return {
-              ...node,
+          return {
+            ...node,
+            config: {
+              ...node.config,
               config: {
-                ...node.config,
-                config: {
-                  ...(node.config.config ?? {}),
-                  cardWidth: width,
-                  cardHeight: height,
-                },
+                ...(node.config.config ?? {}),
+                cardWidth: width,
+                cardHeight: height,
               },
-            };
-          }),
-          projections: (graph.projections ?? []).map((projection) =>
-            projection.id === activeProjectionId
-              ? withNodeCardSizeInProjection(projection, nodeId, { width, height })
-              : projection
-          ),
-        });
-      });
+            },
+          };
+        }),
+      }));
     },
 
     deleteNode(nodeId: string): void {
@@ -134,8 +104,7 @@ export function createGraphEditingController({
       }
 
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           nodes: graph.nodes.filter((node) => node.id !== nodeId),
           connections: graph.connections.filter(
             (connection) => connection.sourceNodeId !== nodeId && connection.targetNodeId !== nodeId
@@ -151,17 +120,15 @@ export function createGraphEditingController({
           return null;
         }
 
-        return withUpdatedAt({
-          ...graph,
+        return {
           connections: result.connections,
-        });
+        };
       });
     },
 
     deleteConnection(connectionId: string): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           connections: graph.connections.filter((connection) => connection.id !== connectionId),
         })
       );
@@ -183,17 +150,15 @@ export function createGraphEditingController({
           );
         }
 
-        return withUpdatedAt({
-          ...graph,
+        return {
           connections: graph.connections.filter((connection) => !connectionIdSet.has(connection.id)),
-        });
+        };
       });
     },
 
     addDrawing(drawing: GraphDrawing): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           drawings: [...(graph.drawings ?? []), drawing],
         })
       );
@@ -201,8 +166,7 @@ export function createGraphEditingController({
 
     updateDrawing(drawingId: string, updates: Partial<GraphDrawing>): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {
@@ -217,8 +181,7 @@ export function createGraphEditingController({
 
     updateDrawingPosition(drawingId: string, position: Position): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {
@@ -241,18 +204,14 @@ export function createGraphEditingController({
         });
       }
 
-      persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
-          drawings: (graph.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
-        })
-      );
+      persistGraphEdit((graph) => ({
+        drawings: (graph.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
+      }));
     },
 
     addDrawingPath(drawingId: string, path: DrawingPath): void {
       persistGraphEdit((graph) =>
-        withUpdatedAt({
-          ...graph,
+        ({
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {

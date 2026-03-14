@@ -6,6 +6,7 @@ import {
   cloneProjectionNodePositions,
   DEFAULT_GRAPH_PROJECTION_ID,
   normalizeGraphProjectionState,
+  syncActiveProjectionLayout,
 } from '../src/utils/projections.ts';
 
 function makeNode(id: string, x: number, y: number) {
@@ -104,4 +105,53 @@ test('applyProjectionToNodes updates node positions using projection coordinates
   assert.equal(projected[0].config.config?.cardHeight, 140);
   assert.equal(projected[1].config.config?.cardWidth, 260);
   assert.equal(projected[1].config.config?.cardHeight, 160);
+});
+
+test('syncActiveProjectionLayout updates only the active projection from current node layout', () => {
+  const nodes = [makeNode('node-a', 111, 222), makeNode('node-b', 333, 444)];
+  nodes[0].config.config = { cardWidth: 260, cardHeight: 180 };
+  nodes[1].config.config = { cardWidth: 300, cardHeight: 210 };
+
+  const synced = syncActiveProjectionLayout([
+    {
+      id: 'default',
+      name: 'Default',
+      nodePositions: {
+        'node-a': { x: 10, y: 20 },
+        'node-b': { x: 30, y: 40 },
+      },
+      nodeCardSizes: {
+        'node-a': { width: 220, height: 120 },
+        'node-b': { width: 240, height: 140 },
+      },
+      canvasBackground: { mode: 'gradient', baseColor: '#1d437e' },
+    },
+    {
+      id: 'alt',
+      name: 'Alt',
+      nodePositions: {
+        'node-a': { x: 50, y: 60 },
+        'node-b': { x: 70, y: 80 },
+      },
+      nodeCardSizes: {
+        'node-a': { width: 200, height: 100 },
+        'node-b': { width: 220, height: 120 },
+      },
+      canvasBackground: { mode: 'solid', baseColor: '#204060' },
+    },
+  ], nodes, 'alt');
+
+  assert.ok(synced);
+  assert.deepEqual(synced?.find((projection) => projection.id === 'default')?.nodePositions, {
+    'node-a': { x: 10, y: 20 },
+    'node-b': { x: 30, y: 40 },
+  });
+  assert.deepEqual(synced?.find((projection) => projection.id === 'alt')?.nodePositions, {
+    'node-a': { x: 111, y: 222 },
+    'node-b': { x: 333, y: 444 },
+  });
+  assert.deepEqual(synced?.find((projection) => projection.id === 'alt')?.nodeCardSizes, {
+    'node-a': { width: 260, height: 180 },
+    'node-b': { width: 300, height: 210 },
+  });
 });

@@ -1192,7 +1192,7 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
   }
 });
 
-test('graph recompute status reports graph-level worker concurrency', async () => {
+test('graph recompute status reports graph-level worker concurrency and graph freshness', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1209,6 +1209,7 @@ test('graph recompute status reports graph-level worker concurrency', async () =
     assert.equal(statusResponse.status, 200);
     const status = await statusResponse.json();
     assert.equal(status.workerConcurrency, 3);
+    assert.equal(status.graphUpdatedAt, createdGraph.updatedAt);
 
     const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
       method: 'PUT',
@@ -1225,6 +1226,7 @@ test('graph recompute status reports graph-level worker concurrency', async () =
     assert.equal(updatedStatusResponse.status, 200);
     const updatedStatus = await updatedStatusResponse.json();
     assert.equal(updatedStatus.workerConcurrency, 2);
+    assert.equal(updatedStatus.graphUpdatedAt, updatedGraph.updatedAt);
   } finally {
     await ctx.close();
   }
@@ -1585,6 +1587,101 @@ test('PUT /api/graphs preserves node layout and projection metadata on connectio
     assert.equal(updatedGraph.activeProjectionId, createdGraph.activeProjectionId);
     assert.deepEqual(updatedGraph.projections, createdGraph.projections);
     assert.deepEqual(extractLayout(updatedGraph), extractLayout(createdGraph));
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('PUT /api/graphs syncs active projection layout on nodes-only updates', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.position = { x: 320, y: 180 };
+    node.config.config = {
+      cardWidth: 360,
+      cardHeight: 200,
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+      projections: [
+        {
+          id: 'default',
+          name: 'Default',
+          nodePositions: {
+            'node-1': { x: 40, y: 80 },
+          },
+          nodeCardSizes: {
+            'node-1': { width: 220, height: 120 },
+          },
+          canvasBackground: {
+            mode: 'gradient',
+            baseColor: '#1d437e',
+          },
+        },
+        {
+          id: 'alt',
+          name: 'Alt',
+          nodePositions: {
+            'node-1': { x: 320, y: 180 },
+          },
+          nodeCardSizes: {
+            'node-1': { width: 360, height: 200 },
+          },
+          canvasBackground: {
+            mode: 'solid',
+            baseColor: '#204060',
+          },
+        },
+      ],
+      activeProjectionId: 'alt',
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodes: createdGraph.nodes.map((candidate: any) =>
+          candidate.id === 'node-1'
+            ? {
+                ...candidate,
+                position: { x: 520, y: 360 },
+                config: {
+                  ...candidate.config,
+                  config: {
+                    ...(candidate.config?.config ?? {}),
+                    cardWidth: 410,
+                    cardHeight: 260,
+                  },
+                },
+              }
+            : candidate
+        ),
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = await updateResponse.json();
+
+    const defaultProjection = updatedGraph.projections.find((projection: any) => projection.id === 'default');
+    const altProjection = updatedGraph.projections.find((projection: any) => projection.id === 'alt');
+
+    assert.ok(defaultProjection);
+    assert.ok(altProjection);
+    assert.equal(updatedGraph.nodes[0].position.x, 520);
+    assert.equal(updatedGraph.nodes[0].position.y, 360);
+    assert.equal(updatedGraph.nodes[0].config?.config?.cardWidth, 410);
+    assert.equal(updatedGraph.nodes[0].config?.config?.cardHeight, 260);
+    assert.equal(defaultProjection.nodePositions['node-1'].x, 40);
+    assert.equal(defaultProjection.nodePositions['node-1'].y, 80);
+    assert.equal(defaultProjection.nodeCardSizes['node-1'].width, 220);
+    assert.equal(defaultProjection.nodeCardSizes['node-1'].height, 120);
+    assert.equal(altProjection.nodePositions['node-1'].x, 520);
+    assert.equal(altProjection.nodePositions['node-1'].y, 360);
+    assert.equal(altProjection.nodeCardSizes['node-1'].width, 410);
+    assert.equal(altProjection.nodeCardSizes['node-1'].height, 260);
   } finally {
     await ctx.close();
   }

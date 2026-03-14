@@ -309,6 +309,33 @@ export function withNodeCardSizeInProjection(
   };
 }
 
+export function syncActiveProjectionLayout(
+  projections: GraphProjection[] | null | undefined,
+  nodes: GraphNode[],
+  activeProjectionId: string | null | undefined
+): GraphProjection[] | undefined {
+  if (!Array.isArray(projections) || projections.length === 0) {
+    return projections ?? undefined;
+  }
+
+  const normalizedActiveProjectionId =
+    typeof activeProjectionId === 'string' && activeProjectionId.trim()
+      ? activeProjectionId.trim()
+      : DEFAULT_GRAPH_PROJECTION_ID;
+  const nodePositions = buildNodePositionMap(nodes);
+  const nodeCardSizes = buildNodeCardSizeMap(nodes);
+
+  return projections.map((projection) => (
+    projection.id === normalizedActiveProjectionId
+      ? {
+          ...projection,
+          nodePositions,
+          nodeCardSizes,
+        }
+      : projection
+  ));
+}
+
 export function withCanvasBackgroundInProjection(
   projection: GraphProjection,
   background: CanvasBackgroundSettings

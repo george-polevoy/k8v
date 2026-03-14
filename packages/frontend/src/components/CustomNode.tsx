@@ -67,18 +67,14 @@ function CustomNode({ data }: CustomNodeProps) {
       conn => !(conn.targetNodeId === node.id && conn.targetPort === inputName)
     );
 
-    const updatedGraph = {
-      ...graph,
+    useGraphStore.getState().updateGraph({
       nodes: graph.nodes.map(n =>
         n.id === node.id
           ? { ...n, metadata: { ...n.metadata, inputs: updatedInputs }, version: Date.now().toString() }
           : n
       ),
       connections: updatedConnections,
-      updatedAt: Date.now(),
-    };
-
-    useGraphStore.getState().updateGraph(updatedGraph);
+    });
   };
 
   const handleMoveInput = (index: number, direction: 'up' | 'down') => {

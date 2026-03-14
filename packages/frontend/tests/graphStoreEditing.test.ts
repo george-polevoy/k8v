@@ -46,7 +46,18 @@ test('updateNodePosition persists position without changing node version', async
 
   (axios as any).put = async (_url: string, body: unknown) => {
     capturedPayload = body;
-    return { data: body };
+    return {
+      data: {
+        ...initialGraph,
+        nodes: [
+          {
+            ...initialGraph.nodes[0],
+            position: { x: 111, y: 222 },
+          },
+        ],
+        updatedAt: 2,
+      },
+    };
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -129,7 +140,27 @@ test('updateNodePosition persists position to active projection nodePositions', 
 
   (axios as any).put = async (_url: string, body: unknown) => {
     capturedPayload = body;
-    return { data: body };
+    return {
+      data: {
+        ...initialGraph,
+        nodes: [
+          {
+            ...initialGraph.nodes[0],
+            position: { x: 111, y: 222 },
+          },
+        ],
+        projections: [
+          initialGraph.projections![0],
+          {
+            ...initialGraph.projections![1],
+            nodePositions: {
+              n1: { x: 111, y: 222 },
+            },
+          },
+        ],
+        updatedAt: 2,
+      },
+    };
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -139,18 +170,12 @@ test('updateNodePosition persists position to active projection nodePositions', 
     await delay(0);
 
     const state = useGraphStore.getState();
-    const defaultProjection = capturedPayload.projections.find((projection: any) => projection.id === 'default');
-    const altProjection = capturedPayload.projections.find((projection: any) => projection.id === 'alt');
-
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.ok(defaultProjection);
-    assert.ok(altProjection);
-    assert.equal(defaultProjection.nodePositions.n1.x, 10);
-    assert.equal(defaultProjection.nodePositions.n1.y, 20);
-    assert.equal(altProjection.nodePositions.n1.x, 111);
-    assert.equal(altProjection.nodePositions.n1.y, 222);
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), false);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.x, 111);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.y, 222);
+    assert.equal(state.graph?.projections?.find((projection) => projection.id === 'default')?.nodePositions.n1.x, 10);
+    assert.equal(state.graph?.projections?.find((projection) => projection.id === 'default')?.nodePositions.n1.y, 20);
   } finally {
     (axios as any).put = originalPut;
   }
@@ -188,7 +213,24 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
 
   (axios as any).put = async (_url: string, body: unknown) => {
     capturedPayload = body;
-    return { data: body };
+    return {
+      data: {
+        ...initialGraph,
+        nodes: [
+          {
+            ...initialGraph.nodes[0],
+            config: {
+              ...initialGraph.nodes[0].config,
+              config: {
+                cardWidth: 360,
+                cardHeight: 200,
+              },
+            },
+          },
+        ],
+        updatedAt: 2,
+      },
+    };
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -261,7 +303,34 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
 
   (axios as any).put = async (_url: string, body: unknown) => {
     capturedPayload = body;
-    return { data: body };
+    return {
+      data: {
+        ...initialGraph,
+        nodes: [
+          {
+            ...initialGraph.nodes[0],
+            config: {
+              ...initialGraph.nodes[0].config,
+              config: {
+                ...(initialGraph.nodes[0].config.config ?? {}),
+                cardWidth: 360,
+                cardHeight: 200,
+              },
+            },
+          },
+        ],
+        projections: [
+          initialGraph.projections![0],
+          {
+            ...initialGraph.projections![1],
+            nodeCardSizes: {
+              'n-size': { width: 360, height: 200 },
+            },
+          },
+        ],
+        updatedAt: 2,
+      },
+    };
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -270,15 +339,25 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
     useGraphStore.getState().updateNodeCardSize('n-size', 360, 200);
     await delay(0);
 
-    const defaultProjection = capturedPayload.projections.find((projection: any) => projection.id === 'default');
-    const altProjection = capturedPayload.projections.find((projection: any) => projection.id === 'alt');
+    const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.ok(defaultProjection);
-    assert.ok(altProjection);
-    assert.equal(defaultProjection.nodeCardSizes['n-size'].width, 220);
-    assert.equal(defaultProjection.nodeCardSizes['n-size'].height, 80);
-    assert.equal(altProjection.nodeCardSizes['n-size'].width, 360);
-    assert.equal(altProjection.nodeCardSizes['n-size'].height, 200);
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), false);
+    assert.equal(
+      state.graph?.projections?.find((projection) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
+      220
+    );
+    assert.equal(
+      state.graph?.projections?.find((projection) => projection.id === 'default')?.nodeCardSizes['n-size'].height,
+      80
+    );
+    assert.equal(
+      state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodeCardSizes['n-size'].width,
+      360
+    );
+    assert.equal(
+      state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodeCardSizes['n-size'].height,
+      200
+    );
   } finally {
     (axios as any).put = originalPut;
   }
@@ -354,7 +433,21 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
 
   (axios as any).put = async (_url: string, body: unknown) => {
     capturedPayload = body;
-    return { data: body };
+    return {
+      data: {
+        ...graph,
+        connections: [
+          {
+            id: 'conn-b',
+            sourceNodeId: 'source-b',
+            sourcePort: 'value',
+            targetNodeId: 'target',
+            targetPort: 'input',
+          },
+        ],
+        updatedAt: 2,
+      },
+    };
   };
 
   resetGraphStoreState({ graph });

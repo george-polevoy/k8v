@@ -257,7 +257,6 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         projections: updatedProjections,
         activeProjectionId: projectionState.activeProjectionId,
         canvasBackground: normalized,
-        updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
     });
@@ -341,7 +340,6 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         activeProjectionId: selectedProjection.id,
         nodes: applyProjectionToNodes(graph.nodes, selectedProjection),
         canvasBackground: nextBackground,
-        updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
     });
@@ -381,7 +379,6 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         activeProjectionId: newProjection.id,
         nodes: applyProjectionToNodes(graph.nodes, newProjection),
         canvasBackground: normalizeCanvasBackground(newProjection.canvasBackground),
-        updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
     });
@@ -429,7 +426,6 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
         activeProjectionId: nextActiveProjection.id,
         nodes: applyProjectionToNodes(graph.nodes, nextActiveProjection),
         canvasBackground: nextBackground,
-        updatedAt: Date.now(),
       });
       await refreshGraphSummaries();
     });

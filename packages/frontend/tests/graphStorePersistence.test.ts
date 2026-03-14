@@ -377,6 +377,223 @@ test('updateGraph reloads latest graph when backend reports conflict', async () 
   }
 });
 
+test('updateGraph rebases non-overlapping node edits after backend conflict', async () => {
+  const originalGet = axios.get;
+  const originalPut = axios.put;
+
+  const initialGraph: Graph = {
+    id: 'g-rebase',
+    name: 'Graph rebase local',
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'numeric_input' as any,
+        position: { x: 100, y: 120 },
+        metadata: {
+          name: 'Node A',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as any,
+          config: { value: 1, min: 0, max: 10, step: 1, cardWidth: 220, cardHeight: 80 },
+        },
+        version: 'node-a-v1',
+      },
+      {
+        id: 'node-b',
+        type: 'numeric_input' as any,
+        position: { x: 300, y: 120 },
+        metadata: {
+          name: 'Node B',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as any,
+          config: { value: 2, min: 0, max: 10, step: 1, cardWidth: 220, cardHeight: 80 },
+        },
+        version: 'node-b-v1',
+      },
+    ],
+    connections: [],
+    projections: [
+      {
+        id: 'default',
+        name: 'Default',
+        nodePositions: {
+          'node-a': { x: 100, y: 120 },
+          'node-b': { x: 300, y: 120 },
+        },
+        nodeCardSizes: {
+          'node-a': { width: 220, height: 80 },
+          'node-b': { width: 220, height: 80 },
+        },
+        canvasBackground: {
+          mode: 'gradient',
+          baseColor: '#1d437e',
+        },
+      },
+    ],
+    activeProjectionId: 'default',
+    createdAt: 1,
+    updatedAt: 100,
+  };
+  const latestGraph: Graph = {
+    ...initialGraph,
+    name: 'Graph rebase remote',
+    nodes: initialGraph.nodes.map((node) =>
+      node.id === 'node-b'
+        ? {
+            ...node,
+            position: { x: 480, y: 220 },
+          }
+        : node
+    ),
+    projections: [
+      {
+        ...initialGraph.projections![0],
+        nodePositions: {
+          'node-a': { x: 100, y: 120 },
+          'node-b': { x: 480, y: 220 },
+        },
+      },
+    ],
+    updatedAt: 200,
+  };
+  const persistedGraph: Graph = {
+    ...latestGraph,
+    nodes: latestGraph.nodes.map((node) =>
+      node.id === 'node-a'
+        ? {
+            ...node,
+            position: { x: 160, y: 260 },
+          }
+        : node
+    ),
+    projections: [
+      {
+        ...latestGraph.projections![0],
+        nodePositions: {
+          'node-a': { x: 160, y: 260 },
+          'node-b': { x: 480, y: 220 },
+        },
+      },
+    ],
+    updatedAt: 300,
+  };
+
+  const putPayloads: any[] = [];
+  let putCallCount = 0;
+  (axios as any).put = async (_url: string, body: any) => {
+    putPayloads.push(body);
+    putCallCount += 1;
+    if (putCallCount === 1) {
+      const error: any = new Error('Graph has changed since it was loaded. Reload and retry your update.');
+      error.response = { status: 409 };
+      throw error;
+    }
+
+    return { data: persistedGraph };
+  };
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-rebase') {
+      return { data: latestGraph };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  resetGraphStoreState({
+    graph: initialGraph,
+  });
+
+  try {
+    await useGraphStore.getState().updateGraph({
+      nodes: initialGraph.nodes.map((node) =>
+        node.id === 'node-a'
+          ? {
+              ...node,
+              position: { x: 160, y: 260 },
+            }
+          : node
+      ),
+    });
+
+    const state = useGraphStore.getState();
+    assert.equal(putPayloads.length, 2);
+    assert.equal(putPayloads[0].ifMatchUpdatedAt, 100);
+    assert.equal(putPayloads[1].ifMatchUpdatedAt, 200);
+    assert.equal(
+      putPayloads[1].nodes.find((node: any) => node.id === 'node-a')?.position.x,
+      160
+    );
+    assert.equal(
+      putPayloads[1].nodes.find((node: any) => node.id === 'node-b')?.position.x,
+      480
+    );
+    assert.equal(state.graph?.name, 'Graph rebase remote');
+    assert.equal(state.graph?.nodes.find((node) => node.id === 'node-a')?.position.x, 160);
+    assert.equal(state.graph?.nodes.find((node) => node.id === 'node-b')?.position.x, 480);
+    assert.equal(state.graph?.updatedAt, 300);
+    assert.equal(state.error, null);
+  } finally {
+    (axios as any).get = originalGet;
+    (axios as any).put = originalPut;
+  }
+});
+
+test('recompute status polling refreshes the current graph when a remote update is detected', async () => {
+  const originalWindow = (globalThis as any).window;
+  const originalGet = axios.get;
+
+  (globalThis as any).window = {};
+
+  const initialGraph = makeGraph('g-remote-sync');
+  const latestGraph: Graph = {
+    ...initialGraph,
+    name: 'Graph remote synced',
+    updatedAt: initialGraph.updatedAt + 100,
+  };
+
+  let graphFetchCount = 0;
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-remote-sync') {
+      graphFetchCount += 1;
+      return { data: graphFetchCount === 1 ? initialGraph : latestGraph };
+    }
+    if (url === '/api/graphs/g-remote-sync/recompute-status') {
+      return {
+        data: {
+          graphUpdatedAt: latestGraph.updatedAt,
+          nodeStates: {},
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-remote-sync');
+
+    const startedAt = Date.now();
+    while ((Date.now() - startedAt) < 2_000) {
+      const state = useGraphStore.getState();
+      if (state.graph?.updatedAt === latestGraph.updatedAt) {
+        break;
+      }
+      await delay(20);
+    }
+
+    const state = useGraphStore.getState();
+    assert.equal(state.graph?.name, latestGraph.name);
+    assert.equal(state.graph?.updatedAt, latestGraph.updatedAt);
+  } finally {
+    resetGraphStoreState();
+    (globalThis as any).window = originalWindow;
+    (axios as any).get = originalGet;
+  }
+});
+
 test('updateGraph keeps the latest persisted graph when responses resolve out of order', async () => {
   const originalPut = axios.put;
 

@@ -13,7 +13,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph update API supports optimistic concurrency via `ifMatchUpdatedAt`; stale clients receive conflict instead of silently overwriting newer graph edits.
 - Graph update API supports optional `?noRecompute=true` query flag to skip backend auto-recompute enqueue for that update.
 - Graph update API preserves existing node layout/projection metadata when updates only provide `connections`.
+- Nodes-only graph updates sync the active projection layout server-side, so node move/resize edits do not need to resend the full projection set.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
+- On graph update conflict (`409`), frontend rebases non-overlapping subset edits onto the latest graph state and retries automatically before falling back to conflict reload.
+- Open sessions detect remote current-graph updates through recompute-status polling and reload the latest graph state automatically when no local save is pending.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.

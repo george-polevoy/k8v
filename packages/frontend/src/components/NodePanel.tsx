@@ -349,10 +349,8 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     }
 
     void updateGraph({
-      ...graph,
       nodes: nextNodes,
       connections: nextConnections,
-      updatedAt: Date.now(),
     });
   }, [graph, selectedNode, updateGraph]);
 
@@ -842,9 +840,7 @@ function NodePanel({ embedded = false, showGraphSection = true }: NodePanelProps
     }
 
     void updateGraph({
-      ...graph,
       nodes: nextNodes,
-      updatedAt: Date.now(),
     });
   }, [graph, selectedNodes, updateGraph]);
 
