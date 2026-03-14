@@ -1,4 +1,8 @@
 import { ReactNode, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  readFloatingWindowPosition,
+  saveFloatingWindowPosition,
+} from '../utils/uiPersistence';
 
 const VIEWPORT_PADDING_PX = 8;
 
@@ -54,7 +58,13 @@ function FloatingWindow({
   zIndex = 20,
   children,
 }: FloatingWindowProps) {
-  const [position, setPosition] = useState<WindowPosition>(initialPosition);
+  const [position, setPosition] = useState<WindowPosition>(() => {
+    const savedPosition = readFloatingWindowPosition(id);
+    return clampPositionToViewport(savedPosition ?? initialPosition, {
+      width,
+      height: height ?? 0,
+    });
+  });
   const [windowSize, setWindowSize] = useState<WindowSize>({
     width,
     height: height ?? 0,
@@ -67,6 +77,10 @@ function FloatingWindow({
   useEffect(() => {
     windowSizeRef.current = windowSize;
   }, [windowSize]);
+
+  useEffect(() => {
+    saveFloatingWindowPosition(id, position);
+  }, [id, position]);
 
   const updateMeasuredWindowSize = useCallback(() => {
     const element = containerRef.current;

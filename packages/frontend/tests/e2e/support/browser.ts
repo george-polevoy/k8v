@@ -18,7 +18,6 @@ export async function openCanvasForGraph(page: Page, graphId: string): Promise<v
   });
 
   await page.addInitScript((savedGraphId: string) => {
-    window.localStorage.clear();
     window.localStorage.setItem('k8v-current-graph-id', savedGraphId);
   }, graphId);
 

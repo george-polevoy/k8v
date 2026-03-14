@@ -14,6 +14,7 @@ import {
   readCurrentGraphId,
   saveCurrentGraphId,
 } from './graphLocalStorage';
+import { clearGraphViewportTransform } from '../utils/uiPersistence';
 import { createRecomputeStatusPollController } from './recomputeStatusPolling';
 import {
   buildGraphStateUpdate,
@@ -227,6 +228,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         await graphApi.deleteGraph(id);
         removeGraphSummary(id);
         clearCurrentGraphIdIfMatches(id);
+        clearGraphViewportTransform(id);
 
         if (deletingCurrentGraph) {
           await get().loadLatestGraph();

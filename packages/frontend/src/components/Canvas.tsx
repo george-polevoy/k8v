@@ -116,6 +116,7 @@ import {
   ANNOTATION_CONNECTION_PORT,
   resolveConnectionAnchorPoint,
 } from '../utils/annotationConnections';
+import { saveGraphViewportTransform } from '../utils/uiPersistence';
 
 const ANNOTATION_TEXT_INSET_X = 8;
 const ANNOTATION_TEXT_INSET_Y = 8;
@@ -348,6 +349,24 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     app.start();
   }, []);
 
+  const persistViewportTransform = useCallback(() => {
+    if (enableMcpScreenshotBridge) {
+      return;
+    }
+
+    const currentGraph = graphRef.current;
+    const viewport = viewportRef.current;
+    if (!currentGraph || !viewport) {
+      return;
+    }
+
+    saveGraphViewportTransform(currentGraph.id, {
+      x: snapToPixel(viewport.position.x),
+      y: snapToPixel(viewport.position.y),
+      scale: clamp(Math.abs(viewport.scale.x || 1), MIN_ZOOM, MAX_ZOOM),
+    });
+  }, [enableMcpScreenshotBridge, graphRef, viewportRef]);
+
   const requestViewportDrivenGraphRefresh = useCallback(() => {
     if (viewportRefreshRafRef.current !== null) {
       return;
@@ -414,6 +433,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         drawMinimapRef.current();
         incrementCanvasDebugCounter('viewportSyncCount');
         syncAnnotationOverlayTransform();
+        persistViewportTransform();
       });
     }
 
@@ -427,7 +447,13 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     }, VIEWPORT_INTERACTION_SETTLE_MS);
 
     scheduleViewportGraphicsSettledRender(VIEWPORT_GRAPHICS_SETTLE_MS);
-  }, [requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, scheduleViewportGraphicsSettledRender, syncAnnotationOverlayTransform]);
+  }, [
+    persistViewportTransform,
+    requestCanvasAnimationLoop,
+    requestViewportDrivenGraphRefresh,
+    scheduleViewportGraphicsSettledRender,
+    syncAnnotationOverlayTransform,
+  ]);
 
   const requestProjectedGraphicsTextureRefresh = useCallback(() => {
     requestCanvasAnimationLoop();
@@ -470,6 +496,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawMinimap,
     fitViewportToGraph,
     handleMinimapPointerDown,
+    restoreViewportFromPersistence,
     setViewportRegionForScreenshot,
     startProjectionTransition,
     updateTextResolutionForScale,
@@ -492,6 +519,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     renderGraphRef,
     requestCanvasAnimationLoop,
     requestViewportDrivenGraphRefresh,
+    persistViewportTransform,
     resolveNodeCardDimensions,
     config: {
       pixelRatio: PIXEL_RATIO,
@@ -1927,7 +1955,9 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawFreehandStrokes();
 
     if (!viewportInitializedRef.current) {
-      fitViewportToGraph();
+      if (!restoreViewportFromPersistence()) {
+        fitViewportToGraph();
+      }
       viewportInitializedRef.current = true;
     }
     const viewport = viewportRef.current;
@@ -1951,6 +1981,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     drawMinimap,
     fitViewportToGraph,
     getNodeGraphicsTextureForNode,
+    restoreViewportFromPersistence,
     releaseUnusedNodeGraphicsTextures,
     refreshCanvasBackgroundTexture,
     requestCanvasAnimationLoop,

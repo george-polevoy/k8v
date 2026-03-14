@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 11, 2026.
+This file tracks what is currently implemented in the codebase as of March 14, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -68,6 +68,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `annotation` node cards support all-side resize handles (north/south/east/west + corners) and persist updated size/position.
 - `annotation` node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
 - Minimap/navigation assistant with click-to-center behavior.
+- Current graph viewport pan/zoom state persists across browser refresh.
 - Pencil draw mode on canvas (toggle from toolbar).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
 - Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
@@ -78,6 +79,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Drawing paths and handles are rendered in canvas and minimap.
 - Canvas fills the full viewport while UI chrome is rendered as floating overlays.
 - Toolbar and right-side panel stack are draggable floating windows, so layout remains stable during window resizing.
+- Floating toolbar and right sidebar window positions persist across browser refresh.
 - Shared color-selection dialogs render as viewport overlays outside floating toolbar/sidebar windows, so larger dialogs are not clipped by narrow panel client areas.
 - Shared color-selection dialogs support rectangular saturation/value picking, linear hue selection, RGB sliders, preset swatches, and optional opacity control.
 - Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.

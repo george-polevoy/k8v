@@ -16,6 +16,7 @@ import {
   resolveViewportFitTransform,
 } from '../utils/canvasViewportFit';
 import { resolveGraphCanvasBackground } from '../utils/canvasBackground';
+import { readGraphViewportTransform } from '../utils/uiPersistence';
 
 export interface MinimapTransform {
   minX: number;
@@ -104,6 +105,7 @@ interface UseCanvasViewportParams {
   renderGraphRef: MutableRefObject<() => void>;
   requestCanvasAnimationLoop: () => void;
   requestViewportDrivenGraphRefresh: () => void;
+  persistViewportTransform: () => void;
   resolveNodeCardDimensions: (
     node: GraphNode,
     draftSize?: NodeCardSizeDraft
@@ -131,6 +133,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     renderGraphRef,
     requestCanvasAnimationLoop,
     requestViewportDrivenGraphRefresh,
+    persistViewportTransform,
     resolveNodeCardDimensions,
     config,
   } = params;
@@ -161,9 +164,16 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
       snapToPixel(app.screen.width * 0.5 - worldX * scale),
       snapToPixel(app.screen.height * 0.5 - worldY * scale)
     );
+    persistViewportTransform();
     requestCanvasAnimationLoop();
     requestViewportDrivenGraphRefresh();
-  }, [appRef, requestCanvasAnimationLoop, requestViewportDrivenGraphRefresh, viewportRef]);
+  }, [
+    appRef,
+    persistViewportTransform,
+    requestCanvasAnimationLoop,
+    requestViewportDrivenGraphRefresh,
+    viewportRef,
+  ]);
 
   const drawMinimap = useCallback(() => {
     const canvas = minimapCanvasRef.current;
@@ -403,6 +413,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     const resetViewport = () => {
       viewport.scale.set(1);
       viewport.position.set(app.screen.width / 2, app.screen.height / 2);
+      persistViewportTransform();
       updateTextResolutionForScale(1);
       drawMinimap();
       requestViewportDrivenGraphRefresh();
@@ -448,6 +459,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     });
     viewport.scale.set(nextTransform.scale);
     viewport.position.set(nextTransform.x, nextTransform.y);
+    persistViewportTransform();
     updateTextResolutionForScale(nextTransform.scale);
     drawMinimap();
     requestViewportDrivenGraphRefresh();
@@ -461,7 +473,36 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     graphRef,
     nodePositionsRef,
     nodeVisualsRef,
+    persistViewportTransform,
     requestViewportDrivenGraphRefresh,
+    updateTextResolutionForScale,
+    viewportRef,
+  ]);
+
+  const restoreViewportFromPersistence = useCallback((): boolean => {
+    const currentGraph = graphRef.current;
+    const viewport = viewportRef.current;
+    if (!currentGraph || !viewport) {
+      return false;
+    }
+
+    const persistedTransform = readGraphViewportTransform(currentGraph.id);
+    if (!persistedTransform) {
+      return false;
+    }
+
+    const scale = clamp(persistedTransform.scale, config.minZoom, config.maxZoom);
+    viewport.scale.set(scale);
+    viewport.position.set(
+      snapToPixel(persistedTransform.x),
+      snapToPixel(persistedTransform.y)
+    );
+    updateTextResolutionForScale(scale);
+    return true;
+  }, [
+    config.maxZoom,
+    config.minZoom,
+    graphRef,
     updateTextResolutionForScale,
     viewportRef,
   ]);
@@ -488,6 +529,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
       snapToPixel(-region.y * scaleY)
     );
     viewportInitializedRef.current = true;
+    persistViewportTransform();
     updateTextResolutionForScale(scaleX);
     drawMinimap();
     requestViewportDrivenGraphRefresh();
@@ -495,6 +537,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     return true;
   }, [
     drawMinimap,
+    persistViewportTransform,
     renderGraphRef,
     requestViewportDrivenGraphRefresh,
     updateTextResolutionForScale,
@@ -570,6 +613,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
     drawMinimap,
     fitViewportToGraph,
     handleMinimapPointerDown,
+    restoreViewportFromPersistence,
     setViewportRegionForScreenshot,
     startProjectionTransition,
     updateTextResolutionForScale,

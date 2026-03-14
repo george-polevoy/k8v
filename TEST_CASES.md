@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 13, 2026.
+Last reviewed: March 14, 2026.
 
 ## Coverage Legend
 
@@ -37,6 +37,7 @@ Last reviewed: March 13, 2026.
 - `A-E2E-24` `packages/frontend/tests/e2e/toolbarColorDialogLayering.test.ts`: the pencil color dialog mounts outside the narrow toolbar floating window, keeps its full overlay size, and is centered in the viewport instead of being clipped inside the toolbar client area.
 - `A-E2E-25` `packages/frontend/tests/e2e/backgroundColor.test.ts`: the shared color dialog supports hue-slider and saturation/value-palette selection and persists the exact chosen graph background color.
 - `A-E2E-26` `packages/frontend/tests/e2e/inlineInputConnectionReplacement.test.ts`: dragging a new edge onto an occupied inline input replaces the previous inbound edge instead of persisting duplicate inbound connections.
+- `A-E2E-27` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: floating toolbar/sidebar window positions and the current graph viewport pan/zoom restore after a browser refresh.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -74,6 +75,7 @@ Last reviewed: March 13, 2026.
 - `A-FE-35` `packages/frontend/tests/color.test.ts`: RGB/HSV color conversion helpers preserve canonical hues, handle grayscale zero-saturation colors, and round-trip hue/value choices back to RGB channels.
 - `A-FE-36` `packages/frontend/tests/graphStorePersistence.test.ts`: `loadGraph` normalizes duplicate inbound edges on the same input slot down to the last persisted connection.
 - `A-FE-37` `packages/frontend/tests/graphStoreEditing.test.ts`: `addConnection` rewires an occupied target input instead of appending a second inbound edge.
+- `A-FE-38` `packages/frontend/tests/uiPersistence.test.ts`: UI persistence helpers round-trip floating-window and per-graph viewport state, reject malformed values, and clear deleted graph viewport state.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -264,6 +266,7 @@ Last reviewed: March 13, 2026.
 | Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
 | Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
 | Canvas remains full viewport while toolbar/right sidebar render as draggable floating windows during resize | `A-E2E-17` | Automated |
+| Floating toolbar/right sidebar window positions persist across browser refresh | `A-E2E-27`, `A-FE-38` | Automated |
 | Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
 | Shared color-selection dialogs layer outside floating windows and are not clipped by narrow panel client areas | `A-E2E-24` | Automated |
 | Shared color-selection dialogs support hue, saturation/value, RGB, and optional opacity controls | `A-E2E-25`, `A-FE-35` | Automated |
@@ -305,6 +308,7 @@ Last reviewed: March 13, 2026.
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
+| Current graph viewport pan/zoom state persists across browser refresh | `A-E2E-27`, `A-FE-38` | Automated |
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
 | Canvas pencil color selection via reusable color dialog (default white) | `A-FE-20`, `A-BE-39`, `M-CANVAS-14` | Automated + Manual |
 | Canvas pencil thickness selection (1/3/9 px) | `M-CANVAS-15` | Manual |
@@ -367,6 +371,6 @@ Last reviewed: March 13, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`).
 - No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.
