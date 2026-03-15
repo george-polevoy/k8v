@@ -226,6 +226,170 @@ test('recompute status polling backs off after repeated network failures', async
   }
 });
 
+test('recompute status polling slows down when the backend reports an idle graph', async () => {
+  (globalThis as any).localStorage = new MemoryLocalStorage();
+
+  const originalWindow = (globalThis as any).window;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalGet = axios.get;
+
+  const scheduledTimeouts: Array<{ delay: number; callback: () => void }> = [];
+  (globalThis as any).window = {};
+  (globalThis as any).setTimeout = ((callback: () => void, timeout?: number) => {
+    scheduledTimeouts.push({
+      delay: typeof timeout === 'number' ? timeout : 0,
+      callback,
+    });
+    return scheduledTimeouts.length;
+  }) as typeof setTimeout;
+  (globalThis as any).clearTimeout = (() => undefined) as typeof clearTimeout;
+
+  const graph = makeGraph('g-poll-idle');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-poll-idle') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-poll-idle/recompute-status') {
+      return {
+        data: {
+          graphId: graph.id,
+          statusVersion: 1,
+          graphUpdatedAt: graph.updatedAt,
+          queueLength: 0,
+          nodeStates: {},
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-poll-idle');
+
+    await delay(0);
+    assert.equal(scheduledTimeouts.length >= 1, true);
+    assert.equal(scheduledTimeouts[0]?.delay, 1_500);
+  } finally {
+    (axios as any).get = originalGet;
+    (globalThis as any).window = originalWindow;
+    (globalThis as any).setTimeout = originalSetTimeout;
+    (globalThis as any).clearTimeout = originalClearTimeout;
+  }
+});
+
+test('unchanged recompute status does not rewrite node execution state', async () => {
+  (globalThis as any).localStorage = new MemoryLocalStorage();
+
+  const originalWindow = (globalThis as any).window;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const originalGet = axios.get;
+
+  const scheduledTimeouts: Array<{ delay: number; callback: () => void }> = [];
+  (globalThis as any).window = {};
+  (globalThis as any).setTimeout = ((callback: () => void, timeout?: number) => {
+    scheduledTimeouts.push({
+      delay: typeof timeout === 'number' ? timeout : 0,
+      callback,
+    });
+    return scheduledTimeouts.length;
+  }) as typeof setTimeout;
+  (globalThis as any).clearTimeout = (() => undefined) as typeof clearTimeout;
+
+  const graph: Graph = {
+    ...makeGraph('g-poll-noop'),
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'numeric_input' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as any,
+          config: {
+            value: 1,
+            min: 0,
+            max: 10,
+            step: 1,
+          },
+        },
+        version: 'node-a-v1',
+      },
+    ],
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-poll-noop') {
+      return { data: graph };
+    }
+    if (url === '/api/nodes/node-a/result') {
+      return {
+        data: {
+          nodeId: 'node-a',
+          outputs: { value: 1 },
+          schema: { value: { type: 'number' } },
+          timestamp: 10,
+          version: 'node-a-v1',
+        },
+      };
+    }
+    if (url === '/api/graphs/g-poll-noop/recompute-status') {
+      return {
+        data: {
+          graphId: graph.id,
+          statusVersion: 5,
+          graphUpdatedAt: graph.updatedAt,
+          queueLength: 0,
+          nodeStates: {
+            'node-a': {
+              isPending: false,
+              isComputing: false,
+              hasError: false,
+              isStale: false,
+              errorMessage: null,
+              lastRunAt: 10,
+            },
+          },
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  let executionStateWrites = 0;
+  const unsubscribe = useGraphStore.subscribe((state, previousState) => {
+    if (state.nodeExecutionStates !== previousState.nodeExecutionStates) {
+      executionStateWrites += 1;
+    }
+  });
+
+  try {
+    await useGraphStore.getState().loadGraph('g-poll-noop');
+
+    await delay(0);
+    executionStateWrites = 0;
+    const initialNodeExecutionStates = useGraphStore.getState().nodeExecutionStates;
+
+    scheduledTimeouts[0]?.callback();
+    await delay(0);
+
+    assert.equal(useGraphStore.getState().nodeExecutionStates, initialNodeExecutionStates);
+    assert.equal(executionStateWrites, 0);
+  } finally {
+    unsubscribe();
+    (axios as any).get = originalGet;
+    (globalThis as any).window = originalWindow;
+    (globalThis as any).setTimeout = originalSetTimeout;
+    (globalThis as any).clearTimeout = originalClearTimeout;
+  }
+});
+
 test('deleteGraph replaces current graph with latest remaining graph', async () => {
   const localStorage = new MemoryLocalStorage();
   localStorage.setItem('k8v-current-graph-id', 'g-delete-current');

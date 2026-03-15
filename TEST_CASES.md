@@ -82,6 +82,8 @@ Last reviewed: March 14, 2026.
 - `A-FE-39` `packages/frontend/tests/projections.test.ts`: `syncActiveProjectionLayout` rewrites only the active projection from current node coordinates/card sizes.
 - `A-FE-40` `packages/frontend/tests/graphStorePersistence.test.ts`: non-overlapping stale graph updates are rebased onto the latest graph state and retried after a `409` conflict.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: recompute-status polling refreshes the current graph when remote `graphUpdatedAt` advances.
+- `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: recompute-status polling backs off to a slower idle cadence when the backend reports no active queued or running work.
+- `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged recompute-status snapshots do not rewrite frontend node execution state.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
@@ -343,6 +345,7 @@ Last reviewed: March 14, 2026.
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
 | Per-node execution state in store | `A-FE-06`, `A-FE-07`, `A-BE-48`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
+| Frontend recompute-status polling slows to an idle cadence and ignores unchanged backend snapshots | `A-FE-42`, `A-FE-43` | Automated |
 | Card status light (red/amber/brown/green/gray) | `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Manual |
 | Node panel execution error text | `M-STATUS-02` | Manual |
 | Node panel graphics budget debug for selected projected-graphics node | `M-PANEL-14` | Manual |

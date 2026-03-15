@@ -101,6 +101,26 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
 
 export const useGraphStore = create<GraphStore>((set, get) => {
   let remoteSyncInFlight = false;
+  const lastAppliedRecomputeStatusMeta = new Map<string, {
+    statusVersion: number;
+    graphUpdatedAt: number | null;
+  }>();
+  const RECOMPUTE_POLL_IDLE_INTERVAL_MS = 1_500;
+  const RECOMPUTE_POLL_HIDDEN_INTERVAL_MS = 5_000;
+
+  const hasActiveBackendRecompute = (status: BackendRecomputeStatus): boolean => {
+    if (typeof status.queueLength === 'number' && status.queueLength > 0) {
+      return true;
+    }
+
+    for (const nodeState of Object.values(status.nodeStates ?? {})) {
+      if (nodeState?.isPending || nodeState?.isComputing) {
+        return true;
+      }
+    }
+
+    return false;
+  };
 
   const graphComputation = createGraphComputationController({
     api: graphApi,
@@ -117,17 +137,58 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         return;
       }
 
+      const graphUpdatedAt = typeof status.graphUpdatedAt === 'number'
+        ? status.graphUpdatedAt
+        : null;
+      const statusVersion = typeof status.statusVersion === 'number'
+        ? status.statusVersion
+        : null;
+      const previousStatusMeta = statusVersion === null
+        ? null
+        : lastAppliedRecomputeStatusMeta.get(graphId);
+      const isRepeatedStatus = Boolean(
+        previousStatusMeta &&
+        statusVersion !== null &&
+        previousStatusMeta.statusVersion === statusVersion &&
+        previousStatusMeta.graphUpdatedAt === graphUpdatedAt
+      );
+
       if (
-        typeof status.graphUpdatedAt === 'number' &&
-        status.graphUpdatedAt > currentGraph.updatedAt &&
+        graphUpdatedAt !== null &&
+        graphUpdatedAt > currentGraph.updatedAt &&
         !graphPersistence.hasPendingUpdates()
       ) {
         void syncCurrentGraphFromRemote(graphId);
       }
 
+      if (isRepeatedStatus) {
+        return;
+      }
+
       graphComputation.applyBackendRecomputeStatus(currentGraph, status);
+
+      if (statusVersion !== null) {
+        lastAppliedRecomputeStatusMeta.set(graphId, {
+          statusVersion,
+          graphUpdatedAt,
+        });
+      }
     },
     shouldContinue: (graphId) => get().graph?.id === graphId,
+    resolveNextPollDelayMs: (status) => {
+      if (hasActiveBackendRecompute(status)) {
+        return 400;
+      }
+
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return RECOMPUTE_POLL_HIDDEN_INTERVAL_MS;
+      }
+
+      return RECOMPUTE_POLL_IDLE_INTERVAL_MS;
+    },
   });
 
   const upsertGraphSummary = (summary: GraphSummary) => {

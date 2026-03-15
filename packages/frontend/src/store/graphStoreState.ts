@@ -42,6 +42,8 @@ export interface BackendRecomputeStatus {
   graphId?: string;
   statusVersion?: number;
   graphUpdatedAt?: number;
+  queueLength?: number;
+  workerConcurrency?: number;
   nodeStates?: Record<string, BackendNodeExecutionState>;
 }
 

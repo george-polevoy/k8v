@@ -5,12 +5,14 @@ interface RecomputeStatusPollControllerOptions<TStatus> {
   fetchStatus: (graphId: string) => Promise<TStatus>;
   onStatus: (graphId: string, status: TStatus) => void;
   shouldContinue: (graphId: string) => boolean;
+  resolveNextPollDelayMs?: (status: TStatus) => number | null | undefined;
 }
 
 export function createRecomputeStatusPollController<TStatus>({
   fetchStatus,
   onStatus,
   shouldContinue,
+  resolveNextPollDelayMs,
 }: RecomputeStatusPollControllerOptions<TStatus>) {
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -44,6 +46,14 @@ export function createRecomputeStatusPollController<TStatus>({
       }
 
       onStatus(graphId, status);
+      const resolvedDelayMs = resolveNextPollDelayMs?.(status);
+      if (
+        typeof resolvedDelayMs === 'number' &&
+        Number.isFinite(resolvedDelayMs) &&
+        resolvedDelayMs >= 0
+      ) {
+        nextPollDelayMs = resolvedDelayMs;
+      }
     } catch {
       failureCount = Math.min(failureCount + 1, 8);
       nextPollDelayMs = Math.min(

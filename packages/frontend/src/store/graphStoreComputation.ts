@@ -55,6 +55,18 @@ export function createGraphComputationController({
   setState,
   startRecomputeStatusPolling,
 }: CreateGraphComputationControllerParams) {
+  const areNodeExecutionStatesEqual = (
+    left: NodeExecutionState,
+    right: NodeExecutionState
+  ): boolean => (
+    left.isPending === right.isPending &&
+    left.isComputing === right.isComputing &&
+    left.hasError === right.hasError &&
+    left.isStale === right.isStale &&
+    left.errorMessage === right.errorMessage &&
+    left.lastRunAt === right.lastRunAt
+  );
+
   const refreshNodeResultSnapshots = async (graphId: string, nodeIds: string[]) => {
     const uniqueNodeIds = [...new Set(nodeIds)];
     if (uniqueNodeIds.length === 0) {
@@ -158,34 +170,44 @@ export function createGraphComputationController({
   };
 
   const applyBackendRecomputeStatus = (graph: Graph, status: BackendRecomputeStatus) => {
+    const state = getState();
+    if (!state.graph || state.graph.id !== graph.id) {
+      return;
+    }
+
     const backendStates = status?.nodeStates ?? {};
     const completedNodeIds: string[] = [];
+    let didNodeStateChange = false;
+    const nextNodeStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
 
-    setState((state) => {
-      if (!state.graph || state.graph.id !== graph.id) {
-        return {};
+    for (const node of graph.nodes) {
+      const previousState = nextNodeStates[node.id];
+      const backendState = normalizeBackendNodeExecutionState(backendStates[node.id], previousState);
+
+      if (!areNodeExecutionStatesEqual(previousState, backendState)) {
+        didNodeStateChange = true;
       }
 
-      const nextNodeStates = buildNodeStateMapForGraph(graph, state.nodeExecutionStates);
-      for (const node of graph.nodes) {
-        const previousState = nextNodeStates[node.id];
-        const backendState = normalizeBackendNodeExecutionState(backendStates[node.id], previousState);
-        nextNodeStates[node.id] = backendState;
+      nextNodeStates[node.id] = backendState;
 
-        const wasRunning = previousState.isPending || previousState.isComputing;
-        const isRunning = backendState.isPending || backendState.isComputing;
-        if (wasRunning && !isRunning) {
-          completedNodeIds.push(node.id);
-        }
+      const wasRunning = previousState.isPending || previousState.isComputing;
+      const isRunning = backendState.isPending || backendState.isComputing;
+      if (wasRunning && !isRunning) {
+        completedNodeIds.push(node.id);
       }
-      const shouldRefreshSelectedNode = Boolean(
-        state.selectedNodeId && completedNodeIds.includes(state.selectedNodeId)
-      );
+    }
 
-      return {
-        nodeExecutionStates: nextNodeStates,
-        resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
-      };
+    const shouldRefreshSelectedNode = Boolean(
+      state.selectedNodeId && completedNodeIds.includes(state.selectedNodeId)
+    );
+
+    if (!didNodeStateChange && !shouldRefreshSelectedNode) {
+      return;
+    }
+
+    setState({
+      nodeExecutionStates: nextNodeStates,
+      resultRefreshKey: shouldRefreshSelectedNode ? Date.now() : state.resultRefreshKey,
     });
 
     if (completedNodeIds.length > 0) {
