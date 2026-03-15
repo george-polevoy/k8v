@@ -145,7 +145,7 @@ function RightSidebar() {
         expanded={expandedSection === 'node'}
         onToggle={handleToggleSection}
       >
-        <NodePanel embedded showGraphSection={false} />
+        <NodePanel embedded />
       </AccordionSection>
       <AccordionSection
         id="output"

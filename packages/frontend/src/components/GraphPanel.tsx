@@ -25,9 +25,18 @@ import {
   withCanvasBackgroundInProjection,
 } from '../utils/projections';
 import ColorSelectionDialog from './ColorSelectionDialog';
-import GraphManagementControls from './GraphManagementControls';
-import PythonEnvironmentSection from './PythonEnvironmentSection';
 import { useGraphManagementState } from './useGraphManagementState';
+import GraphPanelAppearanceSection from './panels/GraphPanelAppearanceSection';
+import GraphPanelCameraSection from './panels/GraphPanelCameraSection';
+import GraphPanelIdentitySection from './panels/GraphPanelIdentitySection';
+import GraphPanelProjectionSection from './panels/GraphPanelProjectionSection';
+import GraphPanelPythonSection from './panels/GraphPanelPythonSection';
+import GraphPanelRuntimeSection from './panels/GraphPanelRuntimeSection';
+import {
+  embeddedPanelCardStyle,
+  floatingPanelStyle,
+  standalonePanelCardStyle,
+} from './panels/panelSectionStyles';
 import { v4 as uuidv4 } from 'uuid';
 
 const MIN_RECOMPUTE_CONCURRENCY = 1;
@@ -556,32 +565,43 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const connectionStrokeDialogInitialColor = connectionStrokeColorTarget === 'background'
     ? connectionStrokeDraft.backgroundColor
     : connectionStrokeDraft.foregroundColor;
+  const runtimeSettings = (
+    <GraphPanelRuntimeSection
+      graphExists={Boolean(graph)}
+      isGraphActionInFlight={isGraphActionInFlight}
+      recomputeConcurrencyValue={recomputeConcurrencyValue}
+      executionTimeoutSecondsValue={executionTimeoutSecondsValue}
+      minRecomputeConcurrency={MIN_RECOMPUTE_CONCURRENCY}
+      maxRecomputeConcurrency={MAX_RECOMPUTE_CONCURRENCY}
+      onRecomputeConcurrencyChange={setRecomputeConcurrencyValue}
+      onCommitRecomputeConcurrency={commitRecomputeConcurrency}
+      onResetRecomputeConcurrency={() => {
+        setRecomputeConcurrencyValue(
+          String(
+            normalizeRecomputeConcurrency(
+              graph?.recomputeConcurrency,
+              MIN_RECOMPUTE_CONCURRENCY
+            )
+          )
+        );
+      }}
+      onExecutionTimeoutChange={setExecutionTimeoutSecondsValue}
+      onCommitExecutionTimeout={commitExecutionTimeout}
+      onResetExecutionTimeout={() => {
+        const currentTimeoutMs = normalizeGraphExecutionTimeoutMs(graph?.executionTimeoutMs);
+        setExecutionTimeoutSecondsValue(String(currentTimeoutMs / 1000));
+      }}
+    />
+  );
 
   return (
     <div
       data-testid="graph-panel"
-      style={embedded
-        ? {}
-        : {
-            width: '300px',
-            background: '#f9f9f9',
-            borderLeft: '1px solid #ddd',
-            padding: '16px',
-            overflowY: 'auto',
-          }}
+      style={embedded ? undefined : floatingPanelStyle}
     >
       {!embedded && <h3 style={{ marginBottom: '16px' }}>Graph Panel</h3>}
-      <div
-        style={embedded
-          ? {}
-          : {
-              padding: '10px',
-              border: '1px solid #dbe4ef',
-              borderRadius: '6px',
-              background: '#fff',
-            }}
-      >
-        <GraphManagementControls
+      <div style={embedded ? embeddedPanelCardStyle : standalonePanelCardStyle}>
+        <GraphPanelIdentitySection
           graphId={graph?.id ?? null}
           graphName={graph?.name ?? ''}
           graphSummaries={graphSummaries}
@@ -597,542 +617,69 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           onDeleteConfirm={handleDeleteCurrentGraph}
           onNewGraphNameChange={setNewGraphName}
           onCreateGraph={handleCreateGraph}
-          afterRename={
-            <>
-              <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                Recompute workers
-              </label>
-              <input
-                data-testid="graph-recompute-concurrency-input"
-                type="number"
-                min={MIN_RECOMPUTE_CONCURRENCY}
-                max={MAX_RECOMPUTE_CONCURRENCY}
-                step={1}
-                value={recomputeConcurrencyValue}
-                disabled={!graph || isGraphActionInFlight}
-                onChange={(event) => setRecomputeConcurrencyValue(event.target.value)}
-                onBlur={() => {
-                  void commitRecomputeConcurrency();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur();
-                  }
-                  if (event.key === 'Escape') {
-                    setRecomputeConcurrencyValue(
-                      String(
-                        normalizeRecomputeConcurrency(
-                          graph?.recomputeConcurrency,
-                          MIN_RECOMPUTE_CONCURRENCY
-                        )
-                      )
-                    );
-                    event.currentTarget.blur();
-                  }
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  marginBottom: '4px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
-                Graph-level backend recompute worker concurrency (1-32).
-              </div>
-
-              <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                Script timeout (seconds)
-              </label>
-              <input
-                data-testid="graph-execution-timeout-input"
-                type="number"
-                min={0.001}
-                step={0.1}
-                value={executionTimeoutSecondsValue}
-                disabled={!graph || isGraphActionInFlight}
-                onChange={(event) => setExecutionTimeoutSecondsValue(event.target.value)}
-                onBlur={() => {
-                  void commitExecutionTimeout();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur();
-                  }
-                  if (event.key === 'Escape') {
-                    const currentTimeoutMs = normalizeGraphExecutionTimeoutMs(graph?.executionTimeoutMs);
-                    setExecutionTimeoutSecondsValue(String(currentTimeoutMs / 1000));
-                    event.currentTarget.blur();
-                  }
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  marginBottom: '4px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  boxSizing: 'border-box',
-                }}
-              />
-              <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
-                Graph-level inline runtime timeout. Default 30 seconds. No maximum.
-              </div>
-            </>
-          }
-          afterCreate={
-            <>
-              <div
-                style={{
-                  marginTop: '10px',
-                  padding: '8px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  background: '#f8fafc',
-                }}
-              >
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
-                  Cameras
-                </div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Current camera for this window
-                </label>
-                <select
-                  data-testid="camera-select"
-                  value={graph ? activeCameraId : ''}
-                  disabled={!graph || isGraphActionInFlight}
-                  onChange={(event) => {
-                    flushCurrentCameraViewportState();
-                    selectCamera(event.target.value);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginBottom: '8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  {cameraOptions.map((camera) => (
-                    <option key={camera.id} value={camera.id}>
-                      {formatCameraOptionLabel(camera.name, camera.id)}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
-                  Selecting a camera only changes this browser window. Camera contents are shared on the graph.
-                </div>
-                <button
-                  data-testid="camera-add"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    void handleAddCamera();
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '7px 8px',
-                    background: '#475569',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Add Camera
-                </button>
-                <button
-                  data-testid="camera-remove"
-                  disabled={!canRemoveActiveCamera}
-                  onClick={() => {
-                    void handleRemoveCamera();
-                  }}
-                  style={{
-                    width: '100%',
-                    marginTop: '8px',
-                    padding: '7px 8px',
-                    background: '#b91c1c',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: canRemoveActiveCamera ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  Remove Current Camera
-                </button>
-              </div>
-
-              <div
-                style={{
-                  marginTop: '10px',
-                  padding: '8px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  background: '#f8fafc',
-                }}
-              >
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
-                  Projections
-                </div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Active projection
-                </label>
-                <select
-                  data-testid="projection-select"
-                  value={graph ? activeProjectionId : ''}
-                  disabled={!graph || isGraphActionInFlight}
-                  onChange={(event) => {
-                    void handleSelectProjection(event.target.value);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginBottom: '8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  {projectionOptions.map((projection) => (
-                    <option key={projection.id} value={projection.id}>
-                      {formatProjectionOptionLabel(projection.name, projection.id)}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  data-testid="projection-add"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    void handleAddProjection();
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '7px 8px',
-                    background: '#475569',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Add Projection
-                </button>
-                <button
-                  data-testid="projection-remove"
-                  disabled={!canRemoveActiveProjection}
-                  onClick={() => {
-                    void handleRemoveProjection();
-                  }}
-                  style={{
-                    width: '100%',
-                    marginTop: '8px',
-                    padding: '7px 8px',
-                    background: '#b91c1c',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: canRemoveActiveProjection ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  Remove Active Projection
-                </button>
-              </div>
-
-              <div
-                style={{
-                  marginTop: '10px',
-                  padding: '8px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  background: '#f8fafc',
-                }}
-              >
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
-                  Projection Background
-                </div>
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Mode
-                </label>
-                <select
-                  data-testid="canvas-background-mode-select"
-                  value={canvasBackgroundDraft.mode}
-                  disabled={!graph || isGraphActionInFlight}
-                  onChange={(event) =>
-                    setCanvasBackgroundDraft((current) => ({
-                      ...current,
-                      mode: event.target.value === 'solid' ? 'solid' : 'gradient',
-                    }))
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginBottom: '8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <option value="gradient">Gradient</option>
-                  <option value="solid">Solid</option>
-                </select>
-
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Base color
-                </label>
-                <button
-                  data-testid="canvas-background-color-input"
-                  type="button"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    if (!graph || isGraphActionInFlight) {
-                      return;
-                    }
-                    setShowCanvasBackgroundColorDialog(true);
-                  }}
-                  style={{
-                    width: '100%',
-                    height: '34px',
-                    marginBottom: '8px',
-                    padding: '6px 8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                    background: '#ffffff',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '8px',
-                    color: '#0f172a',
-                    fontSize: '11px',
-                  }}
-                >
-                  <span>Choose color</span>
-                  <span
-                    style={{
-                      width: '14px',
-                      height: '14px',
-                      borderRadius: '50%',
-                      border: '1px solid #334155',
-                      background: canvasBackgroundDraft.baseColor,
-                      flexShrink: 0,
-                    }}
-                  />
-                </button>
-
-                <button
-                  data-testid="canvas-background-save"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    void commitCanvasBackground();
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '7px 8px',
-                    background: '#2563eb',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Save Background
-                </button>
-              </div>
-
-              <div
-                style={{
-                  marginTop: '10px',
-                  padding: '8px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  background: '#f8fafc',
-                }}
-              >
-                <div style={{ fontSize: '11px', color: '#334155', fontWeight: 700, marginBottom: '8px' }}>
-                  Connection Strokes
-                </div>
-
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Foreground color
-                </label>
-                <button
-                  data-testid="connection-stroke-foreground-color-input"
-                  type="button"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    if (!graph || isGraphActionInFlight) {
-                      return;
-                    }
-                    setConnectionStrokeColorTarget('foreground');
-                  }}
-                  style={{
-                    width: '100%',
-                    height: '34px',
-                    marginBottom: '8px',
-                    padding: '6px 8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                    background: '#ffffff',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '8px',
-                    color: '#0f172a',
-                    fontSize: '11px',
-                  }}
-                >
-                  <span>Choose color</span>
-                  <span
-                    style={{
-                      width: '14px',
-                      height: '14px',
-                      borderRadius: '50%',
-                      border: '1px solid #334155',
-                      background: connectionStrokeDraft.foregroundColor,
-                      flexShrink: 0,
-                    }}
-                  />
-                </button>
-
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Background color
-                </label>
-                <button
-                  data-testid="connection-stroke-background-color-input"
-                  type="button"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    if (!graph || isGraphActionInFlight) {
-                      return;
-                    }
-                    setConnectionStrokeColorTarget('background');
-                  }}
-                  style={{
-                    width: '100%',
-                    height: '34px',
-                    marginBottom: '8px',
-                    padding: '6px 8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                    background: '#ffffff',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '8px',
-                    color: '#0f172a',
-                    fontSize: '11px',
-                  }}
-                >
-                  <span>Choose color</span>
-                  <span
-                    style={{
-                      width: '14px',
-                      height: '14px',
-                      borderRadius: '50%',
-                      border: '1px solid #334155',
-                      background: connectionStrokeDraft.backgroundColor,
-                      flexShrink: 0,
-                    }}
-                  />
-                </button>
-
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Foreground width
-                </label>
-                <input
-                  data-testid="connection-stroke-foreground-width-input"
-                  type="number"
-                  min={0.25}
-                  max={24}
-                  step={0.1}
-                  value={connectionStrokeDraft.foregroundWidth}
-                  disabled={!graph || isGraphActionInFlight}
-                  onChange={(event) => updateConnectionStrokeForegroundWidth(event.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginBottom: '8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
-                  Background width
-                </label>
-                <input
-                  data-testid="connection-stroke-background-width-input"
-                  type="number"
-                  min={0.5}
-                  max={48}
-                  step={0.1}
-                  value={connectionStrokeDraft.backgroundWidth}
-                  disabled={!graph || isGraphActionInFlight}
-                  onChange={(event) => updateConnectionStrokeBackgroundWidth(event.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginBottom: '4px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-                <div style={{ marginBottom: '8px', fontSize: '10px', color: '#64748b' }}>
-                  Background width stays 2x foreground width.
-                </div>
-
-                <button
-                  data-testid="connection-stroke-save"
-                  disabled={!graph || isGraphActionInFlight}
-                  onClick={() => {
-                    void commitConnectionStroke();
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '7px 8px',
-                    background: '#2563eb',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: !graph || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Save Connection Strokes
-                </button>
-              </div>
-            </>
-          }
+          runtimeSettings={runtimeSettings}
         />
-
-        <PythonEnvironmentSection
+        <GraphPanelCameraSection
+          graphExists={Boolean(graph)}
+          isGraphActionInFlight={isGraphActionInFlight}
+          activeCameraId={activeCameraId}
+          cameraOptions={cameraOptions}
+          canRemoveActiveCamera={canRemoveActiveCamera}
+          formatCameraLabel={formatCameraOptionLabel}
+          onSelectCamera={(cameraId) => {
+            flushCurrentCameraViewportState();
+            selectCamera(cameraId);
+          }}
+          onAddCamera={handleAddCamera}
+          onRemoveCamera={handleRemoveCamera}
+        />
+        <GraphPanelProjectionSection
+          graphExists={Boolean(graph)}
+          isGraphActionInFlight={isGraphActionInFlight}
+          activeProjectionId={activeProjectionId}
+          projectionOptions={projectionOptions}
+          canRemoveActiveProjection={canRemoveActiveProjection}
+          formatProjectionLabel={formatProjectionOptionLabel}
+          onSelectProjection={handleSelectProjection}
+          onAddProjection={handleAddProjection}
+          onRemoveProjection={handleRemoveProjection}
+        />
+        <GraphPanelAppearanceSection
+          graphExists={Boolean(graph)}
+          isGraphActionInFlight={isGraphActionInFlight}
+          canvasBackgroundDraft={canvasBackgroundDraft}
+          connectionStrokeDraft={connectionStrokeDraft}
+          onCanvasBackgroundDraftChange={(updater) => {
+            setCanvasBackgroundDraft((current) => updater(current));
+          }}
+          onOpenCanvasBackgroundColorDialog={() => {
+            if (!graph || isGraphActionInFlight) {
+              return;
+            }
+            setShowCanvasBackgroundColorDialog(true);
+          }}
+          onSaveCanvasBackground={commitCanvasBackground}
+          onOpenConnectionStrokeColorDialog={(target) => {
+            if (!graph || isGraphActionInFlight) {
+              return;
+            }
+            setConnectionStrokeColorTarget(target);
+          }}
+          onConnectionStrokeForegroundWidthChange={updateConnectionStrokeForegroundWidth}
+          onConnectionStrokeBackgroundWidthChange={updateConnectionStrokeBackgroundWidth}
+          onSaveConnectionStroke={commitConnectionStroke}
+        />
+        <GraphPanelPythonSection
+          graphExists={Boolean(graph)}
+          graphId={graph?.id ?? null}
           pythonEnvDrafts={pythonEnvDrafts}
           validationError={pythonEnvValidationError}
-          disableAdd={isGraphActionInFlight}
-          disableSave={isGraphActionInFlight || !graph}
+          isGraphActionInFlight={isGraphActionInFlight}
           onUpdateField={updatePythonEnvDraftField}
           onAdd={addPythonEnvDraft}
           onDelete={deletePythonEnvDraft}
           onSave={commitPythonEnvs}
         />
-        {graph && (
-          <div style={{ marginTop: '8px', fontSize: '10px', color: '#64748b' }}>
-            Current graph ID: <code>{graph.id}</code>
-          </div>
-        )}
       </div>
       <ColorSelectionDialog
         open={showCanvasBackgroundColorDialog}

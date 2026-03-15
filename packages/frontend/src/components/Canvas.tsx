@@ -76,6 +76,37 @@ import {
   type ProjectionTransitionState,
 } from './useCanvasViewport';
 import {
+  ANNOTATION_CONNECTION_EDGE_HIT_WIDTH,
+  ANNOTATION_TEXT_INSET_BOTTOM,
+  ANNOTATION_TEXT_INSET_X,
+  ANNOTATION_TEXT_INSET_Y,
+  CANVAS_INTERACTION_CONFIG,
+  CANVAS_RUNTIME_CONFIG,
+  CANVAS_VIEWPORT_CONFIG,
+  MAX_ZOOM,
+  MINIMAP_HEIGHT,
+  MINIMAP_WIDTH,
+  MIN_ZOOM,
+  NODE_GRAPHICS_FALLBACK_ASPECT_RATIO,
+  NODE_RESIZE_HANDLE_MARGIN,
+  NODE_RESIZE_HANDLE_SIZE,
+  NODE_TITLE_CHAR_WIDTH_ESTIMATE,
+  NODE_TITLE_TEXT_STYLE,
+  NUMERIC_SLIDER_LEFT_PADDING,
+  NUMERIC_SLIDER_RIGHT_PADDING,
+  NUMERIC_SLIDER_Y_OFFSET,
+  PIXEL_RATIO,
+  PORT_RADIUS,
+  VIEWPORT_GRAPHICS_SETTLE_MS,
+  VIEWPORT_INTERACTION_SETTLE_MS,
+} from './canvasConstants';
+import {
+  buildAnnotationOverlayTransformCss,
+  incrementCanvasDebugCounter,
+  resolveAnnotationOverlayTransform,
+  syncCanvasDebugViewport,
+} from './canvasDebug';
+import {
   type ActiveDrawingPath,
   type AnnotationOverlayEntry,
   type AnnotationOverlayTransform,
@@ -131,108 +162,8 @@ declare global {
   }
 }
 
-const ANNOTATION_TEXT_INSET_X = 8;
-const ANNOTATION_TEXT_INSET_Y = 8;
-const ANNOTATION_TEXT_INSET_BOTTOM = 8;
-const ANNOTATION_CONNECTION_EDGE_HIT_WIDTH = 14;
-const PORT_RADIUS = 4;
-const NODE_GRAPHICS_FALLBACK_ASPECT_RATIO = 0.6;
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 4;
-const ZOOM_SENSITIVITY = 0.0014;
-const VIEWPORT_MARGIN = 100;
-const EDGE_HIT_WIDTH = 16;
-const CONNECTION_WIRE_SCREEN_WIDTH = 1;
-const CONNECTION_WIRE_FOREGROUND_ALPHA = 0.92;
-const CONNECTION_WIRE_BACKGROUND_ALPHA = 0.64;
-const CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA = 1;
-const CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA = 0.9;
-const MINIMAP_WIDTH = 220;
-const MINIMAP_HEIGHT = 140;
-const MINIMAP_PADDING = 8;
-const NODE_DRAG_START_THRESHOLD = 2;
-const LIGHTNING_DURATION_MS = 900;
-const NODE_SHOCK_DURATION_MS = 1200;
-const DRAW_SMOOTHING_STEP = 1;
-const NUMERIC_SLIDER_LEFT_PADDING = 12;
-const NUMERIC_SLIDER_RIGHT_PADDING = 34;
-const NUMERIC_SLIDER_Y_OFFSET = 15;
-const NODE_RESIZE_HANDLE_SIZE = 10;
-const NODE_RESIZE_HANDLE_MARGIN = 4;
-const SMOKE_EMIT_INTERVAL_MS = 140;
-const SMOKE_MIN_DURATION_MS = 720;
-const SMOKE_MAX_DURATION_MS = 1320;
-const SMOKE_MAX_PARTICLES = 96;
-const PROJECTION_TRANSITION_DURATION_MS = 260;
-const PIXEL_RATIO = typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 1) : 1;
-const MAX_TEXT_RESOLUTION = PIXEL_RATIO * 4;
-const NODE_TITLE_CHAR_WIDTH_ESTIMATE = 8;
-const NODE_TITLE_TEXT_STYLE = { fontFamily: 'Arial', fontSize: 14, fontWeight: 'bold' as const, fill: 0x0f172a };
-const VIEWPORT_INTERACTION_SETTLE_MS = 180;
-const VIEWPORT_GRAPHICS_SETTLE_MS = 420;
-
 interface CanvasProps {
   enableMcpScreenshotBridge?: boolean;
-}
-
-interface CanvasDebugCounters {
-  fullRenderCount?: number;
-  viewportSyncCount?: number;
-  viewportDeferredRenderCount?: number;
-  projectedTextureRefreshDeferredCount?: number;
-  projectedTextureRefreshImmediateCount?: number;
-  effectFrameCount?: number;
-  viewportX?: number;
-  viewportY?: number;
-  viewportScale?: number;
-}
-
-function incrementCanvasDebugCounter(counter: keyof CanvasDebugCounters): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const debugCounters = (window as Window & {
-    __k8vCanvasDebug?: CanvasDebugCounters;
-  }).__k8vCanvasDebug;
-  if (!debugCounters) {
-    return;
-  }
-
-  debugCounters[counter] = (debugCounters[counter] ?? 0) + 1;
-}
-
-function syncCanvasDebugViewport(viewport: Container | null): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const debugCounters = (window as Window & {
-    __k8vCanvasDebug?: CanvasDebugCounters;
-  }).__k8vCanvasDebug;
-  if (!debugCounters) {
-    return;
-  }
-
-  debugCounters.viewportX = viewport?.position.x ?? 0;
-  debugCounters.viewportY = viewport?.position.y ?? 0;
-  debugCounters.viewportScale = viewport?.scale.x ?? 1;
-}
-
-function resolveAnnotationOverlayTransform(viewport: Container | null): AnnotationOverlayTransform {
-  if (!viewport) {
-    return { x: 0, y: 0, scale: 1 };
-  }
-
-  return {
-    x: viewport.position.x,
-    y: viewport.position.y,
-    scale: Math.max(Math.abs(viewport.scale.x || 1), 0.0001),
-  };
-}
-
-function buildAnnotationOverlayTransformCss(transform: AnnotationOverlayTransform): string {
-  return `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
 }
 
 function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
@@ -733,17 +664,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     requestViewportDrivenGraphRefresh,
     persistViewportTransform,
     resolveNodeCardDimensions,
-    config: {
-      pixelRatio: PIXEL_RATIO,
-      maxTextResolution: MAX_TEXT_RESOLUTION,
-      minimapWidth: MINIMAP_WIDTH,
-      minimapHeight: MINIMAP_HEIGHT,
-      minimapPadding: MINIMAP_PADDING,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-      viewportMargin: VIEWPORT_MARGIN,
-      projectionTransitionDurationMs: PROJECTION_TRANSITION_DURATION_MS,
-    },
+    config: CANVAS_VIEWPORT_CONFIG,
   });
 
   const selectedCameraViewportSignature = graph
@@ -856,20 +777,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     requestNodeGraphicsTextureRefresh: requestProjectedGraphicsTextureRefresh,
     updateNode,
     addConnection,
-    config: {
-      edgeHitWidth: EDGE_HIT_WIDTH,
-      connectionWireScreenWidth: CONNECTION_WIRE_SCREEN_WIDTH,
-      connectionWireForegroundAlpha: CONNECTION_WIRE_FOREGROUND_ALPHA,
-      connectionWireBackgroundAlpha: CONNECTION_WIRE_BACKGROUND_ALPHA,
-      connectionWireSelectedForegroundAlpha: CONNECTION_WIRE_SELECTED_FOREGROUND_ALPHA,
-      connectionWireSelectedBackgroundAlpha: CONNECTION_WIRE_SELECTED_BACKGROUND_ALPHA,
-      lightningDurationMs: LIGHTNING_DURATION_MS,
-      nodeShockDurationMs: NODE_SHOCK_DURATION_MS,
-      smokeEmitIntervalMs: SMOKE_EMIT_INTERVAL_MS,
-      smokeMinDurationMs: SMOKE_MIN_DURATION_MS,
-      smokeMaxDurationMs: SMOKE_MAX_DURATION_MS,
-      smokeMaxParticles: SMOKE_MAX_PARTICLES,
-    },
+    config: CANVAS_RUNTIME_CONFIG,
   });
 
   drawMinimapRef.current = drawMinimap;
@@ -977,15 +885,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     setInputPortHighlight,
     applyCanvasCursor,
     renderGraphRef,
-    config: {
-      portRadius: PORT_RADIUS,
-      annotationEdgeHitWidth: ANNOTATION_CONNECTION_EDGE_HIT_WIDTH,
-      nodeDragStartThreshold: NODE_DRAG_START_THRESHOLD,
-      drawSmoothingStep: DRAW_SMOOTHING_STEP,
-      zoomSensitivity: ZOOM_SENSITIVITY,
-      minZoom: MIN_ZOOM,
-      maxZoom: MAX_ZOOM,
-    },
+    config: CANVAS_INTERACTION_CONFIG,
   });
 
   const beginViewportPanInteraction = useCallback((event: FederatedPointerEvent): boolean => {

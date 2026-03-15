@@ -8,10 +8,8 @@ import {
 } from 'pixi.js';
 import { v4 as uuidv4 } from 'uuid';
 import type {
-  ConnectionAnchor,
   DrawingPath,
   Graph,
-  GraphNode,
   Position,
 } from '../types';
 import { NodeType } from '../types';
@@ -33,153 +31,22 @@ import {
   resolveWheelZoomSensitivityMultiplier,
   shouldWheelPanCanvas,
 } from '../utils/wheelNavigation';
-
-interface PanStateLike {
-  pointerX: number;
-  pointerY: number;
-  viewportX: number;
-  viewportY: number;
-}
-
-type ResizeHandleDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-
-interface NodeDragStateLike {
-  nodeId: string;
-  pointerX: number;
-  pointerY: number;
-  nodeX: number;
-  nodeY: number;
-  currentX: number;
-  currentY: number;
-  moved: boolean;
-}
-
-interface NodeResizeStateLike {
-  nodeId: string;
-  pointerX: number;
-  pointerY: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  handle: ResizeHandleDirection;
-  minWidth: number;
-  minHeight: number;
-  currentX: number;
-  currentY: number;
-  currentWidth: number;
-  currentHeight: number;
-}
-
-interface SelectionDragStateLike {
-  pointerX: number;
-  pointerY: number;
-  nodeStartPositions: Map<string, Position>;
-  currentNodePositions: Map<string, Position>;
-  moved: boolean;
-  duplicateOnDrag: boolean;
-}
-
-interface SelectionResizeNodeStateLike {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  minWidth: number;
-  minHeight: number;
-}
-
-interface SelectionResizeStateLike {
-  pointerX: number;
-  pointerY: number;
-  bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  handle: ResizeHandleDirection;
-  nodeStates: Map<string, SelectionResizeNodeStateLike>;
-  currentBounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  currentNodeStates: Map<string, SelectionResizeNodeStateLike>;
-}
-
-interface HoveredSelectionResizeHandleLike {
-  handle: ResizeHandleDirection;
-}
-
-interface SelectionMarqueeStateLike {
-  startWorldX: number;
-  startWorldY: number;
-  currentWorldX: number;
-  currentWorldY: number;
-  additive: boolean;
-  moved: boolean;
-}
-
-interface ConnectionDragStateLike {
-  sourceNodeId: string;
-  sourcePort: string;
-  sourcePortKey: string | null;
-  sourceAnchor?: ConnectionAnchor;
-  startX: number;
-  startY: number;
-  pointerX: number;
-  pointerY: number;
-  hoveredTarget:
-    | {
-        type: 'input-port';
-        portKey: string;
-      }
-    | {
-        type: 'annotation';
-        nodeId: string;
-        anchor: ConnectionAnchor;
-        point: Position;
-      }
-    | null;
-}
-
-interface ActiveDrawingPathLike {
-  drawingId: string;
-  path: DrawingPath;
-}
-
-interface DrawingDragStateLike {
-  drawingId: string;
-  pointerX: number;
-  pointerY: number;
-  drawingX: number;
-  drawingY: number;
-  currentX: number;
-  currentY: number;
-  moved: boolean;
-}
-
-interface NumericSliderDragStateLike {
-  nodeId: string;
-  initialValue: number;
-  currentValue: number;
-}
-
-interface NodeVisualLike {
-  node: GraphNode;
-  container: Container;
-  width: number;
-  height: number;
-  projectedGraphicsHeight: number;
-  inputPortOffsets: Map<string, number>;
-  outputPortOffsets: Map<string, number>;
-}
-
-interface DrawingVisualLike {
-  container: Container;
-}
+import type {
+  ActiveDrawingPath,
+  ConnectionDragState,
+  DrawingDragState,
+  DrawingVisual,
+  HoveredSelectionResizeHandle,
+  NodeDragState,
+  NodeResizeState,
+  NodeVisual,
+  NumericSliderDragState,
+  PanState,
+  SelectionDragState,
+  SelectionMarqueeState,
+  SelectionResizeNodeState,
+  SelectionResizeState,
+} from './canvasTypes';
 
 interface UseCanvasInteractionsConfig {
   portRadius: number;
@@ -198,24 +65,24 @@ interface UseCanvasInteractionsParams {
   drawingEnabledRef: MutableRefObject<boolean>;
   drawingColorRef: MutableRefObject<string>;
   drawingThicknessRef: MutableRefObject<number>;
-  activeDrawingPathRef: MutableRefObject<ActiveDrawingPathLike | null>;
+  activeDrawingPathRef: MutableRefObject<ActiveDrawingPath | null>;
   drawingPositionsRef: MutableRefObject<Map<string, Position>>;
-  drawingVisualsRef: MutableRefObject<Map<string, DrawingVisualLike>>;
-  drawingDragStateRef: MutableRefObject<DrawingDragStateLike | null>;
-  nodeDragStateRef: MutableRefObject<NodeDragStateLike | null>;
-  nodeResizeStateRef: MutableRefObject<NodeResizeStateLike | null>;
-  selectionDragStateRef: MutableRefObject<SelectionDragStateLike | null>;
-  selectionResizeStateRef: MutableRefObject<SelectionResizeStateLike | null>;
-  selectionMarqueeStateRef: MutableRefObject<SelectionMarqueeStateLike | null>;
-  hoveredSelectionResizeHandleRef: MutableRefObject<HoveredSelectionResizeHandleLike | null>;
+  drawingVisualsRef: MutableRefObject<Map<string, DrawingVisual>>;
+  drawingDragStateRef: MutableRefObject<DrawingDragState | null>;
+  nodeDragStateRef: MutableRefObject<NodeDragState | null>;
+  nodeResizeStateRef: MutableRefObject<NodeResizeState | null>;
+  selectionDragStateRef: MutableRefObject<SelectionDragState | null>;
+  selectionResizeStateRef: MutableRefObject<SelectionResizeState | null>;
+  selectionMarqueeStateRef: MutableRefObject<SelectionMarqueeState | null>;
+  hoveredSelectionResizeHandleRef: MutableRefObject<HoveredSelectionResizeHandle | null>;
   spacePressedRef: MutableRefObject<boolean>;
-  nodeVisualsRef: MutableRefObject<Map<string, NodeVisualLike>>;
+  nodeVisualsRef: MutableRefObject<Map<string, NodeVisual>>;
   nodePositionsRef: MutableRefObject<Map<string, Position>>;
   nodeCardDraftSizesRef: MutableRefObject<Map<string, { width: number; height: number }>>;
   nodeCardDraftPositionsRef: MutableRefObject<Map<string, Position>>;
-  numericSliderDragStateRef: MutableRefObject<NumericSliderDragStateLike | null>;
-  connectionDragStateRef: MutableRefObject<ConnectionDragStateLike | null>;
-  panStateRef: MutableRefObject<PanStateLike | null>;
+  numericSliderDragStateRef: MutableRefObject<NumericSliderDragState | null>;
+  connectionDragStateRef: MutableRefObject<ConnectionDragState | null>;
+  panStateRef: MutableRefObject<PanState | null>;
   inputPortPositionsRef: MutableRefObject<Map<string, Position>>;
   hoveredInputPortKeyRef: MutableRefObject<string | null>;
   hoveredOutputPortKeyRef: MutableRefObject<string | null>;
@@ -232,7 +99,7 @@ interface UseCanvasInteractionsParams {
   drawEffects: () => void;
   updateNumericSliderFromPointer: (nodeId: string, pointerX: number, pointerY: number) => void;
   refreshCanvasBackgroundTexture: () => void;
-  syncNodePortPositions: (nodeId: string, position: Position, visual: NodeVisualLike) => void;
+  syncNodePortPositions: (nodeId: string, position: Position, visual: NodeVisual) => void;
   pickConnectionAtClientPoint: (clientX: number, clientY: number) => string | null;
   endConnectionDrag: (commit: boolean) => void;
   commitNumericSliderValue: (nodeId: string, nextValue: number) => void;
@@ -430,9 +297,9 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
   }, [selectedDrawingIdRef, selectedNodeIdRef, selectedNodeIdsRef, setNodeSelection]);
 
   const startDuplicateSelectionDrag = useCallback((
-    selectionDragState: SelectionDragStateLike,
+    selectionDragState: SelectionDragState,
     draggedNodePositions: Map<string, Position>
-  ): SelectionDragStateLike | null => {
+  ): SelectionDragState | null => {
     const currentGraph = graphRef.current;
     if (!currentGraph || draggedNodePositions.size === 0) {
       return null;
@@ -814,7 +681,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     });
     const scaleX = resizedBounds.width / Math.max(selectionResizeState.bounds.width, 1);
     const scaleY = resizedBounds.height / Math.max(selectionResizeState.bounds.height, 1);
-    const nextNodeStates = new Map<string, SelectionResizeNodeStateLike>();
+    const nextNodeStates = new Map<string, SelectionResizeNodeState>();
 
     for (const [nodeId, nodeState] of selectionResizeState.nodeStates.entries()) {
       const relativeLeft = nodeState.x - selectionResizeState.bounds.x;
@@ -990,7 +857,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       if (viewport) {
         const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
         const hoverRadius = (config.portRadius + 8) / Math.max(viewport.scale.x, 0.1);
-        let nextHoveredTarget: ConnectionDragStateLike['hoveredTarget'] = null;
+        let nextHoveredTarget: ConnectionDragState['hoveredTarget'] = null;
 
         for (const [portKey, portPosition] of inputPortPositionsRef.current.entries()) {
           const dx = worldPoint.x - portPosition.x;

@@ -1,115 +1,40 @@
-import { ComputationResult, Graph, GraphNode, NodeType } from '../types/index.js';
+import { ComputationResult, Graph } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { GraphEngine } from './GraphEngine.js';
 import {
   buildGraphNodeMap,
   filterComputationalConnections,
-  getConnectionSignature,
-  isAnnotationLinkedConnection,
 } from './annotationConnections.js';
+import {
+  clampRecomputeConcurrency,
+  collectChangedRootNodeIds,
+  collectStaleNodeIdsFromErrorStates,
+  isComputableNode,
+  isErrorTextOutput,
+  selectNodeIdsForTask,
+  toErrorMessage,
+} from './recompute/recomputePlanning.js';
+import { RecomputeStateStore } from './recompute/RecomputeStateStore.js';
+import type {
+  GraphRecomputeStatus,
+  GraphRuntimeState,
+  NodeRunOutcome,
+  RecomputeTaskSummary,
+} from './recompute/recomputeTypes.js';
 
-const DEFAULT_RECOMPUTE_CONCURRENCY = 1;
-const MAX_RECOMPUTE_CONCURRENCY = 32;
-
-export interface BackendNodeExecutionState {
-  isPending: boolean;
-  isComputing: boolean;
-  hasError: boolean;
-  isStale: boolean;
-  errorMessage: string | null;
-  lastRunAt: number | null;
-}
-
-export interface GraphRecomputeStatus {
-  graphId: string;
-  statusVersion: number;
-  queueLength: number;
-  workerConcurrency: number;
-  nodeStates: Record<string, BackendNodeExecutionState>;
-}
-
-interface RecomputeTaskSummary {
-  scheduledNodeIds: string[];
-  completedNodeIds: string[];
-}
-
-type RecomputeTaskType = 'graph_update' | 'manual_node' | 'manual_graph';
-
-interface RecomputeTask {
-  type: RecomputeTaskType;
-  rootNodeIds: string[];
-  recomputeVersion?: number;
-  resolve: (summary: RecomputeTaskSummary) => void;
-  reject: (error: Error) => void;
-}
-
-interface GraphRuntimeState {
-  isProcessing: boolean;
-  statusVersion: number;
-  queue: RecomputeTask[];
-  nodeStates: Record<string, BackendNodeExecutionState>;
-}
-
-interface NodeRunOutcome {
-  nodeId: string;
-  success: boolean;
-}
-
-const DEFAULT_NODE_STATE: BackendNodeExecutionState = {
-  isPending: false,
-  isComputing: false,
-  hasError: false,
-  isStale: false,
-  errorMessage: null,
-  lastRunAt: null,
-};
-
-function isErrorTextOutput(textOutput: unknown): boolean {
-  return typeof textOutput === 'string' && /^\s*error:/i.test(textOutput.trim());
-}
-
-function toErrorMessage(error: unknown): string {
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-  return 'Recomputation failed';
-}
-
-function getAutoRecomputeEnabled(node: GraphNode): boolean {
-  return Boolean(node.config.config?.autoRecompute);
-}
-
-function isComputableNode(node: GraphNode): boolean {
-  return node.type !== NodeType.ANNOTATION;
-}
-
-function clampRecomputeConcurrency(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return DEFAULT_RECOMPUTE_CONCURRENCY;
-  }
-
-  return Math.max(
-    DEFAULT_RECOMPUTE_CONCURRENCY,
-    Math.min(MAX_RECOMPUTE_CONCURRENCY, Math.floor(value))
-  );
-}
+export type { BackendNodeExecutionState, GraphRecomputeStatus } from './recompute/recomputeTypes.js';
 
 export class RecomputeManager {
-  private readonly dataStore: DataStore;
-  private readonly graphEngine: GraphEngine;
-  private readonly graphStates = new Map<string, GraphRuntimeState>();
+  private readonly stateStore = new RecomputeStateStore();
   private nextManualRecomputeVersion = Date.now();
 
-  constructor(dataStore: DataStore, graphEngine: GraphEngine) {
-    this.dataStore = dataStore;
-    this.graphEngine = graphEngine;
-  }
+  constructor(
+    private readonly dataStore: DataStore,
+    private readonly graphEngine: GraphEngine
+  ) {}
 
   queueGraphUpdateRecompute(previousGraph: Graph, nextGraph: Graph): void {
-    const rootNodeIds = this.collectChangedRootNodeIds(previousGraph, nextGraph);
+    const rootNodeIds = collectChangedRootNodeIds(previousGraph, nextGraph);
     if (rootNodeIds.length === 0) {
       return;
     }
@@ -137,7 +62,7 @@ export class RecomputeManager {
 
     const result = await this.dataStore.getResult(nodeId, node.version);
     if (!result) {
-      const graphState = this.getOrCreateGraphState(graphId);
+      const graphState = this.stateStore.getOrCreateGraphState(graphId);
       const nodeState = graphState.nodeStates[nodeId];
       if (nodeState?.hasError && nodeState.errorMessage) {
         throw new Error(nodeState.errorMessage);
@@ -159,7 +84,7 @@ export class RecomputeManager {
     });
 
     const results = new Map<string, ComputationResult>();
-    const graphState = this.getOrCreateGraphState(graphId);
+    const graphState = this.stateStore.getOrCreateGraphState(graphId);
     for (const node of graph.nodes) {
       const result = await this.dataStore.getResult(node.id, node.version);
       if (result) {
@@ -178,9 +103,9 @@ export class RecomputeManager {
 
   async getGraphStatus(graphId: string): Promise<GraphRecomputeStatus> {
     const graph = await this.requireGraph(graphId);
-    const state = this.getOrCreateGraphState(graphId);
+    const state = this.stateStore.getOrCreateGraphState(graphId);
 
-    this.synchronizeNodeStates(graph, state);
+    this.stateStore.synchronizeNodeStates(graph, state);
 
     return {
       graphId,
@@ -192,24 +117,20 @@ export class RecomputeManager {
   }
 
   dropGraphState(graphId: string): void {
-    this.graphStates.delete(graphId);
+    this.stateStore.dropGraphState(graphId);
   }
 
   private async enqueueTask(
     graphId: string,
-    taskInput: { type: RecomputeTaskType; rootNodeIds: string[] }
+    taskInput: { type: 'graph_update' | 'manual_node' | 'manual_graph'; rootNodeIds: string[] }
   ): Promise<RecomputeTaskSummary> {
     const previewGraph = await this.dataStore.getGraph(graphId) as Graph | null;
-    const state = this.getOrCreateGraphState(graphId);
+    const state = this.stateStore.getOrCreateGraphState(graphId);
 
     if (previewGraph) {
-      this.synchronizeNodeStates(previewGraph, state);
-      const previewNodeIds = this.selectNodeIdsForTask(
-        previewGraph,
-        taskInput.type,
-        taskInput.rootNodeIds
-      );
-      this.markNodesPending(previewGraph.id, state, previewNodeIds);
+      this.stateStore.synchronizeNodeStates(previewGraph, state);
+      const previewNodeIds = selectNodeIdsForTask(previewGraph, taskInput.type, taskInput.rootNodeIds);
+      this.stateStore.markNodesPending(state, previewNodeIds);
       this.applyDerivedStaleStates(previewGraph, state);
     }
 
@@ -228,7 +149,7 @@ export class RecomputeManager {
   }
 
   private kickoffGraphQueue(graphId: string): void {
-    const state = this.getOrCreateGraphState(graphId);
+    const state = this.stateStore.getOrCreateGraphState(graphId);
     if (state.isProcessing) {
       return;
     }
@@ -264,10 +185,10 @@ export class RecomputeManager {
           continue;
         }
 
-        this.synchronizeNodeStates(graph, state);
+        this.stateStore.synchronizeNodeStates(graph, state);
 
-        const scheduledNodeIds = this.selectNodeIdsForTask(graph, task.type, task.rootNodeIds);
-        this.markNodesPending(graph.id, state, scheduledNodeIds);
+        const scheduledNodeIds = selectNodeIdsForTask(graph, task.type, task.rootNodeIds);
+        this.stateStore.markNodesPending(state, scheduledNodeIds);
 
         const completedNodeIds = await this.executeTaskNodes(
           graph,
@@ -369,7 +290,7 @@ export class RecomputeManager {
     };
 
     const markSkippedNode = (nodeId: string) => {
-      this.patchNodeState(graph.id, state, nodeId, {
+      this.stateStore.patchNodeState(state, nodeId, {
         isPending: false,
         isComputing: false,
         hasError: false,
@@ -414,7 +335,7 @@ export class RecomputeManager {
 
     for (const nodeId of orderedNodeIds) {
       if (!completedNodeSet.has(nodeId)) {
-        this.patchNodeState(graph.id, state, nodeId, {
+        this.stateStore.patchNodeState(state, nodeId, {
           isPending: false,
           isComputing: false,
           hasError: false,
@@ -435,7 +356,7 @@ export class RecomputeManager {
     nodeId: string,
     recomputeVersion?: number
   ): Promise<NodeRunOutcome> {
-    this.patchNodeState(graph.id, state, nodeId, {
+    this.stateStore.patchNodeState(state, nodeId, {
       isPending: false,
       isComputing: true,
       hasError: false,
@@ -447,7 +368,7 @@ export class RecomputeManager {
       const result = await this.graphEngine.computeNode(graph, nodeId, { recomputeVersion });
       const hasError = isErrorTextOutput(result.textOutput);
 
-      this.patchNodeState(graph.id, state, nodeId, {
+      this.stateStore.patchNodeState(state, nodeId, {
         isPending: false,
         isComputing: false,
         hasError,
@@ -461,7 +382,7 @@ export class RecomputeManager {
         success: !hasError,
       };
     } catch (error) {
-      this.patchNodeState(graph.id, state, nodeId, {
+      this.stateStore.patchNodeState(state, nodeId, {
         isPending: false,
         isComputing: false,
         hasError: true,
@@ -477,199 +398,11 @@ export class RecomputeManager {
     }
   }
 
-  private markNodesPending(graphId: string, state: GraphRuntimeState, nodeIds: string[]): void {
-    for (const nodeId of nodeIds) {
-      this.patchNodeState(graphId, state, nodeId, {
-        isPending: true,
-        isComputing: false,
-        hasError: false,
-        isStale: false,
-        errorMessage: null,
-      });
-    }
-  }
-
-  private selectNodeIdsForTask(
-    graph: Graph,
-    type: RecomputeTaskType,
-    rootNodeIds: string[]
-  ): string[] {
-    if (type === 'manual_graph') {
-      const computableNodeIds = new Set(
-        graph.nodes
-          .filter((node) => isComputableNode(node))
-          .map((node) => node.id)
-      );
-      return this.topologicalSortNodeIds(graph).filter((nodeId) => computableNodeIds.has(nodeId));
-    }
-
-    const graphNodeIds = new Set(graph.nodes.map((node) => node.id));
-    const normalizedRoots = [...new Set(rootNodeIds)].filter((nodeId) => graphNodeIds.has(nodeId));
-
-    if (normalizedRoots.length === 0) {
-      return [];
-    }
-
-    const impactedNodeIds = this.collectImpactedDescendants(graph, normalizedRoots);
-    const selectedNodeIds = new Set<string>();
-
-    if (type === 'graph_update') {
-      for (const node of graph.nodes) {
-        if (
-          impactedNodeIds.has(node.id) &&
-          isComputableNode(node) &&
-          getAutoRecomputeEnabled(node)
-        ) {
-          selectedNodeIds.add(node.id);
-        }
-      }
-    } else {
-      for (const rootNodeId of normalizedRoots) {
-        const rootNode = graph.nodes.find((node) => node.id === rootNodeId);
-        if (rootNode && isComputableNode(rootNode)) {
-          selectedNodeIds.add(rootNodeId);
-        }
-      }
-
-      for (const node of graph.nodes) {
-        if (
-          impactedNodeIds.has(node.id) &&
-          isComputableNode(node) &&
-          getAutoRecomputeEnabled(node)
-        ) {
-          selectedNodeIds.add(node.id);
-        }
-      }
-    }
-
-    return this.topologicalSortNodeIds(graph).filter((nodeId) => selectedNodeIds.has(nodeId));
-  }
-
-  private collectImpactedDescendants(graph: Graph, roots: string[]): Set<string> {
-    const outgoing = this.buildOutgoingAdjacency(graph);
-    const queue = [...roots];
-    const visited = new Set<string>();
-
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || visited.has(current)) {
-        continue;
-      }
-
-      visited.add(current);
-
-      for (const downstreamNodeId of outgoing.get(current) ?? []) {
-        if (!visited.has(downstreamNodeId)) {
-          queue.push(downstreamNodeId);
-        }
-      }
-    }
-
-    return visited;
-  }
-
-  private topologicalSortNodeIds(graph: Graph): string[] {
-    const nodeOrder = new Map(graph.nodes.map((node, index) => [node.id, index]));
-    const nodeById = buildGraphNodeMap(graph.nodes);
-    const inDegree = new Map<string, number>();
-    const outgoing = new Map<string, string[]>();
-
-    for (const node of graph.nodes) {
-      inDegree.set(node.id, 0);
-      outgoing.set(node.id, []);
-    }
-
-    for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
-      if (!inDegree.has(connection.sourceNodeId) || !inDegree.has(connection.targetNodeId)) {
-        continue;
-      }
-
-      outgoing.get(connection.sourceNodeId)?.push(connection.targetNodeId);
-      inDegree.set(
-        connection.targetNodeId,
-        (inDegree.get(connection.targetNodeId) ?? 0) + 1
-      );
-    }
-
-    const queue = graph.nodes
-      .map((node) => node.id)
-      .filter((nodeId) => (inDegree.get(nodeId) ?? 0) === 0)
-      .sort((left, right) => (nodeOrder.get(left) ?? 0) - (nodeOrder.get(right) ?? 0));
-
-    const ordered: string[] = [];
-
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current) {
-        continue;
-      }
-
-      ordered.push(current);
-
-      for (const downstreamNodeId of outgoing.get(current) ?? []) {
-        const nextDegree = (inDegree.get(downstreamNodeId) ?? 0) - 1;
-        inDegree.set(downstreamNodeId, nextDegree);
-        if (nextDegree === 0) {
-          queue.push(downstreamNodeId);
-          queue.sort((left, right) => (nodeOrder.get(left) ?? 0) - (nodeOrder.get(right) ?? 0));
-        }
-      }
-    }
-
-    if (ordered.length !== graph.nodes.length) {
-      return graph.nodes.map((node) => node.id);
-    }
-
-    return ordered;
-  }
-
-  private buildOutgoingAdjacency(graph: Graph): Map<string, string[]> {
-    const outgoing = new Map<string, string[]>();
-    const nodeById = buildGraphNodeMap(graph.nodes);
-
-    for (const node of graph.nodes) {
-      outgoing.set(node.id, []);
-    }
-
-    for (const connection of filterComputationalConnections(graph.connections, nodeById)) {
-      outgoing.get(connection.sourceNodeId)?.push(connection.targetNodeId);
-    }
-
-    return outgoing;
-  }
-
   private applyDerivedStaleStates(graph: Graph, state: GraphRuntimeState): void {
-    const outgoing = this.buildOutgoingAdjacency(graph);
-    const queue: string[] = [];
-    const visited = new Set<string>();
-    const staleNodeIds = new Set<string>();
+    const staleNodeIds = collectStaleNodeIdsFromErrorStates(graph, state.nodeStates);
 
     for (const node of graph.nodes) {
-      const nodeState = state.nodeStates[node.id] ?? DEFAULT_NODE_STATE;
-      if (nodeState.hasError) {
-        queue.push(node.id);
-        visited.add(node.id);
-      }
-    }
-
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current) {
-        continue;
-      }
-
-      for (const downstreamNodeId of outgoing.get(current) ?? []) {
-        if (!visited.has(downstreamNodeId)) {
-          visited.add(downstreamNodeId);
-          queue.push(downstreamNodeId);
-        }
-
-        staleNodeIds.add(downstreamNodeId);
-      }
-    }
-
-    for (const node of graph.nodes) {
-      const currentState = state.nodeStates[node.id] ?? { ...DEFAULT_NODE_STATE };
+      const currentState = state.nodeStates[node.id];
       const shouldBeStale =
         staleNodeIds.has(node.id) &&
         !currentState.hasError &&
@@ -677,142 +410,11 @@ export class RecomputeManager {
         !currentState.isComputing;
 
       if (currentState.isStale !== shouldBeStale) {
-        this.patchNodeState(graph.id, state, node.id, {
+        this.stateStore.patchNodeState(state, node.id, {
           isStale: shouldBeStale,
         });
       }
     }
-  }
-
-  private collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph): string[] {
-    const previousNodeMap = new Map(previousGraph.nodes.map((node) => [node.id, node]));
-    const nextNodeMap = new Map(nextGraph.nodes.map((node) => [node.id, node]));
-    const combinedNodeMap = buildGraphNodeMap([
-      ...previousGraph.nodes,
-      ...nextGraph.nodes,
-    ]);
-    const rootNodeIds = new Set<string>();
-
-    for (const nextNode of nextGraph.nodes) {
-      const previousNode = previousNodeMap.get(nextNode.id);
-      if (!previousNode || previousNode.version !== nextNode.version) {
-        rootNodeIds.add(nextNode.id);
-      }
-    }
-
-    const previousConnections = new Set(
-      previousGraph.connections
-        .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
-        .map(getConnectionSignature)
-    );
-    const nextConnections = new Set(
-      nextGraph.connections
-        .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
-        .map(getConnectionSignature)
-    );
-
-    for (const connection of nextGraph.connections) {
-      if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
-        continue;
-      }
-      const signature = getConnectionSignature(connection);
-      if (previousConnections.has(signature)) {
-        continue;
-      }
-
-      rootNodeIds.add(connection.sourceNodeId);
-      rootNodeIds.add(connection.targetNodeId);
-    }
-
-    for (const connection of previousGraph.connections) {
-      if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
-        continue;
-      }
-      const signature = getConnectionSignature(connection);
-      if (nextConnections.has(signature)) {
-        continue;
-      }
-
-      if (nextNodeMap.has(connection.sourceNodeId)) {
-        rootNodeIds.add(connection.sourceNodeId);
-      }
-      if (nextNodeMap.has(connection.targetNodeId)) {
-        rootNodeIds.add(connection.targetNodeId);
-      }
-    }
-
-    return [...rootNodeIds].filter((nodeId) => nextNodeMap.has(nodeId));
-  }
-
-  private synchronizeNodeStates(graph: Graph, state: GraphRuntimeState): void {
-    const nextStates: Record<string, BackendNodeExecutionState> = {};
-
-    for (const node of graph.nodes) {
-      nextStates[node.id] = {
-        ...DEFAULT_NODE_STATE,
-        ...(state.nodeStates[node.id] ?? {}),
-      };
-    }
-
-    const previousNodeIds = Object.keys(state.nodeStates);
-    const nextNodeIds = Object.keys(nextStates);
-
-    const changedShape =
-      previousNodeIds.length !== nextNodeIds.length ||
-      previousNodeIds.some((nodeId) => !(nodeId in nextStates));
-
-    if (changedShape) {
-      state.nodeStates = nextStates;
-      state.statusVersion += 1;
-      return;
-    }
-
-    state.nodeStates = nextStates;
-  }
-
-  private patchNodeState(
-    _graphId: string,
-    state: GraphRuntimeState,
-    nodeId: string,
-    patch: Partial<BackendNodeExecutionState>
-  ): void {
-    const previousState = state.nodeStates[nodeId] ?? { ...DEFAULT_NODE_STATE };
-    const nextState: BackendNodeExecutionState = {
-      ...previousState,
-      ...patch,
-    };
-
-    const changed =
-      previousState.isPending !== nextState.isPending ||
-      previousState.isComputing !== nextState.isComputing ||
-      previousState.hasError !== nextState.hasError ||
-      previousState.isStale !== nextState.isStale ||
-      previousState.errorMessage !== nextState.errorMessage ||
-      previousState.lastRunAt !== nextState.lastRunAt;
-
-    if (!changed) {
-      return;
-    }
-
-    state.nodeStates[nodeId] = nextState;
-    state.statusVersion += 1;
-  }
-
-  private getOrCreateGraphState(graphId: string): GraphRuntimeState {
-    const existing = this.graphStates.get(graphId);
-    if (existing) {
-      return existing;
-    }
-
-    const created: GraphRuntimeState = {
-      isProcessing: false,
-      statusVersion: 0,
-      queue: [],
-      nodeStates: {},
-    };
-
-    this.graphStates.set(graphId, created);
-    return created;
   }
 
   private async requireGraph(graphId: string): Promise<Graph> {

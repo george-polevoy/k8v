@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
 import { DataStore } from '../core/DataStore.js';
+import {
+  GraphConflictError,
+  GraphNotFoundError,
+  GraphUpdateService,
+  GraphWriteValidationError,
+} from '../core/GraphUpdateService.js';
 import { RecomputeManager } from '../core/RecomputeManager.js';
 import {
   executeGraphQuery,
@@ -10,23 +15,10 @@ import {
   GraphQueryValidationError,
   type GraphQueryRequest,
 } from '../core/graphQuery.js';
-import {
-  normalizeConnectionStrokeValue,
-  normalizeGraphCameras,
-  normalizeGraphProjections,
-  syncActiveProjectionLayout,
-} from '../core/graphNormalization.js';
-import {
-  buildGraphNodeMap,
-  getConnectionSignature,
-  isAnnotationLinkedConnection,
-} from '../core/annotationConnections.js';
-import { validateGraphStructure } from '../core/graphValidation.js';
 import { validate } from '../http/validate.js';
 import {
   CanvasBackground,
   Connection,
-  DEFAULT_CANVAS_BACKGROUND,
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   Graph,
   GraphCamera,
@@ -126,93 +118,9 @@ function isTruthyQueryFlag(value: unknown): boolean {
   return false;
 }
 
-function collectInboundConnectionChangedNodeIds(
-  previousNodes: GraphNode[],
-  previousConnections: Connection[],
-  nextNodes: GraphNode[],
-  nextConnections: Connection[]
-): Set<string> {
-  const combinedNodeMap = buildGraphNodeMap([
-    ...previousNodes,
-    ...nextNodes,
-  ]);
-  const previousByTarget = new Map<string, Set<string>>();
-  for (const connection of previousConnections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
-      continue;
-    }
-    const signature = getConnectionSignature(connection);
-    const existing = previousByTarget.get(connection.targetNodeId);
-    if (existing) {
-      existing.add(signature);
-    } else {
-      previousByTarget.set(connection.targetNodeId, new Set([signature]));
-    }
-  }
-
-  const nextByTarget = new Map<string, Set<string>>();
-  for (const connection of nextConnections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
-      continue;
-    }
-    const signature = getConnectionSignature(connection);
-    const existing = nextByTarget.get(connection.targetNodeId);
-    if (existing) {
-      existing.add(signature);
-    } else {
-      nextByTarget.set(connection.targetNodeId, new Set([signature]));
-    }
-  }
-
-  const changedNodeIds = new Set<string>();
-  const targetNodeIds = new Set<string>([
-    ...previousByTarget.keys(),
-    ...nextByTarget.keys(),
-  ]);
-
-  for (const targetNodeId of targetNodeIds) {
-    const previous = previousByTarget.get(targetNodeId) ?? new Set<string>();
-    const next = nextByTarget.get(targetNodeId) ?? new Set<string>();
-    if (previous.size !== next.size) {
-      changedNodeIds.add(targetNodeId);
-      continue;
-    }
-
-    let differs = false;
-    for (const signature of previous) {
-      if (!next.has(signature)) {
-        differs = true;
-        break;
-      }
-    }
-
-    if (differs) {
-      changedNodeIds.add(targetNodeId);
-    }
-  }
-
-  return changedNodeIds;
-}
-
-function bumpNodeVersions(nodes: GraphNode[], nodeIds: Set<string>): GraphNode[] {
-  if (nodeIds.size === 0) {
-    return nodes;
-  }
-
-  const versionPrefix = Date.now().toString();
-  return nodes.map((node) => {
-    if (!nodeIds.has(node.id)) {
-      return node;
-    }
-    return {
-      ...node,
-      version: `${versionPrefix}-${node.id}`,
-    };
-  });
-}
-
 export function createGraphRouter(deps: GraphRoutesDependencies): Router {
   const { dataStore, recomputeManager } = deps;
+  const graphUpdateService = new GraphUpdateService(dataStore, recomputeManager);
   const router = Router();
 
   router.get('/', async (_req, res) => {
@@ -266,121 +174,50 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
 
   router.post('/', validate(CreateGraphSchema), async (req, res) => {
     try {
-      const projectionState = normalizeGraphProjections(
-        req.body.nodes,
-        req.body.projections,
-        req.body.activeProjectionId,
-        req.body.canvasBackground,
-        req.body.canvasBackground
-      );
-      const graph: Graph = {
-        id: uuidv4(),
+      const graph = await graphUpdateService.createGraph({
         name: req.body.name,
-        nodes: projectionState.nodes,
+        nodes: req.body.nodes,
         connections: req.body.connections,
-        recomputeConcurrency: req.body.recomputeConcurrency ?? 1,
+        recomputeConcurrency: req.body.recomputeConcurrency,
         executionTimeoutMs: req.body.executionTimeoutMs ?? DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
-        canvasBackground: projectionState.canvasBackground,
-        connectionStroke: normalizeConnectionStrokeValue(req.body.connectionStroke),
-        projections: projectionState.projections,
-        activeProjectionId: projectionState.activeProjectionId,
-        cameras: normalizeGraphCameras(req.body.cameras),
+        canvasBackground: req.body.canvasBackground,
+        connectionStroke: req.body.connectionStroke,
+        projections: req.body.projections,
+        activeProjectionId: req.body.activeProjectionId,
+        cameras: req.body.cameras,
         pythonEnvs: req.body.pythonEnvs,
         drawings: req.body.drawings,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      const validationError = validateGraphStructure(graph);
-      if (validationError) {
-        return res.status(400).json({ error: validationError });
-      }
-
-      await dataStore.storeGraph(graph);
+      });
       res.json(graph);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      if (error instanceof GraphWriteValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
     }
   });
 
   router.put('/:id', validate(UpdateGraphSchema), async (req, res) => {
     try {
-      const existing = await dataStore.getGraph(req.params.id);
-      if (!existing) {
+      const noRecompute = isTruthyQueryFlag(req.query.noRecompute);
+      const graph = await graphUpdateService.updateGraph(req.params.id, req.body, { noRecompute });
+      res.json(graph);
+    } catch (error: unknown) {
+      if (error instanceof GraphNotFoundError) {
         return res.status(404).json({ error: 'Graph not found' });
       }
-      const noRecompute = isTruthyQueryFlag(req.query.noRecompute);
-
-      const expectedUpdatedAt = req.body.ifMatchUpdatedAt;
-      if (typeof expectedUpdatedAt === 'number' && expectedUpdatedAt !== existing.updatedAt) {
+      if (error instanceof GraphConflictError) {
         return res.status(409).json({
-          error: 'Graph has changed since it was loaded. Reload and retry your update.',
-          currentUpdatedAt: existing.updatedAt,
+          error: error.message,
+          currentUpdatedAt: error.currentUpdatedAt,
         });
       }
-
-      if (Array.isArray(req.body.projections) && req.body.projections.length === 0) {
-        return res.status(400).json({ error: 'At least one projection must remain in the graph.' });
+      if (error instanceof GraphWriteValidationError) {
+        return res.status(400).json({ error: error.message });
       }
-
-      const graphUpdates = { ...req.body } as Partial<Graph> & { ifMatchUpdatedAt?: number };
-      delete graphUpdates.ifMatchUpdatedAt;
-      const mergedNodes = req.body.nodes ?? existing.nodes;
-      const mergedConnections = req.body.connections ?? existing.connections;
-      const mergedCanvasBackground = req.body.canvasBackground ?? existing.canvasBackground ?? DEFAULT_CANVAS_BACKGROUND;
-      const mergedConnectionStroke = req.body.connectionStroke ?? existing.connectionStroke;
-      const inboundConnectionChangedNodeIds = req.body.connections
-        ? collectInboundConnectionChangedNodeIds(existing.nodes, existing.connections, mergedNodes, mergedConnections)
-        : new Set<string>();
-      const projectionInput = req.body.projections ?? (
-        req.body.nodes
-          ? syncActiveProjectionLayout(
-              existing.projections,
-              mergedNodes,
-              req.body.activeProjectionId ?? existing.activeProjectionId
-            )
-          : existing.projections
-      );
-      const projectionState = normalizeGraphProjections(
-        mergedNodes,
-        projectionInput,
-        req.body.activeProjectionId ?? existing.activeProjectionId,
-        mergedCanvasBackground,
-        req.body.canvasBackground
-      );
-      const nextNodes = bumpNodeVersions(projectionState.nodes, inboundConnectionChangedNodeIds);
-      const graph: Graph = {
-        ...existing,
-        ...graphUpdates,
-        id: req.params.id,
-        nodes: nextNodes,
-        recomputeConcurrency: req.body.recomputeConcurrency ?? existing.recomputeConcurrency ?? 1,
-        executionTimeoutMs:
-          req.body.executionTimeoutMs ??
-          existing.executionTimeoutMs ??
-          DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
-        canvasBackground: projectionState.canvasBackground,
-        connectionStroke: normalizeConnectionStrokeValue(mergedConnectionStroke),
-        projections: projectionState.projections,
-        activeProjectionId: projectionState.activeProjectionId,
-        cameras: normalizeGraphCameras(req.body.cameras ?? existing.cameras),
-        pythonEnvs: req.body.pythonEnvs ?? existing.pythonEnvs ?? [],
-        drawings: req.body.drawings ?? existing.drawings ?? [],
-        updatedAt: Date.now(),
-      };
-
-      const validationError = validateGraphStructure(graph);
-      if (validationError) {
-        return res.status(400).json({ error: validationError });
-      }
-
-      await dataStore.storeGraph(graph);
-      if (!noRecompute) {
-        recomputeManager.queueGraphUpdateRecompute(existing, graph);
-      }
-      res.json(graph);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
     }
   });
 

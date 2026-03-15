@@ -60,6 +60,7 @@ import type {
 } from './canvasShared';
 import {
   createCanvasBackgroundTexture,
+  blendPixiColors,
   createsCycle,
   distanceSquaredToBezier,
   drawBezierConnection,
@@ -139,20 +140,6 @@ interface UseCanvasRuntimeParams {
     smokeMaxDurationMs: number;
     smokeMaxParticles: number;
   };
-}
-
-function blendPixiColors(baseColor: number, targetColor: number, amount: number): number {
-  const clampedAmount = Math.max(0, Math.min(1, amount));
-  const baseR = (baseColor >> 16) & 0xff;
-  const baseG = (baseColor >> 8) & 0xff;
-  const baseB = baseColor & 0xff;
-  const targetR = (targetColor >> 16) & 0xff;
-  const targetG = (targetColor >> 8) & 0xff;
-  const targetB = targetColor & 0xff;
-  const blendedR = Math.round(baseR + ((targetR - baseR) * clampedAmount));
-  const blendedG = Math.round(baseG + ((targetG - baseG) * clampedAmount));
-  const blendedB = Math.round(baseB + ((targetB - baseB) * clampedAmount));
-  return (blendedR << 16) | (blendedG << 8) | blendedB;
 }
 
 function resolveConnectionSide(

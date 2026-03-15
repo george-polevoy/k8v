@@ -16,16 +16,25 @@ k8v is a flow-based modeling software that enables visual programming through an
 
 #### RecomputeManager (`packages/backend/src/core/RecomputeManager.ts`)
 - Owns backend-driven recomputation scheduling for graph updates and manual recompute requests
+- Delegates task planning and stale-state derivation to `packages/backend/src/core/recompute/`
 - Computes impacted downstream chains and marks all queued descendants as pending before execution
 - Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
+- Uses an internal `RecomputeStateStore` to track node execution state snapshots exposed to polling clients
 - Exposes `/api/graphs/:id/recompute-status` state for frontend polling
 - Graph updates can bypass enqueueing update-driven recompute via `PUT /api/graphs/:id?noRecompute=true`
 
 #### DataStore (`packages/backend/src/core/DataStore.ts`)
-- Persists computation results in structured format (JSON)
-- Stores graph metadata in SQLite
-- Serializes outputs and schemas separately for type inference
-- Persists graphics as id-addressable artifacts with PNG mip-map levels and metadata-only compute responses
+- Thin persistence facade over `packages/backend/src/core/storage/`
+- Stores graph metadata through `GraphRepository`
+- Persists computation results and schemas through `ComputationResultRepository`
+- Persists graphics as id-addressable artifacts with PNG mip-map levels through `GraphicsArtifactStore`
+- Centralizes SQLite bootstrap/migrations through `DatabaseBootstrap`
+
+#### GraphUpdateService (`packages/backend/src/core/GraphUpdateService.ts`)
+- Owns graph write policy used by REST graph updates
+- Normalizes and validates incoming graph payloads before persistence
+- Preserves version-bump and optimistic-concurrency behavior for graph writes
+- Triggers update-driven recompute enqueueing after successful persistence unless `noRecompute=true`
 
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
 - Executes current node types (inline code, numeric input, annotation)
@@ -46,6 +55,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Exposes graph-editing operations for agent clients over MCP stdio transport
 - Delegates graph mutations to existing backend REST API (`/api/graphs/*`)
 - Supports ordered `bulk_edit` graph mutations applied sequentially and persisted in a single graph update
+- Bulk-edit validation stays in `graphEdits.ts`, while domain handlers are split across graph/node/connection/drawing modules
 - Provides connection-inspection and deterministic per-input rewiring tools (`connections_list`, `connection_set`/`connection_replace`)
 - Uses connection-only graph update payloads for connection tools to avoid touching node position/card-size/projection fields
 - Provides internal Playwright-based screenshot rendering for agents
@@ -56,6 +66,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 
 #### Canvas (`packages/frontend/src/components/Canvas.tsx`)
 - Infinite canvas rendered with Pixi.js
+- Acts as a composition shell over extracted canvas modules (`canvasTypes`, `canvasGeometry`, `canvasGraphRules`, `canvasRendering`, viewport/runtime/interaction hooks)
 - Viewport navigation supports mouse-wheel zoom, pinch zoom, two-finger trackpad pan, wheel scroll (modifier), and drag-to-pan
 - Visual node and edge rendering from graph store state
 - Annotation cards can originate/terminate persisted presentation-only arrows from arbitrary edge anchors

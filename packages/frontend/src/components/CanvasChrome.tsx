@@ -1,8 +1,6 @@
 import type { PointerEventHandler, ReactNode, RefObject } from 'react';
 import AnnotationMarkdown from './AnnotationMarkdown';
-import type {
-  AnnotationOverlayEntry,
-} from './canvasShared';
+import type { AnnotationOverlayEntry } from './canvasTypes';
 
 interface CanvasChromeProps {
   canvasHostRef: RefObject<HTMLDivElement>;
