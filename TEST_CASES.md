@@ -40,6 +40,7 @@ Last reviewed: March 14, 2026.
 - `A-E2E-27` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: floating toolbar/sidebar window positions and the current graph viewport pan/zoom restore after a browser refresh.
 - `A-E2E-28` `packages/frontend/tests/e2e/graphCollaborationSync.test.ts`: multiple browser sessions auto-detect remote graph updates, reflect them without refresh, and preserve unrelated subset edits (for example rename + node drag).
 - `A-E2E-29` `packages/frontend/tests/e2e/graphCameras.test.ts`: graph cameras can be created, switched, and removed, restore per-camera viewport/floating-window layouts, and keep the current camera selection scoped to each browser window.
+- `A-E2E-30` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: idle canvas effect frames stay flat after the canvas settles, so the Pixi ticker does not keep running while the UI is idle.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
 - `A-FE-03` `packages/frontend/tests/nodeFactory.test.ts`: inline node defaults to `javascript_vm`.
@@ -290,7 +291,7 @@ Last reviewed: March 14, 2026.
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
 | Canvas per-projection background rendering (solid or base-color-driven gradient) | `A-FE-19`, `A-BE-42`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
 | Pixi.js canvas renderer for nodes/connectors | `M-CANVAS-11` | Manual |
-| Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `M-CANVAS-19` | Automated + Manual |
+| Pixi canvas redraw loop is demand-driven and idles when no interactions/effects are active | `A-FE-11`, `A-E2E-30`, `M-CANVAS-19` | Automated + Manual |
 | Mouse wheel zoom | `A-E2E-10`, `M-CANVAS-01` | Automated + Manual |
 | Pinch zoom | `A-E2E-10`, `M-CANVAS-25` | Automated + Manual |
 | Two-finger trackpad scroll pans viewport | `A-E2E-10`, `A-FE-26`, `M-CANVAS-25` | Automated + Manual |

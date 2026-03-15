@@ -120,6 +120,7 @@ interface UseCanvasRuntimeParams {
   nodeGraphicsTextureBindingsRef: MutableRefObject<Map<string, string>>;
   nodePendingGraphicsTextureBindingsRef: MutableRefObject<Map<string, string>>;
   lastSmokeEmitAtRef: MutableRefObject<Map<string, number>>;
+  onEffectFrame: () => void;
   requestCanvasAnimationLoop: () => void;
   requestNodeGraphicsTextureRefresh: () => void;
   updateNode: (nodeId: string, updates: Record<string, unknown>) => void;
@@ -222,6 +223,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     nodeGraphicsTextureBindingsRef,
     nodePendingGraphicsTextureBindingsRef,
     lastSmokeEmitAtRef,
+    onEffectFrame,
     requestCanvasAnimationLoop,
     requestNodeGraphicsTextureRefresh,
     updateNode,
@@ -792,6 +794,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       return;
     }
 
+    onEffectFrame();
     const effectResult = runCanvasEffectsPass({
       effectsLayer,
       now: performance.now(),
@@ -828,6 +831,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     nodePositionsRef,
     nodeShocksRef,
     nodeVisualsRef,
+    onEffectFrame,
     pauseCanvasAnimationLoopIfIdle,
     smokePuffsRef,
   ]);

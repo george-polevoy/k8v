@@ -120,6 +120,10 @@ import {
   ANNOTATION_CONNECTION_PORT,
   resolveConnectionAnchorPoint,
 } from '../utils/annotationConnections';
+import {
+  hasErroredNodeExecutionState,
+  shouldKeepCanvasAnimationLoopRunning,
+} from '../utils/canvasAnimation';
 
 declare global {
   interface Window {
@@ -177,6 +181,7 @@ interface CanvasDebugCounters {
   viewportDeferredRenderCount?: number;
   projectedTextureRefreshDeferredCount?: number;
   projectedTextureRefreshImmediateCount?: number;
+  effectFrameCount?: number;
   viewportX?: number;
   viewportY?: number;
   viewportScale?: number;
@@ -316,6 +321,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const projectionTransitionRef = useRef<ProjectionTransitionState | null>(null);
   const renderGraphRef = useRef<() => void>(() => {});
   const viewportRefreshRafRef = useRef<number | null>(null);
+  const canvasRenderRafRef = useRef<number | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const nodeDragStateRef = useRef<NodeDragState | null>(null);
   const nodeResizeStateRef = useRef<NodeResizeState | null>(null);
@@ -365,12 +371,68 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   drawingColorRef.current = drawingColor;
   drawingThicknessRef.current = drawingThickness;
 
-  const requestCanvasAnimationLoop = useCallback(() => {
+  const requestCanvasRender = useCallback(() => {
     const app = appRef.current;
-    if (!app || app.ticker.started) {
+    if (!app || app.ticker.started || canvasRenderRafRef.current !== null) {
       return;
     }
+
+    canvasRenderRafRef.current = window.requestAnimationFrame(() => {
+      canvasRenderRafRef.current = null;
+
+      const nextApp = appRef.current;
+      if (!nextApp || nextApp.ticker.started) {
+        return;
+      }
+
+      nextApp.render();
+    });
+  }, []);
+
+  const requestCanvasAnimationLoop = useCallback(() => {
+    const app = appRef.current;
+    if (!app) {
+      return;
+    }
+
+    const shouldKeepRunning = shouldKeepCanvasAnimationLoopRunning({
+      hasActiveInteraction: Boolean(
+        connectionDragStateRef.current ||
+        nodeDragStateRef.current ||
+        nodeResizeStateRef.current ||
+        selectionDragStateRef.current ||
+        selectionMarqueeStateRef.current ||
+        selectionResizeStateRef.current ||
+        numericSliderDragStateRef.current ||
+        drawingDragStateRef.current ||
+        panStateRef.current ||
+        activeDrawingPathRef.current
+      ),
+      hasErroredNodes: hasErroredNodeExecutionState(nodeExecutionStatesRef.current),
+      lightningPulseCount: lightningPulsesRef.current.length,
+      nodeShockCount: nodeShocksRef.current.length,
+      smokePuffCount: smokePuffsRef.current.length,
+    });
+
+    if (!shouldKeepRunning) {
+      requestCanvasRender();
+      return;
+    }
+
+    if (canvasRenderRafRef.current !== null) {
+      window.cancelAnimationFrame(canvasRenderRafRef.current);
+      canvasRenderRafRef.current = null;
+    }
+
+    if (app.ticker.started) {
+      return;
+    }
+
     app.start();
+  }, [requestCanvasRender]);
+
+  const trackCanvasEffectFrame = useCallback(() => {
+    incrementCanvasDebugCounter('effectFrameCount');
   }, []);
 
   const persistViewportCameraState = useCallback((cameraState: {
@@ -789,6 +851,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     nodeGraphicsTextureBindingsRef,
     nodePendingGraphicsTextureBindingsRef,
     lastSmokeEmitAtRef,
+    onEffectFrame: trackCanvasEffectFrame,
     requestCanvasAnimationLoop,
     requestNodeGraphicsTextureRefresh: requestProjectedGraphicsTextureRefresh,
     updateNode,
@@ -2288,6 +2351,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     effectsLayerRef,
     backgroundSpriteRef,
     viewportRefreshRafRef,
+    canvasRenderRafRef,
     selectedNodeGraphicsDebugRef,
     setCanvasReady,
     setSelectedNodeGraphicsDebug,

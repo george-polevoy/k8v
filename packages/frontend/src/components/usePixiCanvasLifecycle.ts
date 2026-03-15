@@ -22,6 +22,7 @@ interface UsePixiCanvasLifecycleParams {
   effectsLayerRef: MutableRefObject<Graphics | null>;
   backgroundSpriteRef: MutableRefObject<Sprite | null>;
   viewportRefreshRafRef: MutableRefObject<number | null>;
+  canvasRenderRafRef: MutableRefObject<number | null>;
   selectedNodeGraphicsDebugRef: MutableRefObject<NodeGraphicsComputationDebug | null>;
   setCanvasReady: Dispatch<SetStateAction<boolean>>;
   setSelectedNodeGraphicsDebug: (debug: NodeGraphicsComputationDebug | null) => void;
@@ -56,6 +57,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     effectsLayerRef,
     backgroundSpriteRef,
     viewportRefreshRafRef,
+    canvasRenderRafRef,
     selectedNodeGraphicsDebugRef,
     setCanvasReady,
     setSelectedNodeGraphicsDebug,
@@ -86,6 +88,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
 
     const app = new Application({
       antialias: true,
+      autoStart: false,
       autoDensity: true,
       backgroundAlpha: 0,
       resolution: PIXEL_RATIO,
@@ -164,6 +167,11 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
         viewportRefreshRafRef.current = null;
       }
 
+      if (canvasRenderRafRef.current !== null) {
+        window.cancelAnimationFrame(canvasRenderRafRef.current);
+        canvasRenderRafRef.current = null;
+      }
+
       window.removeEventListener('pointerup', finishInteraction);
       canvasElement.removeEventListener('contextmenu', handleContextMenu);
       canvasElement.removeEventListener('wheel', handleWheel);
@@ -196,6 +204,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     applyCanvasCursor,
     appliedCanvasBackgroundSignatureRef,
     backgroundSpriteRef,
+    canvasRenderRafRef,
     canvasHostRef,
     clearAllNodeGraphicsTextures,
     drawEffects,

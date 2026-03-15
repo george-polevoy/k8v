@@ -23,6 +23,7 @@ interface CanvasDebugCounters {
   fullRenderCount: number;
   viewportSyncCount: number;
   viewportDeferredRenderCount: number;
+  effectFrameCount: number;
 }
 
 async function installMinimapViewportCaptureHook(page: import('playwright').Page): Promise<void> {
@@ -77,11 +78,13 @@ async function installCanvasDebugCounters(page: import('playwright').Page): Prom
         fullRenderCount?: number;
         viewportSyncCount?: number;
         viewportDeferredRenderCount?: number;
+        effectFrameCount?: number;
       };
     }).__k8vCanvasDebug = {
       fullRenderCount: 0,
       viewportSyncCount: 0,
       viewportDeferredRenderCount: 0,
+      effectFrameCount: 0,
     };
   });
 }
@@ -93,12 +96,14 @@ async function readCanvasDebugCounters(page: import('playwright').Page): Promise
         fullRenderCount?: number;
         viewportSyncCount?: number;
         viewportDeferredRenderCount?: number;
+        effectFrameCount?: number;
       };
     }).__k8vCanvasDebug;
     return {
       fullRenderCount: counters?.fullRenderCount ?? 0,
       viewportSyncCount: counters?.viewportSyncCount ?? 0,
       viewportDeferredRenderCount: counters?.viewportDeferredRenderCount ?? 0,
+      effectFrameCount: counters?.effectFrameCount ?? 0,
     };
   });
 }
@@ -116,7 +121,8 @@ async function waitForCanvasDebugCountersToSettle(
     if (
       nextCounters.fullRenderCount === previousCounters.fullRenderCount &&
       nextCounters.viewportSyncCount === previousCounters.viewportSyncCount &&
-      nextCounters.viewportDeferredRenderCount === previousCounters.viewportDeferredRenderCount
+      nextCounters.viewportDeferredRenderCount === previousCounters.viewportDeferredRenderCount &&
+      nextCounters.effectFrameCount === previousCounters.effectFrameCount
     ) {
       return nextCounters;
     }
@@ -492,6 +498,40 @@ test(
       assert.ok(
         deferredRenderCounters.fullRenderCount > duringInteractionCounters.fullRenderCount,
         `Expected a full canvas rebuild after the interaction burst settled (${duringInteractionCounters.fullRenderCount} -> ${deferredRenderCounters.fullRenderCount})`
+      );
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'canvas effect ticker stays asleep while the canvas is idle',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId } = await createNumericInputGraph();
+    const browser = await launchBrowser();
+
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1400, height: 900 },
+        deviceScaleFactor: 1,
+      });
+      const page = await context.newPage();
+
+      await installCanvasDebugCounters(page);
+      await openCanvasForGraph(page, graphId);
+
+      const settledCounters = await waitForCanvasDebugCountersToSettle(page);
+      await page.waitForTimeout(450);
+      const idleCounters = await readCanvasDebugCounters(page);
+
+      assert.equal(
+        idleCounters.effectFrameCount,
+        settledCounters.effectFrameCount,
+        `Expected idle canvas effect frames to stay flat (${settledCounters.effectFrameCount} -> ${idleCounters.effectFrameCount})`
       );
 
       await context.close();
