@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createSeededGraph,
   getNodeCardSize,
   getNodePosition,
   waitForNodeCardSize,
@@ -79,33 +80,24 @@ async function createMultiNodeGraph(options?: {
     version: `${Date.now()}`,
   });
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: `autotests_e2e_multi_select_${Date.now()}`,
-      nodes: [
-        makeNode(nodeIds.left, 'Left Numeric', { x: 120, y: 140 }),
-        makeNode(nodeIds.middle, 'Middle Numeric', { x: 430, y: 160 }),
-        makeNode(nodeIds.right, 'Right Numeric', { x: 820, y: 260 }),
-      ],
-      connections: options?.withInternalConnection
-        ? [{
-            id: crypto.randomUUID(),
-            sourceNodeId: nodeIds.left,
-            sourcePort: 'value',
-            targetNodeId: nodeIds.middle,
-            targetPort: 'value',
-          }]
-        : [],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_multi_select_${Date.now()}`,
+    nodes: [
+      makeNode(nodeIds.left, 'Left Numeric', { x: 120, y: 140 }),
+      makeNode(nodeIds.middle, 'Middle Numeric', { x: 430, y: 160 }),
+      makeNode(nodeIds.right, 'Right Numeric', { x: 820, y: 260 }),
+    ],
+    connections: options?.withInternalConnection
+      ? [{
+          id: crypto.randomUUID(),
+          sourceNodeId: nodeIds.left,
+          sourcePort: 'value',
+          targetNodeId: nodeIds.middle,
+          targetPort: 'value',
+        }]
+      : [],
+    context: 'Create multi-node graph',
   });
-  const graph = await response.json() as { id?: string };
-  assert.ok(response.ok, `Create graph failed (${response.status})`);
-  assert.ok(graph.id, 'Create graph response should include graph id');
   return {
     graphId: graph.id,
     nodeIds,

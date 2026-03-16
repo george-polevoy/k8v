@@ -9,7 +9,11 @@ import { createApp } from '../src/app.ts';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { GraphEngine } from '../src/core/GraphEngine.ts';
-import { buildGraphCommandsFromSnapshotChange, type GraphCommand } from '../../domain/dist/index.js';
+import {
+  buildGraphCommandsFromGraphUpdate,
+  buildGraphCommandsFromSnapshotChange,
+  type GraphCommand,
+} from '../../domain/dist/index.js';
 
 interface AppTestContext {
   baseUrl: string;
@@ -149,25 +153,65 @@ async function setupTestServer(): Promise<AppTestContext> {
   };
 }
 
-async function createGraph(baseUrl: string, payload?: Record<string, unknown>) {
+function toCreateGraphPayload(payload?: Record<string, unknown>) {
   const requestedName = typeof payload?.name === 'string'
     ? payload.name
     : 'runtime_graph';
-  const nextPayload = {
+  return {
     name: toAutotestGraphName(requestedName),
-    nodes: [createValidInlineNode()],
-    connections: [],
-    ...payload,
   };
+}
 
-  if (typeof nextPayload.name === 'string') {
-    nextPayload.name = toAutotestGraphName(nextPayload.name);
+function toGraphSeedPayload(payload?: Record<string, unknown>) {
+  if (!payload) {
+    return {};
   }
 
-  return fetch(`${baseUrl}/api/graphs`, {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([key]) => key !== 'name')
+  );
+}
+
+async function createGraph(baseUrl: string, payload?: Record<string, unknown>) {
+  const createResponse = await fetch(`${baseUrl}/api/graphs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(nextPayload),
+    body: JSON.stringify(toCreateGraphPayload(payload)),
+  });
+
+  if (createResponse.status !== 200) {
+    return createResponse;
+  }
+
+  const seedPayload = toGraphSeedPayload(payload);
+  if (Object.keys(seedPayload).length === 0) {
+    return createResponse;
+  }
+
+  const createdGraph = await createResponse.json();
+  const currentGraph = await fetchGraph(baseUrl, createdGraph.id);
+  const commands = buildGraphCommandsFromGraphUpdate(seedPayload);
+  if (commands.length === 0) {
+    return new Response(JSON.stringify(currentGraph), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  const seedResponse = await submitGraphCommands(
+    baseUrl,
+    createdGraph.id,
+    currentGraph.revision ?? 0,
+    commands
+  );
+  if (seedResponse.status !== 200) {
+    return seedResponse;
+  }
+
+  const seededGraph = await fetchGraph(baseUrl, createdGraph.id);
+  return new Response(JSON.stringify(seededGraph), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
   });
 }
 
@@ -235,6 +279,27 @@ async function fetchRuntimeState(baseUrl: string, graphId: string) {
   return response;
 }
 
+async function waitForRuntimeIdle(
+  baseUrl: string,
+  graphId: string,
+  attempts = 60,
+  delayMs = 20
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const statusResponse = await fetchRuntimeState(baseUrl, graphId);
+    assert.equal(statusResponse.status, 200);
+    const status = await statusResponse.json();
+    const nodeStates = status.nodeStates ?? {};
+    const hasActiveWork =
+      status.queueLength > 0 ||
+      Object.values(nodeStates).some((state: any) => state?.isPending || state?.isComputing);
+    if (!hasActiveWork) {
+      return;
+    }
+    await delay(delayMs);
+  }
+}
+
 function createSampleDrawing(id: string) {
   return {
     id,
@@ -280,14 +345,27 @@ function resolveBrightness(color: string): number {
   return (0.299 * r) + (0.587 * g) + (0.114 * b);
 }
 
-test('POST /api/graphs accepts runtime in node config', async () => {
+test('POST /api/graphs creates an empty graph and accepts only name payload', async () => {
   const ctx = await setupTestServer();
 
   try {
     const response = await createGraph(ctx.baseUrl);
     assert.equal(response.status, 200);
     const graph = await response.json();
-    assert.equal(graph.nodes[0].config.runtime, 'javascript_vm');
+    assert.equal(graph.nodes.length, 0);
+    assert.equal(graph.connections.length, 0);
+    assert.equal(typeof graph.name, 'string');
+    assert.ok(graph.name.startsWith(AUTOTEST_GRAPH_PREFIX));
+
+    const invalidResponse = await fetch(`${ctx.baseUrl}/api/graphs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: toAutotestGraphName('invalid-create-payload'),
+        nodes: [createValidInlineNode()],
+      }),
+    });
+    assert.equal(invalidResponse.status, 400);
   } finally {
     await ctx.close();
   }
@@ -1518,6 +1596,7 @@ test('POST /api/graphs/:id/commands supports noRecompute query flag for topology
     });
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id);
 
     const updateResponse = await updateGraphWithCommands(
       ctx.baseUrl,
@@ -2195,7 +2274,7 @@ test('POST /api/graphs/:id/commands accepts updates with payload larger than 100
 
     assert.equal(updateResponse.status, 200);
     const updatedGraph = (await updateResponse.json()).graph;
-    assert.equal(updatedGraph.nodes.length, 2);
+    assert.equal(updatedGraph.nodes.length, 1);
     assert.equal(updatedGraph.drawings.length, 2);
     assert.equal(updatedGraph.drawings[1].paths[0].points.length, 12_000);
   } finally {

@@ -52,7 +52,7 @@ function FloatingWindow({
 }: FloatingWindowProps) {
   const graph = useGraphStore((state) => state.graph);
   const selectedCameraId = useGraphStore((state) => state.selectedCameraId);
-  const updateGraph = useGraphStore((state) => state.updateGraph);
+  const submitGraphCommands = useGraphStore((state) => state.submitGraphCommands);
   const [position, setPosition] = useState<FloatingWindowPosition>(() => (
     clampFloatingWindowPositionToViewport(
       initialPosition,
@@ -100,7 +100,8 @@ function FloatingWindow({
       return;
     }
 
-    void updateGraph({
+    void submitGraphCommands([{
+      kind: 'replace_cameras',
       cameras: updateGraphCamera(graph.cameras, currentCamera.id, (camera) => ({
         ...camera,
         floatingWindows: {
@@ -108,8 +109,8 @@ function FloatingWindow({
           [id]: nextLayout,
         },
       })),
-    });
-  }, [graph, id, selectedCameraId, updateGraph]);
+    }]);
+  }, [graph, id, selectedCameraId, submitGraphCommands]);
 
   const applyCameraWindowPosition = useCallback(() => {
     if (isDragging) {

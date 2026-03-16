@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createSeededGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
@@ -47,24 +48,14 @@ async function createTwoCardGraph(): Promise<CreatedGraph> {
     version: `${Date.now()}`,
   });
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: `autotests_e2e_node_panel_multi_${Date.now()}`,
-      nodes: [
-        makeNode(nodeIds.left, 'Card 1', { x: 120, y: 140 }),
-        makeNode(nodeIds.right, 'Card 2', { x: 430, y: 160 }),
-      ],
-      connections: [],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_node_panel_multi_${Date.now()}`,
+    nodes: [
+      makeNode(nodeIds.left, 'Card 1', { x: 120, y: 140 }),
+      makeNode(nodeIds.right, 'Card 2', { x: 430, y: 160 }),
+    ],
+    context: 'Create multi-selection card graph',
   });
-  const graph = await response.json() as { id?: string };
-  assert.ok(response.ok, `Create graph failed (${response.status})`);
-  assert.ok(graph.id, 'Create graph response should include graph id');
   return {
     graphId: graph.id,
     nodeIds,

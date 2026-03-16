@@ -22,7 +22,7 @@ export function useGraphManagementState(
   const createGraph = useGraphStore((state) => state.createGraph);
   const deleteGraph = useGraphStore((state) => state.deleteGraph);
   const refreshGraphSummaries = useGraphStore((state) => state.refreshGraphSummaries);
-  const updateGraph = useGraphStore((state) => state.updateGraph);
+  const submitGraphCommands = useGraphStore((state) => state.submitGraphCommands);
 
   const [graphNameValue, setGraphNameValue] = useState('');
   const [newGraphName, setNewGraphName] = useState('Untitled Graph');
@@ -84,10 +84,13 @@ export function useGraphManagementState(
     }
 
     await runGraphAction(async () => {
-      await updateGraph({ name: trimmed });
+      await submitGraphCommands([{
+        kind: 'set_graph_name',
+        name: trimmed,
+      }]);
       await refreshGraphSummaries();
     });
-  }, [graph, graphNameValue, refreshGraphSummaries, runGraphAction, updateGraph]);
+  }, [graph, graphNameValue, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
 
   const handleSelectGraph = useCallback(async (graphId: string) => {
     if (!graphId || (graph && graph.id === graphId)) {
@@ -167,20 +170,26 @@ export function useGraphManagementState(
     }
 
     await runGraphAction(async () => {
-      await updateGraph({
-        nodes: resolution.nextNodes,
-        pythonEnvs: resolution.normalizedEnvs,
-      });
+      await submitGraphCommands([
+        {
+          kind: 'replace_nodes',
+          nodes: resolution.nextNodes,
+        },
+        {
+          kind: 'replace_python_envs',
+          pythonEnvs: resolution.normalizedEnvs,
+        },
+      ]);
       await refreshGraphSummaries();
       setPythonEnvValidationError(null);
     });
-  }, [graph, pythonEnvDrafts, refreshGraphSummaries, runGraphAction, updateGraph]);
+  }, [graph, pythonEnvDrafts, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
 
   return {
     graph,
     graphSummaries,
     refreshGraphSummaries,
-    updateGraph,
+    submitGraphCommands,
     graphNameValue,
     setGraphNameValue,
     newGraphName,

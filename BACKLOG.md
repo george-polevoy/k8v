@@ -79,15 +79,15 @@ Status: TODO
 - Add backend API test for missing-node-reference connection validation.
 
 ### B-008 MCP Agent Editing + Screenshot API
-Status: IN PROGRESS
+Status: DONE
 
-- Expose graph-editing operations via MCP for agent-driven node and connection changes. (DONE)
-- Expose graph-level Python env add/edit/delete operations via MCP. (DONE)
-- Expose projection add/select operations via MCP, including clone-from-active creation behavior. (DONE)
+- Narrow MCP graph creation to empty-graph `graph_create` only. (DONE)
+- Collapse all graph-scoped MCP mutations into `bulk_edit` over ordered backend/domain `GraphCommand[]`. (DONE)
+- Remove standalone MCP mutators for nodes, connections, drawings, projections, graph settings, Python envs, and compute. (DONE)
+- Keep only read/runtime artifact helpers alongside `graph_create` + `bulk_edit` (`graph_list`, `graph_get`, `graph_query`, `connections_list`, `graphics_get`, `graph_screenshot_region`). (DONE)
 - Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
 - Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
-- Add MCP safe connection-management tools for filtered connection inspection and atomic per-input source replacement (`connections_list`, `connection_set`/`connection_replace`). (DONE)
-- Add automated MCP integration tests for graph edit operations and screenshot size/region assertions.
+- Add automated MCP contract tests for `graph_create`, `bulk_edit`, shared `graph_query` validation, filtered connection inspection, and screenshot size/region assertions. (DONE)
 
 ### B-009 Python Backend Runtime
 Status: DONE

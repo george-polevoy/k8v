@@ -23,7 +23,7 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Error-State Smoke Cue**: Error nodes emit subtle black smoke on the canvas
 - **Auto Recompute Toggle**: Opt-in downstream recompute when upstream nodes change
 - **Persistent Drawings**: Create named drawing objects, draw paths into selected drawing, drag by handle, rename, and delete
-- **MCP Agent API**: Backend MCP server supports graph editing actions and internal rectangle-based graph screenshots
+- **MCP Agent API**: Backend MCP server exposes empty-graph creation, ordered `GraphCommand[]` mutations via `bulk_edit`, and internal rectangular screenshots
 - **Python Runtime**: Inline nodes can execute with backend `python_process` runtime
 - **Graph Python Envs**: Graphs can define named Python envs (`name`, `pythonPath`, `cwd`) and Python nodes can bind to them via `pythonEnv`
 - **Python PNG Outputs**: Python nodes can render PNG graphics from data URLs, raw base64, or raw bytes via output helpers
@@ -86,11 +86,11 @@ npm run dev:mcp
 ```
 
 The MCP server exposes:
-- graph CRUD-style editing operations (including inline/numeric/annotation nodes, annotation-aware connections, graph Python env add/edit/delete, drawing objects, compute), including connection inspection (`connections_list`) and atomic per-input source replacement (`connection_set` / `connection_replace`)
-- lightweight graph navigation queries via `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`) with field-level projection for compact responses, including annotation nodes and optional connection anchor fields
-- bulk graph editing via `bulk_edit` (ordered operation arrays applied sequentially)
+- `graph_create` for empty graph creation (name optional, no seeded nodes/connections)
+- `bulk_edit`, which sends ordered backend `GraphCommand[]` batches and is the sole graph mutation surface (compute now flows through command variants instead of a dedicated `graph_compute`)
+- read/query helpers: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`
 - internal screenshot tool `graph_screenshot_region`:
-  - renders the frontend canvas in `canvasOnly` mode on an internal page
+  - renders the preview frontend in `canvasOnly` mode
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)
   - hides floating toolbar/sidebar windows while preserving the canvas rendering stack
 

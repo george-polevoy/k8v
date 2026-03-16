@@ -26,14 +26,20 @@ function CustomNode({ data }: CustomNodeProps) {
       conn => !(conn.targetNodeId === node.id && conn.targetPort === inputName)
     );
 
-    useGraphStore.getState().updateGraph({
-      nodes: graph.nodes.map(n =>
-        n.id === node.id
-          ? { ...n, metadata: { ...n.metadata, inputs: updatedInputs }, version: Date.now().toString() }
-          : n
-      ),
-      connections: updatedConnections,
-    });
+    void useGraphStore.getState().submitGraphCommands([
+      {
+        kind: 'replace_nodes',
+        nodes: graph.nodes.map(n =>
+          n.id === node.id
+            ? { ...n, metadata: { ...n.metadata, inputs: updatedInputs }, version: Date.now().toString() }
+            : n
+        ),
+      },
+      {
+        kind: 'replace_connections',
+        connections: updatedConnections,
+      },
+    ]);
   };
 
   const handleMoveInput = (index: number, direction: 'up' | 'down') => {

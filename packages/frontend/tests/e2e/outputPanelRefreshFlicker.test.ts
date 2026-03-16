@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
+import { createSeededGraph } from './support/api.ts';
 import { launchBrowser } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL, E2E_FRONTEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS, E2E_FRONTEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 async function openCanvasForGraphWithTimeout(
@@ -29,68 +30,53 @@ async function createTwoNumericNodeGraph(): Promise<{ graphId: string; selectedN
   const selectedNodeId = randomUUID();
   const otherNodeId = randomUUID();
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: `autotests_output_panel_refresh_flicker_${Date.now()}`,
-      nodes: [
-        {
-          id: selectedNodeId,
-          type: 'numeric_input',
-          position: { x: 0, y: 0 },
-          metadata: {
-            name: 'Selected Numeric Input',
-            inputs: [],
-            outputs: [{ name: 'value', schema: { type: 'number' } }],
-          },
-          config: {
-            type: 'numeric_input',
-            config: {
-              value: 10,
-              min: 0,
-              max: 100,
-              step: 1,
-            },
-          },
-          version: Date.now().toString(),
+  const graph = await createSeededGraph({
+    name: `output_panel_refresh_flicker_${Date.now()}`,
+    nodes: [
+      {
+        id: selectedNodeId,
+        type: 'numeric_input',
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Selected Numeric Input',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
-        {
-          id: otherNodeId,
+        config: {
           type: 'numeric_input',
-          position: { x: 300, y: 0 },
-          metadata: {
-            name: 'Other Numeric Input',
-            inputs: [],
-            outputs: [{ name: 'value', schema: { type: 'number' } }],
-          },
           config: {
-            type: 'numeric_input',
-            config: {
-              value: 20,
-              min: 0,
-              max: 100,
-              step: 1,
-            },
+            value: 10,
+            min: 0,
+            max: 100,
+            step: 1,
           },
-          version: Date.now().toString(),
         },
-      ],
-      connections: [],
-      drawings: [],
-    }),
+        version: Date.now().toString(),
+      },
+      {
+        id: otherNodeId,
+        type: 'numeric_input',
+        position: { x: 300, y: 0 },
+        metadata: {
+          name: 'Other Numeric Input',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input',
+          config: {
+            value: 20,
+            min: 0,
+            max: 100,
+            step: 1,
+          },
+        },
+        version: Date.now().toString(),
+      },
+    ],
+    context: 'Create output refresh graph',
   });
-
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Create graph failed (${response.status}): ${text}`);
-  }
-
-  const parsed = JSON.parse(text) as { id?: string };
-  assert.ok(parsed.id, 'Create graph response should include graph id');
-  return { graphId: parsed.id, selectedNodeId, otherNodeId };
+  return { graphId: graph.id, selectedNodeId, otherNodeId };
 }
 
 test.before(async () => {

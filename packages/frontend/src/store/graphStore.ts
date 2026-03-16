@@ -5,6 +5,7 @@ import {
   GraphDrawing,
   DrawingPath,
   GraphNode,
+  GraphCommand,
   Connection,
   Position,
 } from '../types';
@@ -70,6 +71,7 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
   refreshGraphSummaries: () => Promise<void>;
   createGraph: (name: string) => Promise<void>;
   deleteGraph: (id: string) => Promise<void>;
+  submitGraphCommands: (commands: GraphCommand[]) => Promise<void>;
   updateGraph: (graph: Partial<Graph>) => Promise<void>;
   initializeGraph: () => Promise<void>;
   addNode: (node: GraphNode) => void;
@@ -513,6 +515,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
     },
 
+    submitGraphCommands: graphPersistence.submitGraphCommands,
     updateGraph: graphPersistence.updateGraph,
 
     selectCamera: (cameraId) => {

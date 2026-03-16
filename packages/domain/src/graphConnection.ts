@@ -1,24 +1,89 @@
-import { randomUUID } from 'node:crypto';
-import {
-  type ConnectionAnchor,
-  type Connection,
-  type Graph,
-  type GraphNode,
-} from './graphModel.js';
+import type {
+  Connection,
+  ConnectionAnchor,
+  Graph,
+  GraphNode,
+} from './index.js';
 
 export const ANNOTATION_CONNECTION_PORT = '__annotation__';
-
-export function getNode(graph: Graph, nodeId: string): GraphNode {
-  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node) {
-    throw new Error(`Node ${nodeId} not found in graph ${graph.id}`);
-  }
-  return node;
-}
 
 export interface ConnectionListFilters {
   nodeId?: string;
   targetPort?: string;
+}
+
+export interface ConnectionSetInput {
+  sourceNodeId: string;
+  sourcePort: string;
+  sourceAnchor?: ConnectionAnchor;
+  targetNodeId: string;
+  targetPort: string;
+  targetAnchor?: ConnectionAnchor;
+  connectionId?: string;
+}
+
+export interface ConnectionSetResult {
+  changed: boolean;
+  connection: Connection;
+  connections: Connection[];
+  replacedConnectionIds: string[];
+}
+
+function createGeneratedId(prefix: string): string {
+  const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  return cryptoLike?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function serializeConnectionAnchor(anchor: ConnectionAnchor | undefined): string {
+  if (!anchor) {
+    return '-';
+  }
+  return `${anchor.side}:${anchor.offset}`;
+}
+
+export function buildGraphNodeMap(nodes: GraphNode[]): Map<string, GraphNode> {
+  return new Map(nodes.map((node) => [node.id, node]));
+}
+
+export function isAnnotationNode(node: Pick<GraphNode, 'type'> | null | undefined): boolean {
+  return node?.type === 'annotation';
+}
+
+export function isAnnotationLinkedConnection(
+  connection: Connection,
+  nodeById: ReadonlyMap<string, GraphNode>
+): boolean {
+  return (
+    isAnnotationNode(nodeById.get(connection.sourceNodeId)) ||
+    isAnnotationNode(nodeById.get(connection.targetNodeId))
+  );
+}
+
+export function filterComputationalConnections(
+  connections: Connection[],
+  nodeById: ReadonlyMap<string, GraphNode>
+): Connection[] {
+  return connections.filter((connection) => !isAnnotationLinkedConnection(connection, nodeById));
+}
+
+export function areConnectionAnchorsEqual(
+  left: ConnectionAnchor | undefined,
+  right: ConnectionAnchor | undefined
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.side === right.side && Math.abs(left.offset - right.offset) < 1e-6;
+}
+
+export function getConnectionSignature(connection: Connection): string {
+  return (
+    `${connection.sourceNodeId}:${connection.sourcePort}@${serializeConnectionAnchor(connection.sourceAnchor)}` +
+    `->${connection.targetNodeId}:${connection.targetPort}@${serializeConnectionAnchor(connection.targetAnchor)}`
+  );
 }
 
 export function filterConnections(
@@ -39,38 +104,12 @@ export function filterConnections(
   });
 }
 
-interface ConnectionSetInput {
-  sourceNodeId: string;
-  sourcePort: string;
-  sourceAnchor?: ConnectionAnchor;
-  targetNodeId: string;
-  targetPort: string;
-  targetAnchor?: ConnectionAnchor;
-  connectionId?: string;
-}
-
-interface ConnectionSetResult {
-  changed: boolean;
-  connection: Connection;
-  connections: Connection[];
-  replacedConnectionIds: string[];
-}
-
-export function areConnectionAnchorsEqual(
-  left: ConnectionAnchor | undefined,
-  right: ConnectionAnchor | undefined
-): boolean {
-  if (left === right) {
-    return true;
+export function getNode(graph: Pick<Graph, 'id' | 'nodes'>, nodeId: string): GraphNode {
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) {
+    throw new Error(`Node ${nodeId} not found in graph ${graph.id}`);
   }
-  if (!left || !right) {
-    return false;
-  }
-  return left.side === right.side && Math.abs(left.offset - right.offset) < 1e-6;
-}
-
-function isAnnotationNode(node: GraphNode): boolean {
-  return node.type === 'annotation';
+  return node;
 }
 
 function isValidSourcePort(node: GraphNode, port: string): boolean {
@@ -110,8 +149,8 @@ export function matchesConnectionDefinition(
 
 function matchesTargetSlot(
   connection: Connection,
-  targetNode: GraphNode,
-  input: ConnectionSetInput
+  targetNode: Pick<GraphNode, 'type'> | undefined,
+  input: Pick<ConnectionSetInput, 'targetNodeId' | 'targetPort' | 'targetAnchor'>
 ): boolean {
   if (
     connection.targetNodeId !== input.targetNodeId ||
@@ -127,8 +166,30 @@ function matchesTargetSlot(
   return areConnectionAnchorsEqual(connection.targetAnchor, input.targetAnchor);
 }
 
+export function dedupeConnectionsByTargetSlot(nodes: GraphNode[], connections: Connection[]): Connection[] {
+  const nodeById = buildGraphNodeMap(nodes);
+  const seenSlots = new Set<string>();
+  const deduped: Connection[] = [];
+
+  for (let index = connections.length - 1; index >= 0; index -= 1) {
+    const connection = connections[index];
+    const targetNode = nodeById.get(connection.targetNodeId);
+    const slotKey = !isAnnotationNode(targetNode)
+      ? `${connection.targetNodeId}:${connection.targetPort}`
+      : `${connection.targetNodeId}:${connection.targetPort}@${serializeConnectionAnchor(connection.targetAnchor)}`;
+    if (seenSlots.has(slotKey)) {
+      continue;
+    }
+    seenSlots.add(slotKey);
+    deduped.push(connection);
+  }
+
+  deduped.reverse();
+  return deduped;
+}
+
 export function assertConnectionPortsExist(
-  graph: Graph,
+  graph: Pick<Graph, 'id' | 'nodes'>,
   sourceNodeId: string,
   sourcePort: string,
   targetNodeId: string,
@@ -152,7 +213,40 @@ export function assertConnectionPortsExist(
   }
 }
 
-export function applyConnectionSet(current: Graph, input: ConnectionSetInput): ConnectionSetResult {
+export function applyConnectionSetToConnections(
+  nodes: GraphNode[],
+  connections: Connection[],
+  nextConnection: Connection
+): { changed: boolean; connections: Connection[] } {
+  const nodeById = buildGraphNodeMap(nodes);
+  const targetNode = nodeById.get(nextConnection.targetNodeId);
+  const slotConnections = connections.filter((connection) =>
+    matchesTargetSlot(connection, targetNode, nextConnection)
+  );
+  const matchingConnection = slotConnections.find((connection) =>
+    matchesConnectionDefinition(connection, nextConnection)
+  );
+
+  if (slotConnections.length === 1 && matchingConnection) {
+    return {
+      changed: false,
+      connections,
+    };
+  }
+
+  return {
+    changed: true,
+    connections: [
+      ...connections.filter((connection) => !matchesTargetSlot(connection, targetNode, nextConnection)),
+      matchingConnection ?? nextConnection,
+    ],
+  };
+}
+
+export function applyConnectionSet(
+  current: Pick<Graph, 'id' | 'nodes' | 'connections'>,
+  input: ConnectionSetInput
+): ConnectionSetResult {
   const targetNode = getNode(current, input.targetNodeId);
   assertConnectionPortsExist(
     current,
@@ -164,14 +258,10 @@ export function applyConnectionSet(current: Graph, input: ConnectionSetInput): C
     input.targetAnchor
   );
 
-  const inbound = current.connections.filter(
-    (connection) => matchesTargetSlot(connection, targetNode, input)
+  const inbound = current.connections.filter((connection) =>
+    matchesTargetSlot(connection, targetNode, input)
   );
-
-  const matchingInbound = inbound.find(
-    (connection) => matchesConnectionDefinition(connection, input)
-  );
-
+  const matchingInbound = inbound.find((connection) => matchesConnectionDefinition(connection, input));
   const explicitConnectionId = input.connectionId?.trim() || undefined;
   if (explicitConnectionId) {
     const conflicting = current.connections.find(
@@ -184,7 +274,7 @@ export function applyConnectionSet(current: Graph, input: ConnectionSetInput): C
     }
   }
 
-  const nextConnectionId = explicitConnectionId ?? matchingInbound?.id ?? randomUUID();
+  const nextConnectionId = explicitConnectionId ?? matchingInbound?.id ?? createGeneratedId('connection');
   const existingSingleInbound = inbound.length === 1 ? inbound[0] : undefined;
   const unchanged = existingSingleInbound
     ? matchesConnectionDefinition(existingSingleInbound, input) &&
@@ -214,9 +304,7 @@ export function applyConnectionSet(current: Graph, input: ConnectionSetInput): C
     changed: true,
     connection: nextConnection,
     connections: [
-      ...current.connections.filter(
-        (connection) => !matchesTargetSlot(connection, targetNode, input)
-      ),
+      ...current.connections.filter((connection) => !matchesTargetSlot(connection, targetNode, input)),
       nextConnection,
     ],
     replacedConnectionIds: inbound

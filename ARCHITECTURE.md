@@ -56,15 +56,12 @@ k8v is a flow-based modeling software that enables visual programming through an
 - See [EXECUTION_ENGINE.md](./EXECUTION_ENGINE.md) for detailed design
 
 #### MCP Server (`packages/mcp-server/src/index.ts`)
-- Exposes graph-editing operations for agent clients over MCP stdio transport
-- Delegates graph mutations to existing backend REST API (`/api/graphs/*`)
-- Supports ordered `bulk_edit` graph mutations applied sequentially and persisted in a single graph update
-- Bulk-edit validation stays in `graphEdits.ts`, while domain handlers are split across graph/node/connection/drawing modules
-- Provides connection-inspection and deterministic per-input rewiring tools (`connections_list`, `connection_set`/`connection_replace`)
-- Uses connection-only graph update payloads for connection tools to avoid touching node position/card-size/projection fields
-- Provides internal Playwright-based screenshot rendering for agents
-- Uses the frontend app in a `canvasOnly` mode (floating tool windows hidden) so screenshots use the same Pixi canvas rendering path as users
-- Screenshot API accepts explicit world rectangle coordinates and fixed bitmap dimensions
+- Exposes the agent-facing MCP transport backed by the backend REST API (`/api/graphs/*`)
+- Allows agents to create empty graphs via `graph_create` and to mutate any existing graph through `bulk_edit`, which forwards ordered backend `GraphCommand[]`
+- Removes MCP-local mutation registries/operation schemas so agents share the backend/domain `GraphCommand` language
+- Keeps only read/query/runtime helpers: `graph_list`, `graph_get`, `graph_query`, `connections_list`, `graphics_get`, and `graph_screenshot_region`
+- Renders internal screenshots by driving the frontend in `canvasOnly` mode so MCP matches production rendering
+- Screenshot API captures explicit world rectangles into fixed bitmap dimensions, reusing the frontend canvas path
 
 ### Frontend
 

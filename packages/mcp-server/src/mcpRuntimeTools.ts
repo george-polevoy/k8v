@@ -26,34 +26,6 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
   } = deps;
 
   server.registerTool(
-    'graph_compute',
-    {
-      description: 'Compute full graph or a selected node.',
-      inputSchema: {
-        graphId: z.string(),
-        nodeId: z.string().optional(),
-        backendUrl: z.string().optional(),
-      },
-    },
-    async ({ graphId, nodeId, backendUrl }) => {
-      const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const result = await requestJson<{ graph: Graph; runtimeState: { results: Record<string, unknown> } }>(
-        resolvedBackendUrl,
-        `/api/graphs/${encodeURIComponent(graphId)}/commands`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            baseRevision: (await getGraph(resolvedBackendUrl, graphId)).revision ?? 0,
-            commands: [nodeId ? { kind: 'compute_node', nodeId } : { kind: 'compute_graph' }],
-          }),
-        }
-      );
-
-      return textResult(nodeId ? (result.runtimeState.results[nodeId] ?? null) : result.runtimeState);
-    }
-  );
-
-  server.registerTool(
     'graphics_get',
     {
       description:

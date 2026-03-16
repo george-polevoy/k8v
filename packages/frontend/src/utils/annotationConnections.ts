@@ -5,39 +5,26 @@ import type {
   GraphNode,
   Position,
 } from '../types';
-import { NodeType } from '../types';
+import {
+  ANNOTATION_CONNECTION_PORT,
+  areConnectionAnchorsEqual,
+  buildGraphNodeMap,
+  isAnnotationLinkedConnection,
+  isAnnotationNode,
+} from '../types';
 
-export const ANNOTATION_CONNECTION_PORT = '__annotation__';
-
-export function buildGraphNodeMap(nodes: GraphNode[]): Map<string, GraphNode> {
-  return new Map(nodes.map((node) => [node.id, node]));
-}
-
-export function isAnnotationNode(node: Pick<GraphNode, 'type'> | null | undefined): boolean {
-  return node?.type === NodeType.ANNOTATION;
-}
+export {
+  ANNOTATION_CONNECTION_PORT,
+  areConnectionAnchorsEqual,
+  buildGraphNodeMap,
+  isAnnotationNode,
+};
 
 export function isAnnotationConnection(
   connection: Connection,
   nodeById: ReadonlyMap<string, GraphNode>
 ): boolean {
-  return (
-    isAnnotationNode(nodeById.get(connection.sourceNodeId)) ||
-    isAnnotationNode(nodeById.get(connection.targetNodeId))
-  );
-}
-
-export function areConnectionAnchorsEqual(
-  left: ConnectionAnchor | undefined,
-  right: ConnectionAnchor | undefined
-): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (!left || !right) {
-    return false;
-  }
-  return left.side === right.side && Math.abs(left.offset - right.offset) < 1e-6;
+  return isAnnotationLinkedConnection(connection, nodeById);
 }
 
 export function clampConnectionAnchorOffset(value: number): number {

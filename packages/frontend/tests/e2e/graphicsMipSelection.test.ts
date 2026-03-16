@@ -2,16 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PNG } from 'pngjs';
+import { createSeededGraph, submitGraphCommands } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL, E2E_FRONTEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
 const NUMERIC_NODE_WIDTH = 220;
-
-interface CreatedGraph {
-  id: string;
-}
 
 interface GraphicsArtifact {
   id: string;
@@ -188,46 +185,34 @@ async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId:
   const pngDataUrl = createSolidPngDataUrl(1024, 1024);
   const code = `outputPng(${JSON.stringify(pngDataUrl)})\noutputs.output = 1`;
 
-  const createResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: toAutotestGraphName(`e2e_graphics_mip_${Date.now()}`),
-      nodes: [
-        {
-          id: nodeId,
-          type: 'inline_code',
-          position: { x: 120, y: 140 },
-          metadata: {
-            name: 'Graphics Node',
-            inputs: [],
-            outputs: [{ name: 'output', schema: { type: 'number' } }],
-          },
-          config: {
-            type: 'inline_code',
-            runtime: 'python_process',
-            code,
-          },
-          version: `${Date.now()}`,
+  const createdGraph = await createSeededGraph({
+    name: toAutotestGraphName(`e2e_graphics_mip_${Date.now()}`),
+    nodes: [
+      {
+        id: nodeId,
+        type: 'inline_code',
+        position: { x: 120, y: 140 },
+        metadata: {
+          name: 'Graphics Node',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
-      ],
-      connections: [],
-      drawings: [],
-    }),
+        config: {
+          type: 'inline_code',
+          runtime: 'python_process',
+          code,
+        },
+        version: `${Date.now()}`,
+      },
+    ],
+    context: 'Create graphics mip graph',
   });
-  assert.equal(createResponse.status, 200, 'graph create should succeed');
-  const createdGraph = await createResponse.json() as CreatedGraph;
-  assert.ok(createdGraph.id, 'created graph should include id');
-
-  const computeResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${createdGraph.id}/commands`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      baseRevision: createdGraph.revision ?? 0,
-      commands: [{ kind: 'compute_node', nodeId }],
-    }),
-  });
-  assert.equal(computeResponse.status, 200, 'compute should succeed');
+  await submitGraphCommands(
+    createdGraph.id,
+    createdGraph.revision ?? 0,
+    [{ kind: 'compute_node', nodeId }],
+    'Compute graphics mip node'
+  );
 
   return { graphId: createdGraph.id, nodeId };
 }

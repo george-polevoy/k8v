@@ -178,7 +178,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   const setNodeSelection = useGraphStore((state) => state.setNodeSelection);
   const toggleNodeSelection = useGraphStore((state) => state.toggleNodeSelection);
   const updateNode = useGraphStore((state) => state.updateNode);
-  const updateGraph = useGraphStore((state) => state.updateGraph);
+  const submitGraphCommands = useGraphStore((state) => state.submitGraphCommands);
   const selectDrawing = useGraphStore((state) => state.selectDrawing);
   const updateNodePosition = useGraphStore((state) => state.updateNodePosition);
   const updateDrawingPosition = useGraphStore((state) => state.updateDrawingPosition);
@@ -396,13 +396,14 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       return;
     }
 
-    void updateGraph({
+    void submitGraphCommands([{
+      kind: 'replace_cameras',
       cameras: updateGraphCamera(currentGraph.cameras, cameraState.cameraId, (camera) => ({
         ...camera,
         viewport: cameraState.viewport,
       })),
-    });
-  }, [enableMcpScreenshotBridge, updateGraph]);
+    }]);
+  }, [enableMcpScreenshotBridge, submitGraphCommands]);
 
   const commitPendingViewportCameraState = useCallback(() => {
     const pendingCameraState = pendingViewportCameraStateRef.current;
@@ -876,7 +877,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     addDrawingPath,
     updateNodePosition,
     updateDrawingPosition,
-    updateGraph,
+    submitGraphCommands,
     deleteConnection,
     deleteDrawing,
     selectNode,

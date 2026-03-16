@@ -1,4 +1,9 @@
-import { buildGraphCommandsFromSnapshotChange, type Graph } from '../types';
+import {
+  applyGraphCommands,
+  buildGraphCommandsFromGraphUpdate,
+  type Graph,
+  type GraphCommand,
+} from '../types';
 import { resolveSelectedGraphCameraId } from '../utils/cameras';
 import {
   buildNodeGraphicsOutputMapForGraph,
@@ -7,11 +12,6 @@ import {
   normalizeGraph,
   resolveErrorMessage,
 } from './graphStoreState';
-import {
-  applyGraphUpdatePayload,
-  deriveGraphUpdatePayload,
-  type GraphUpdatePayload,
-} from './graphSnapshotUpdate';
 import type {
   NodeExecutionState,
   NodeGraphicsOutputMap,
@@ -62,7 +62,7 @@ interface GraphPersistenceApi {
   submitCommands(
     graphId: string,
     baseRevision: number,
-    commands: ReturnType<typeof buildGraphCommandsFromSnapshotChange>
+    commands: GraphCommand[]
   ): Promise<{ graph: Graph }>;
 }
 
@@ -143,10 +143,9 @@ export function createGraphUpdatePersistenceController({
   const sendGraphUpdate = async (
     graphId: string,
     baseGraph: Graph,
-    updates: GraphUpdatePayload
+    commands: GraphCommand[]
   ): Promise<Graph> => {
-    const nextGraph = normalizeGraph(applyGraphUpdatePayload(baseGraph, updates));
-    const commands = buildGraphCommandsFromSnapshotChange(baseGraph, nextGraph);
+    const nextGraph = normalizeGraph(applyGraphCommands(baseGraph, commands));
     if (commands.length === 0) {
       return nextGraph;
     }
@@ -154,122 +153,141 @@ export function createGraphUpdatePersistenceController({
     return normalizeGraph(response.graph);
   };
 
+  const persistCommands = async (commands: GraphCommand[]): Promise<void> => {
+    const { graph, nodeExecutionStates, nodeGraphicsOutputs, nodeResults, selectedCameraId } = getState();
+    if (!graph || commands.length === 0) {
+      return;
+    }
+
+    let updatedGraph: Graph;
+    try {
+      updatedGraph = normalizeGraph(applyGraphCommands(graph, commands));
+    } catch (error: any) {
+      setState(buildGraphStateUpdate({
+        graph,
+        selectedCameraId,
+        nodeExecutionStates,
+        nodeGraphicsOutputs,
+        nodeResults,
+        error: resolveErrorMessage(error, 'Failed to update graph'),
+        isLoading: false,
+      }));
+      return;
+    }
+
+    const requestId = latestUpdateRequestId + 1;
+    latestUpdateRequestId = requestId;
+    pendingUpdateCount += 1;
+
+    setState(buildGraphStateUpdate({
+      graph: updatedGraph,
+      selectedCameraId,
+      nodeExecutionStates,
+      nodeGraphicsOutputs,
+      nodeResults,
+      error: null,
+      isLoading: false,
+    }));
+
+    try {
+      const persistedGraph = await sendGraphUpdate(graph.id, graph, commands);
+
+      if (!isLatestRequest(requestId)) {
+        return;
+      }
+
+      setState((state) =>
+        buildGraphStateUpdate({
+          graph: persistedGraph,
+          selectedCameraId: state.selectedCameraId,
+          selectedNodeId: state.selectedNodeId,
+          selectedNodeIds: state.selectedNodeIds,
+          selectedDrawingId: state.selectedDrawingId,
+          nodeExecutionStates: state.nodeExecutionStates,
+          nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+          nodeResults: state.nodeResults,
+          error: null,
+          isLoading: false,
+          selectionMode: 'reconcile',
+        })
+      );
+      syncPersistedGraph(persistedGraph);
+    } catch (error: any) {
+      if (!isLatestRequest(requestId)) {
+        return;
+      }
+
+      if (error?.response?.status === 409) {
+        try {
+          const latestGraph = normalizeGraph(await api.fetchGraph(graph.id));
+          if (!isLatestRequest(requestId)) {
+            return;
+          }
+
+          setState((state) =>
+            buildGraphStateUpdate({
+              graph: latestGraph,
+              selectedCameraId: state.selectedCameraId,
+              selectedNodeId: state.selectedNodeId,
+              selectedNodeIds: state.selectedNodeIds,
+              selectedDrawingId: state.selectedDrawingId,
+              nodeExecutionStates: state.nodeExecutionStates,
+              nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+              nodeResults: state.nodeResults,
+              error: 'Graph changed remotely. Reloaded latest graph state.',
+              isLoading: false,
+              selectionMode: 'reconcile',
+            })
+          );
+          syncPersistedGraph(latestGraph);
+          return;
+        } catch (reloadError: any) {
+          if (!isLatestRequest(requestId)) {
+            return;
+          }
+
+          setState(buildGraphStateUpdate({
+            graph,
+            selectedCameraId,
+            nodeExecutionStates,
+            nodeGraphicsOutputs,
+            nodeResults,
+            error: resolveErrorMessage(
+              reloadError,
+              'Graph changed remotely and latest graph could not be reloaded'
+            ),
+            isLoading: false,
+          }));
+          return;
+        }
+      }
+
+      setState(buildGraphStateUpdate({
+        graph,
+        selectedCameraId,
+        nodeExecutionStates,
+        nodeGraphicsOutputs,
+        nodeResults,
+        error: resolveErrorMessage(error, 'Failed to update graph'),
+        isLoading: false,
+      }));
+    } finally {
+      pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
+    }
+  };
+
   return {
     hasPendingUpdates(): boolean {
       return pendingUpdateCount > 0;
     },
 
+    async submitGraphCommands(commands: GraphCommand[]): Promise<void> {
+      await persistCommands(commands);
+    },
+
     async updateGraph(updates: Partial<Graph>): Promise<void> {
-      const { graph, nodeExecutionStates, nodeGraphicsOutputs, nodeResults, selectedCameraId } = getState();
-      if (!graph) {
-        return;
-      }
-
-      const updatePayload = deriveGraphUpdatePayload(graph, updates);
-      if (Object.keys(updatePayload).length === 0) {
-        return;
-      }
-
-      const updatedGraph = applyGraphUpdatePayload(graph, updatePayload);
-      const requestId = latestUpdateRequestId + 1;
-      latestUpdateRequestId = requestId;
-      pendingUpdateCount += 1;
-
-      setState(buildGraphStateUpdate({
-        graph: updatedGraph,
-        selectedCameraId,
-        nodeExecutionStates,
-        nodeGraphicsOutputs,
-        nodeResults,
-        error: null,
-        isLoading: false,
-      }));
-
-      try {
-        const persistedGraph = await sendGraphUpdate(graph.id, graph, updatePayload);
-
-        if (!isLatestRequest(requestId)) {
-          return;
-        }
-
-        setState((state) =>
-          buildGraphStateUpdate({
-            graph: persistedGraph,
-            selectedCameraId: state.selectedCameraId,
-            selectedNodeId: state.selectedNodeId,
-            selectedNodeIds: state.selectedNodeIds,
-            selectedDrawingId: state.selectedDrawingId,
-            nodeExecutionStates: state.nodeExecutionStates,
-            nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-            nodeResults: state.nodeResults,
-            error: null,
-            isLoading: false,
-            selectionMode: 'reconcile',
-          })
-        );
-        syncPersistedGraph(persistedGraph);
-      } catch (error: any) {
-        if (!isLatestRequest(requestId)) {
-          return;
-        }
-
-        if (error?.response?.status === 409) {
-          try {
-            const latestGraph = normalizeGraph(await api.fetchGraph(graph.id));
-            if (!isLatestRequest(requestId)) {
-              return;
-            }
-
-            setState((state) =>
-              buildGraphStateUpdate({
-                graph: latestGraph,
-                selectedCameraId: state.selectedCameraId,
-                selectedNodeId: state.selectedNodeId,
-                selectedNodeIds: state.selectedNodeIds,
-                selectedDrawingId: state.selectedDrawingId,
-                nodeExecutionStates: state.nodeExecutionStates,
-                nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-                nodeResults: state.nodeResults,
-                error: 'Graph changed remotely. Reloaded latest graph state.',
-                isLoading: false,
-                selectionMode: 'reconcile',
-              })
-            );
-            syncPersistedGraph(latestGraph);
-            return;
-          } catch (reloadError: any) {
-            if (!isLatestRequest(requestId)) {
-              return;
-            }
-
-            setState(buildGraphStateUpdate({
-              graph,
-              selectedCameraId,
-              nodeExecutionStates,
-              nodeGraphicsOutputs,
-              nodeResults,
-              error: resolveErrorMessage(
-                reloadError,
-                'Graph changed remotely and latest graph could not be reloaded'
-              ),
-              isLoading: false,
-            }));
-            return;
-          }
-        }
-
-        setState(buildGraphStateUpdate({
-          graph,
-          selectedCameraId,
-          nodeExecutionStates,
-          nodeGraphicsOutputs,
-          nodeResults,
-          error: resolveErrorMessage(error, 'Failed to update graph'),
-          isLoading: false,
-        }));
-      } finally {
-        pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
-      }
+      const commands = buildGraphCommandsFromGraphUpdate(updates);
+      await persistCommands(commands);
     },
   };
 }

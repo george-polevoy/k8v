@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   DrawingPath,
   Graph,
+  GraphCommand,
   Position,
 } from '../types';
 import { NodeType } from '../types';
@@ -106,7 +107,7 @@ interface UseCanvasInteractionsParams {
   addDrawingPath: (drawingId: string, path: DrawingPath) => void;
   updateNodePosition: (nodeId: string, position: Position) => void;
   updateDrawingPosition: (drawingId: string, position: Position) => void;
-  updateGraph: (graph: Partial<Graph>) => void | Promise<void>;
+  submitGraphCommands: (commands: GraphCommand[]) => void | Promise<void>;
   deleteConnection: (connectionId: string) => void;
   deleteDrawing: (drawingId: string) => void;
   selectNode: (nodeId: string | null) => void;
@@ -167,7 +168,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     addDrawingPath,
     updateNodePosition,
     updateDrawingPosition,
-    updateGraph,
+    submitGraphCommands,
     deleteConnection,
     deleteDrawing,
     selectNode,
@@ -215,10 +216,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       };
     });
 
-    void updateGraph({
+    void submitGraphCommands([{
+      kind: 'replace_nodes',
       nodes: nextNodes,
-    });
-  }, [graphRef, updateGraph]);
+    }]);
+  }, [graphRef, submitGraphCommands]);
 
   const deleteSelectedNodesBatch = useCallback((nodeIds: string[]) => {
     const currentGraph = graphRef.current;
@@ -239,10 +241,16 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     selectedConnectionIdRef.current = null;
     nodeCardDraftPositionsRef.current.clear();
     nodeCardDraftSizesRef.current.clear();
-    void updateGraph({
-      nodes: nextNodes,
-      connections: nextConnections,
-    });
+    void submitGraphCommands([
+      {
+        kind: 'replace_nodes',
+        nodes: nextNodes,
+      },
+      {
+        kind: 'replace_connections',
+        connections: nextConnections,
+      },
+    ]);
   }, [
     graphRef,
     nodeCardDraftPositionsRef,
@@ -252,7 +260,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     selectedNodeIdRef,
     selectedNodeIdsRef,
     setNodeSelection,
-    updateGraph,
+    submitGraphCommands,
   ]);
 
   const resolveNodeSelectionWithinRect = useCallback((selectionRect: {
@@ -334,11 +342,20 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     for (const [duplicateNodeId, position] of nextCurrentNodePositions.entries()) {
       nodeCardDraftPositionsRef.current.set(duplicateNodeId, position);
     }
-    void updateGraph({
-      nodes: duplication.graph.nodes,
-      connections: duplication.graph.connections,
-      projections: duplication.graph.projections,
-    });
+    void submitGraphCommands([
+      {
+        kind: 'replace_nodes',
+        nodes: duplication.graph.nodes,
+      },
+      {
+        kind: 'replace_connections',
+        connections: duplication.graph.connections,
+      },
+      {
+        kind: 'replace_projections',
+        projections: duplication.graph.projections ?? [],
+      },
+    ]);
 
     return {
       pointerX: selectionDragState.pointerX,
@@ -352,7 +369,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     applyNodeSelection,
     graphRef,
     nodeCardDraftPositionsRef,
-    updateGraph,
+    submitGraphCommands,
   ]);
 
   const finishInteraction = useCallback(() => {

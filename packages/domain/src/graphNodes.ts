@@ -1,32 +1,18 @@
-import { randomUUID } from 'node:crypto';
-import {
-  NodeType,
-  type Connection,
-  type GraphNode,
-  type PortDefinition,
-} from './graphModel.js';
+import { NodeType } from './index.js';
+import type {
+  Connection,
+  GraphNode,
+  PortDefinition,
+} from './index.js';
 
-const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const DEFAULT_ANNOTATION_TEXT = '';
-const DEFAULT_ANNOTATION_BACKGROUND_COLOR = '#fef3c7';
-const DEFAULT_ANNOTATION_BORDER_COLOR = '#334155';
-const DEFAULT_ANNOTATION_FONT_COLOR = '#1f2937';
-const DEFAULT_ANNOTATION_FONT_SIZE = 14;
-const MIN_ANNOTATION_FONT_SIZE = 8;
-const MAX_ANNOTATION_FONT_SIZE = 72;
-
-export function assertValidPortName(name: string, kind: 'input' | 'output'): void {
-  if (!PORT_NAME_PATTERN.test(name)) {
-    throw new Error(
-      `${kind} port name "${name}" is invalid. Use letters/numbers/underscore and start with letter/underscore.`
-    );
-  }
-}
-
-interface PortMatch {
-  name: string;
-  index: number;
-}
+export const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export const DEFAULT_ANNOTATION_TEXT = '';
+export const DEFAULT_ANNOTATION_BACKGROUND_COLOR = '#fef3c7';
+export const DEFAULT_ANNOTATION_BORDER_COLOR = '#334155';
+export const DEFAULT_ANNOTATION_FONT_COLOR = '#1f2937';
+export const DEFAULT_ANNOTATION_FONT_SIZE = 14;
+export const MIN_ANNOTATION_FONT_SIZE = 8;
+export const MAX_ANNOTATION_FONT_SIZE = 72;
 
 const DICT_HELPER_METHODS = new Set([
   'get',
@@ -40,6 +26,70 @@ const DICT_HELPER_METHODS = new Set([
   'clear',
   'fromkeys',
 ]);
+
+interface PortMatch {
+  name: string;
+  index: number;
+}
+
+interface GeneratedNodeOptions {
+  nodeId?: string;
+  name?: string;
+  position: { x: number; y: number };
+}
+
+interface InlineCodeNodeOptions extends GeneratedNodeOptions {
+  code?: string;
+  runtime?: string;
+  pythonEnv?: string;
+  inputNames?: string[];
+  outputNames?: string[];
+  autoRecompute?: boolean;
+}
+
+interface AnnotationNodeOptions extends GeneratedNodeOptions {
+  text?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  fontColor?: string;
+  fontSize?: number;
+}
+
+interface AnnotationConfigUpdates {
+  text?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  fontColor?: string;
+  fontSize?: number;
+}
+
+interface NumericInputNodeOptions extends GeneratedNodeOptions {
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  autoRecompute?: boolean;
+}
+
+export interface NumericInputConfig {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+function createGeneratedId(prefix: string): string {
+  const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  return cryptoLike?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function assertValidPortName(name: string, kind: 'input' | 'output'): void {
+  if (!PORT_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `${kind} port name "${name}" is invalid. Use letters/numbers/underscore and start with letter/underscore.`
+    );
+  }
+}
 
 function collectPortMatches(code: string, pattern: RegExp): PortMatch[] {
   const matches: PortMatch[] = [];
@@ -81,8 +131,9 @@ export function inferInputPortNamesFromCode(code: string): string[] {
     return [];
   }
 
-  const dotMatches = collectPortMatches(code, /\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g)
-    .filter((entry) => !DICT_HELPER_METHODS.has(entry.name));
+  const dotMatches = collectPortMatches(code, /\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g).filter(
+    (entry) => !DICT_HELPER_METHODS.has(entry.name)
+  );
   const bracketMatches = collectPortMatches(
     code,
     /\binputs\s*\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g
@@ -100,14 +151,64 @@ export function inferOutputPortNamesFromCode(code: string): string[] {
     return [];
   }
 
-  const dotMatches = collectPortMatches(code, /\boutputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g)
-    .filter((entry) => !DICT_HELPER_METHODS.has(entry.name));
+  const dotMatches = collectPortMatches(code, /\boutputs\.([A-Za-z_][A-Za-z0-9_]*)\b/g).filter(
+    (entry) => !DICT_HELPER_METHODS.has(entry.name)
+  );
   const bracketMatches = collectPortMatches(
     code,
     /\boutputs\s*\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g
   );
 
   return uniquePortNamesByAppearance([...dotMatches, ...bracketMatches]);
+}
+
+export function ensureNodeVersion(node: Pick<GraphNode, 'id'>): string {
+  return `${Date.now()}-${node.id}`;
+}
+
+function createObjectPortDefinition(name: string): PortDefinition {
+  return {
+    name,
+    schema: { type: 'object' },
+  };
+}
+
+function createNumberPortDefinition(name: string): PortDefinition {
+  return {
+    name,
+    schema: { type: 'number' },
+  };
+}
+
+export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode {
+  const inputNames = options.inputNames && options.inputNames.length > 0
+    ? options.inputNames
+    : ['input'];
+  const outputNames = options.outputNames && options.outputNames.length > 0
+    ? options.outputNames
+    : ['output'];
+  const nodeId = options.nodeId?.trim() || createGeneratedId('node');
+
+  return {
+    id: nodeId,
+    type: NodeType.INLINE_CODE,
+    position: options.position,
+    metadata: {
+      name: options.name ?? 'Inline Code',
+      inputs: inputNames.map(createObjectPortDefinition),
+      outputs: outputNames.map(createObjectPortDefinition),
+    },
+    config: {
+      type: NodeType.INLINE_CODE,
+      code: options.code ?? 'outputs.output = inputs.input;',
+      runtime: options.runtime ?? 'javascript_vm',
+      ...(options.pythonEnv ? { pythonEnv: options.pythonEnv } : {}),
+      config: {
+        autoRecompute: options.autoRecompute ?? false,
+      },
+    },
+    version: ensureNodeVersion({ id: nodeId }),
+  };
 }
 
 function reconcileInlineOutputPorts(
@@ -147,16 +248,7 @@ function reconcileInlineOutputPorts(
     }
   }
 
-  return orderedNames.map((name) => {
-    const existing = existingByName.get(name);
-    if (existing) {
-      return existing;
-    }
-    return {
-      name,
-      schema: { type: 'object' as const },
-    };
-  });
+  return orderedNames.map((name) => existingByName.get(name) ?? createObjectPortDefinition(name));
 }
 
 export function updateInlineCodeNodeCode(
@@ -203,12 +295,10 @@ export function updateInlineCodeNodeCode(
   };
 
   const explicitOutputNames = resolveExplicitOutputNames();
-  const nextOutputs = node.type === NodeType.INLINE_CODE
-    ? (explicitOutputNames
-      ? explicitOutputNames.map(
-        (name) => existingByName.get(name) ?? { name, schema: { type: 'object' as const } }
-      )
-      : reconcileInlineOutputPorts(node, code, connections))
+  const nextOutputs = node.type === 'inline_code'
+    ? explicitOutputNames
+      ? explicitOutputNames.map((name) => existingByName.get(name) ?? createObjectPortDefinition(name))
+      : reconcileInlineOutputPorts(node, code, connections)
     : node.metadata.outputs;
   const outputNamesChanged =
     nextOutputs.length !== node.metadata.outputs.length ||
@@ -228,64 +318,48 @@ export function updateInlineCodeNodeCode(
       ...node.config,
       code,
       ...(runtime ? { runtime } : {}),
-      ...(pythonEnv ? { pythonEnv } : {}),
+      ...(pythonEnv !== undefined ? { pythonEnv } : {}),
     },
     version: ensureNodeVersion(node),
   };
-}
-
-export function ensureNodeVersion(node: GraphNode): string {
-  return `${Date.now()}-${node.id}`;
-}
-
-interface AnnotationNodeOptions {
-  nodeId?: string;
-  name?: string;
-  x: number;
-  y: number;
-  text?: string;
-  backgroundColor?: string;
-  borderColor?: string;
-  fontColor?: string;
-  fontSize?: number;
-}
-
-interface AnnotationConfigUpdates {
-  text?: string;
-  backgroundColor?: string;
-  borderColor?: string;
-  fontColor?: string;
-  fontSize?: number;
 }
 
 function normalizeAnnotationColor(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
 }
 
-function normalizeAnnotationFontSize(value: unknown, fallback = DEFAULT_ANNOTATION_FONT_SIZE): number {
+export function normalizeAnnotationFontSize(
+  value: unknown,
+  fallback = DEFAULT_ANNOTATION_FONT_SIZE
+): number {
   const fallbackSize = Math.min(
     MAX_ANNOTATION_FONT_SIZE,
-    Math.max(MIN_ANNOTATION_FONT_SIZE, Number.isFinite(fallback) ? fallback : DEFAULT_ANNOTATION_FONT_SIZE)
+    Math.max(
+      MIN_ANNOTATION_FONT_SIZE,
+      Number.isFinite(fallback) ? fallback : DEFAULT_ANNOTATION_FONT_SIZE
+    )
   );
-  const parsed = typeof value === 'number'
-    ? value
-    : typeof value === 'string'
-      ? Number.parseFloat(value)
-      : Number.NaN;
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseFloat(value)
+        : Number.NaN;
+
   if (!Number.isFinite(parsed)) {
     return fallbackSize;
   }
+
   return Math.min(MAX_ANNOTATION_FONT_SIZE, Math.max(MIN_ANNOTATION_FONT_SIZE, Math.round(parsed)));
 }
 
 export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode {
-  const nodeId = options.nodeId?.trim() || randomUUID();
-  const nowVersion = `${Date.now()}-${nodeId}`;
+  const nodeId = options.nodeId?.trim() || createGeneratedId('node');
 
   return {
     id: nodeId,
     type: NodeType.ANNOTATION,
-    position: { x: options.x, y: options.y },
+    position: options.position,
     metadata: {
       name: options.name ?? 'Annotation',
       inputs: [],
@@ -312,7 +386,7 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
         cardHeight: 200,
       },
     },
-    version: nowVersion,
+    version: ensureNodeVersion({ id: nodeId }),
   };
 }
 
@@ -354,33 +428,14 @@ export function updateAnnotationNode(
   };
 }
 
-interface NumericInputConfig {
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-}
-
-interface NumericInputNodeOptions {
-  nodeId?: string;
-  name?: string;
-  x: number;
-  y: number;
-  value?: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  autoRecompute?: boolean;
-}
-
 function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function countStepDecimals(step: number): number {
-  const text = step.toString().toLowerCase();
+  const text = String(step).toLowerCase();
   if (text.includes('e-')) {
-    const exponent = Number.parseInt(text.split('e-')[1] ?? '0', 10);
+    const exponent = Number.parseInt(text.split('e-')[1] || '0', 10);
     return Number.isFinite(exponent) ? exponent : 0;
   }
 
@@ -392,42 +447,41 @@ function countStepDecimals(step: number): number {
   return text.length - decimalIndex - 1;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function snapNumericInputValue(value: number, min: number, max: number, step: number): number {
+export function snapNumericInputValue(value: number, min: number, max: number, step: number): number {
   if (max <= min) {
     return min;
   }
 
-  const clamped = clamp(value, min, max);
+  const clamped = Math.min(Math.max(value, min), max);
   const steps = Math.round((clamped - min) / step);
   const snapped = min + (steps * step);
   const decimals = countStepDecimals(step);
   const rounded = Number(snapped.toFixed(decimals));
-  return clamp(rounded, min, max);
+  return Math.min(Math.max(rounded, min), max);
 }
 
-function normalizeNumericInputConfig(config: {
-  value?: unknown;
-  min?: unknown;
-  max?: unknown;
-  step?: unknown;
-}): NumericInputConfig {
-  const min = toFiniteNumber(config.min, 0);
-  const maxCandidate = toFiniteNumber(config.max, 100);
+export function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericInputConfig {
+  const min = toFiniteNumber(config?.min, 0);
+  const maxCandidate = toFiniteNumber(config?.max, 100);
   const max = maxCandidate >= min ? maxCandidate : min;
-  const stepCandidate = toFiniteNumber(config.step, 1);
+  const stepCandidate = toFiniteNumber(config?.step, 1);
   const step = stepCandidate > 0 ? stepCandidate : 1;
-  const valueCandidate = toFiniteNumber(config.value, min);
+  const valueCandidate = toFiniteNumber(config?.value, min);
   const value = snapNumericInputValue(valueCandidate, min, max, step);
   return { value, min, max, step };
 }
 
+export function formatNumericInputValue(value: number, step: number): string {
+  const decimals = Math.min(countStepDecimals(step), 8);
+  if (decimals <= 0) {
+    return String(Math.round(value));
+  }
+  const fixed = value.toFixed(decimals);
+  return fixed.replace(/\.?0+$/, '');
+}
+
 export function createNumericInputNode(options: NumericInputNodeOptions): GraphNode {
-  const nodeId = options.nodeId?.trim() || randomUUID();
-  const nowVersion = `${Date.now()}-${nodeId}`;
+  const nodeId = options.nodeId?.trim() || createGeneratedId('node');
   const numericConfig = normalizeNumericInputConfig({
     value: options.value,
     min: options.min,
@@ -438,11 +492,11 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
   return {
     id: nodeId,
     type: NodeType.NUMERIC_INPUT,
-    position: { x: options.x, y: options.y },
+    position: options.position,
     metadata: {
       name: options.name ?? 'Numeric Input',
       inputs: [],
-      outputs: [{ name: 'value', schema: { type: 'number' } }],
+      outputs: [createNumberPortDefinition('value')],
     },
     config: {
       type: NodeType.NUMERIC_INPUT,
@@ -456,6 +510,6 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
           : {}),
       },
     },
-    version: nowVersion,
+    version: ensureNodeVersion({ id: nodeId }),
   };
 }

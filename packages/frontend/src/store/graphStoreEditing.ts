@@ -2,6 +2,7 @@ import type {
   Connection,
   DrawingPath,
   Graph,
+  GraphCommand,
   GraphDrawing,
   GraphNode,
   Position,
@@ -13,7 +14,7 @@ interface GraphStoreEditingState {
   selectedNodeId: string | null;
   selectedNodeIds: string[];
   selectedDrawingId: string | null;
-  updateGraph: (graph: Partial<Graph>) => Promise<void>;
+  submitGraphCommands: (commands: GraphCommand[]) => Promise<void>;
 }
 
 type GraphStoreEditingSetState = (
@@ -29,49 +30,53 @@ export function createGraphEditingController({
   getState,
   setState,
 }: CreateGraphEditingControllerParams) {
-  const persistGraphEdit = (buildUpdates: (graph: Graph) => Partial<Graph> | null): void => {
-    const { graph, updateGraph } = getState();
+  const persistGraphEdit = (buildCommands: (graph: Graph) => GraphCommand[] | null): void => {
+    const { graph, submitGraphCommands } = getState();
     if (!graph) {
       return;
     }
 
-    const updates = buildUpdates(graph);
-    if (!updates) {
+    const commands = buildCommands(graph);
+    if (!commands || commands.length === 0) {
       return;
     }
 
-    void updateGraph(updates);
+    void submitGraphCommands(commands);
   };
 
   return {
     addNode(node: GraphNode): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_nodes',
           nodes: [...graph.nodes, node],
-        })
+        }]
       );
     },
 
     updateNode(nodeId: string, updates: Partial<GraphNode>): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_nodes',
           nodes: graph.nodes.map((node) =>
             node.id === nodeId ? { ...node, ...updates, version: Date.now().toString() } : node
           ),
-        })
+        }]
       );
     },
 
     updateNodePosition(nodeId: string, position: Position): void {
-      persistGraphEdit((graph) => ({
+      persistGraphEdit((graph) => [{
+        kind: 'replace_nodes',
         nodes: graph.nodes.map((node) =>
           node.id === nodeId ? { ...node, position } : node
         ),
-      }));
+      }]);
     },
 
     updateNodeCardSize(nodeId: string, width: number, height: number): void {
-      persistGraphEdit((graph) => ({
+      persistGraphEdit((graph) => [{
+        kind: 'replace_nodes',
         nodes: graph.nodes.map((node) => {
           if (node.id !== nodeId) {
             return node;
@@ -89,7 +94,7 @@ export function createGraphEditingController({
             },
           };
         }),
-      }));
+      }]);
     },
 
     deleteNode(nodeId: string): void {
@@ -104,12 +109,18 @@ export function createGraphEditingController({
       }
 
       persistGraphEdit((graph) =>
-        ({
-          nodes: graph.nodes.filter((node) => node.id !== nodeId),
-          connections: graph.connections.filter(
-            (connection) => connection.sourceNodeId !== nodeId && connection.targetNodeId !== nodeId
-          ),
-        })
+        [
+          {
+            kind: 'replace_nodes',
+            nodes: graph.nodes.filter((node) => node.id !== nodeId),
+          },
+          {
+            kind: 'replace_connections',
+            connections: graph.connections.filter(
+              (connection) => connection.sourceNodeId !== nodeId && connection.targetNodeId !== nodeId
+            ),
+          },
+        ]
       );
     },
 
@@ -120,17 +131,19 @@ export function createGraphEditingController({
           return null;
         }
 
-        return {
+        return [{
+          kind: 'replace_connections',
           connections: result.connections,
-        };
+        }];
       });
     },
 
     deleteConnection(connectionId: string): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_connections',
           connections: graph.connections.filter((connection) => connection.id !== connectionId),
-        })
+        }]
       );
     },
 
@@ -150,23 +163,26 @@ export function createGraphEditingController({
           );
         }
 
-        return {
+        return [{
+          kind: 'replace_connections',
           connections: graph.connections.filter((connection) => !connectionIdSet.has(connection.id)),
-        };
+        }];
       });
     },
 
     addDrawing(drawing: GraphDrawing): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_drawings',
           drawings: [...(graph.drawings ?? []), drawing],
-        })
+        }]
       );
     },
 
     updateDrawing(drawingId: string, updates: Partial<GraphDrawing>): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_drawings',
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {
@@ -175,13 +191,14 @@ export function createGraphEditingController({
                 }
               : drawing
           ),
-        })
+        }]
       );
     },
 
     updateDrawingPosition(drawingId: string, position: Position): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_drawings',
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {
@@ -190,7 +207,7 @@ export function createGraphEditingController({
                 }
               : drawing
           ),
-        })
+        }]
       );
     },
 
@@ -204,14 +221,16 @@ export function createGraphEditingController({
         });
       }
 
-      persistGraphEdit((graph) => ({
+      persistGraphEdit((graph) => [{
+        kind: 'replace_drawings',
         drawings: (graph.drawings ?? []).filter((drawing) => drawing.id !== drawingId),
-      }));
+      }]);
     },
 
     addDrawingPath(drawingId: string, path: DrawingPath): void {
       persistGraphEdit((graph) =>
-        ({
+        [{
+          kind: 'replace_drawings',
           drawings: (graph.drawings ?? []).map((drawing) =>
             drawing.id === drawingId
               ? {
@@ -220,7 +239,7 @@ export function createGraphEditingController({
                 }
               : drawing
           ),
-        })
+        }]
       );
     },
   };

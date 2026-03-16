@@ -126,6 +126,10 @@ interface GraphResponse {
   }>;
 }
 
+interface GraphCommandsResponse {
+  graph?: GraphResponse;
+}
+
 export async function getGraphConnectionStroke(
   graphId: string
 ): Promise<{
@@ -223,6 +227,148 @@ async function expectJsonResponse(response: Response, context: string): Promise<
   }
 }
 
+async function waitForGraphAvailability(
+  graphId: string,
+  options?: {
+    minRevision?: number;
+    timeoutMs?: number;
+  }
+): Promise<GraphResponse> {
+  const startedAt = Date.now();
+  const minRevision = options?.minRevision ?? 0;
+  const timeoutMs = options?.timeoutMs ?? E2E_ASSERT_TIMEOUT_MS;
+  let lastStatus = 0;
+  let lastRevision = Number.NaN;
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+      },
+    });
+
+    lastStatus = response.status;
+    if (response.ok) {
+      const graph = await response.json() as GraphResponse;
+      const revision = typeof graph.revision === 'number' ? graph.revision : 0;
+      lastRevision = revision;
+      if (revision >= minRevision) {
+        return graph;
+      }
+    }
+
+    await delay(120);
+  }
+
+  throw new Error(
+    `Timed out waiting for graph ${graphId} availability (status=${lastStatus}, revision=${lastRevision}, minRevision=${minRevision})`
+  );
+}
+
+async function createEmptyGraphDocument(name: string, context: string): Promise<GraphResponse> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: toAutotestGraphName(name),
+    }),
+  });
+
+  const graph = await expectJsonResponse(response, context) as GraphResponse;
+  assert.ok(graph.id, `${context} response should include graph id`);
+  return waitForGraphAvailability(graph.id, {
+    minRevision: graph.revision ?? 0,
+  });
+}
+
+export async function submitGraphCommands(
+  graphId: string,
+  baseRevision: number,
+  commands: Array<Record<string, unknown>>,
+  context: string
+): Promise<GraphResponse> {
+  const startedAt = Date.now();
+  const timeoutMs = E2E_ASSERT_TIMEOUT_MS;
+  let payload: GraphCommandsResponse | null = null;
+  let lastNotFoundBody = '';
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/commands`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        baseRevision,
+        commands,
+      }),
+    });
+
+    if (response.status === 404) {
+      lastNotFoundBody = await response.text();
+      await delay(120);
+      continue;
+    }
+
+    payload = await expectJsonResponse(response, context) as GraphCommandsResponse;
+    break;
+  }
+
+  if (!payload) {
+    throw new Error(`${context} failed (404): ${lastNotFoundBody}`);
+  }
+  assert.ok(payload.graph?.id, `${context} response should include graph payload`);
+  return waitForGraphAvailability(payload.graph.id, {
+    minRevision: payload.graph.revision ?? baseRevision,
+  });
+}
+
+export async function createSeededGraph(options: {
+  name: string;
+  nodes?: unknown[];
+  connections?: unknown[];
+  drawings?: unknown[];
+  context: string;
+}): Promise<GraphResponse> {
+  const createdGraph = await createEmptyGraphDocument(options.name, options.context);
+  const commands: Array<Record<string, unknown>> = [];
+
+  if (Array.isArray(options.nodes) && options.nodes.length > 0) {
+    commands.push({
+      kind: 'replace_nodes',
+      nodes: options.nodes,
+    });
+  }
+
+  if (Array.isArray(options.connections) && options.connections.length > 0) {
+    commands.push({
+      kind: 'replace_connections',
+      connections: options.connections,
+    });
+  }
+
+  if (Array.isArray(options.drawings) && options.drawings.length > 0) {
+    commands.push({
+      kind: 'replace_drawings',
+      drawings: options.drawings,
+    });
+  }
+
+  if (commands.length === 0) {
+    return createdGraph;
+  }
+
+  return submitGraphCommands(
+    createdGraph.id,
+    createdGraph.revision ?? 0,
+    commands,
+    `${options.context} seed commands`
+  );
+}
+
 export async function fetchGraph(graphId: string): Promise<GraphResponse> {
   const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
     method: 'GET',
@@ -288,40 +434,19 @@ export async function createNumericInputGraph(options?: {
     version: Date.now().toString(),
   };
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: toAutotestGraphName(`e2e_numeric_slider_${Date.now()}`),
-      nodes: [node],
-      connections: [],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_numeric_slider_${Date.now()}`,
+    nodes: [node],
+    context: 'Create graph',
   });
-
-  const graph = await expectJsonResponse(response, 'Create graph') as GraphResponse;
-  assert.ok(graph.id, 'Create graph response should include graph id');
   return { graphId: graph.id, nodeId };
 }
 
 export async function createEmptyGraph(name?: string): Promise<{ graphId: string }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: toAutotestGraphName(name ?? `e2e_graph_${Date.now()}`),
-      nodes: [],
-      connections: [],
-      drawings: [],
-    }),
-  });
-
-  const graph = await expectJsonResponse(response, 'Create empty graph') as GraphResponse;
-  assert.ok(graph.id, 'Create empty graph response should include graph id');
+  const graph = await createEmptyGraphDocument(
+    name ?? `e2e_graph_${Date.now()}`,
+    'Create empty graph'
+  );
   return { graphId: graph.id };
 }
 
@@ -361,21 +486,11 @@ export async function createAnnotationGraph(options?: {
     version: Date.now().toString(),
   };
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: toAutotestGraphName(`e2e_annotation_${Date.now()}`),
-      nodes: [node],
-      connections: [],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_annotation_${Date.now()}`,
+    nodes: [node],
+    context: 'Create annotation graph',
   });
-
-  const graph = await expectJsonResponse(response, 'Create annotation graph') as GraphResponse;
-  assert.ok(graph.id, 'Create annotation graph response should include graph id');
   return { graphId: graph.id, nodeId };
 }
 
@@ -452,21 +567,11 @@ export async function createAnnotationArrowGraph(): Promise<{
     version: Date.now().toString(),
   };
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: toAutotestGraphName(`e2e_annotation_arrows_${Date.now()}`),
-      nodes: [leftAnnotation, inlineNode, rightAnnotation],
-      connections: [],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_annotation_arrows_${Date.now()}`,
+    nodes: [leftAnnotation, inlineNode, rightAnnotation],
+    context: 'Create annotation arrow graph',
   });
-
-  const graph = await expectJsonResponse(response, 'Create annotation arrow graph') as GraphResponse;
-  assert.ok(graph.id, 'Create annotation arrow graph response should include graph id');
   return {
     graphId: graph.id,
     leftAnnotationId,
@@ -536,29 +641,20 @@ export async function createInlineInputReplacementGraph(): Promise<{
     version: `${Date.now() + 2}`,
   };
 
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: toAutotestGraphName(`e2e_single_inbound_${Date.now()}`),
-      nodes: [sourceA, sourceB, target],
-      connections: [
-        {
-          id: randomUUID(),
-          sourceNodeId: sourceAId,
-          sourcePort: 'output',
-          targetNodeId: targetId,
-          targetPort: 'input',
-        },
-      ],
-      drawings: [],
-    }),
+  const graph = await createSeededGraph({
+    name: `e2e_single_inbound_${Date.now()}`,
+    nodes: [sourceA, sourceB, target],
+    connections: [
+      {
+        id: randomUUID(),
+        sourceNodeId: sourceAId,
+        sourcePort: 'output',
+        targetNodeId: targetId,
+        targetPort: 'input',
+      },
+    ],
+    context: 'Create single-inbound graph',
   });
-
-  const graph = await expectJsonResponse(response, 'Create single-inbound graph') as GraphResponse;
-  assert.ok(graph.id, 'Create single-inbound graph response should include graph id');
   return {
     graphId: graph.id,
     sourceAId,

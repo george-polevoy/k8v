@@ -2,59 +2,14 @@ import type {
   Connection,
   Graph,
   GraphNode,
+  GraphQueryConnectionField,
+  GraphQueryNodeField,
+  GraphQueryRequest,
 } from '../types/index.js';
-
-export const GRAPH_QUERY_NODE_FIELDS = [
-  'id',
-  'name',
-  'type',
-  'version',
-  'inputNames',
-  'outputNames',
-] as const;
-export type GraphQueryNodeField = (typeof GRAPH_QUERY_NODE_FIELDS)[number];
-
-export const GRAPH_QUERY_CONNECTION_FIELDS = [
-  'id',
-  'sourceNodeId',
-  'sourcePort',
-  'sourceAnchor',
-  'targetNodeId',
-  'targetPort',
-  'targetAnchor',
-] as const;
-export type GraphQueryConnectionField = (typeof GRAPH_QUERY_CONNECTION_FIELDS)[number];
-
-interface GraphQueryBase {
-  nodeFields?: GraphQueryNodeField[];
-  connectionFields?: GraphQueryConnectionField[];
-}
-
-export interface GraphOverviewQuery extends GraphQueryBase {
-  operation: 'overview';
-}
-
-export interface GraphStartingVerticesQuery extends GraphQueryBase {
-  operation: 'starting_vertices';
-}
-
-export interface GraphTraverseBfsQuery extends GraphQueryBase {
-  operation: 'traverse_bfs';
-  startNodeIds: string[];
-  depth?: number;
-}
-
-export interface GraphTraverseDfsQuery extends GraphQueryBase {
-  operation: 'traverse_dfs';
-  startNodeIds: string[];
-  maxNodes: number;
-}
-
-export type GraphQueryRequest =
-  | GraphOverviewQuery
-  | GraphStartingVerticesQuery
-  | GraphTraverseBfsQuery
-  | GraphTraverseDfsQuery;
+export {
+  GRAPH_QUERY_CONNECTION_FIELDS,
+  GRAPH_QUERY_NODE_FIELDS,
+} from '../types/index.js';
 
 const DEFAULT_GRAPH_QUERY_NODE_FIELDS: GraphQueryNodeField[] = ['id', 'name'];
 const DEFAULT_GRAPH_QUERY_CONNECTION_FIELDS: GraphQueryConnectionField[] = [

@@ -136,7 +136,7 @@ type AnnotationColorTarget = 'background' | 'border' | 'font';
 
 function NodePanel({ embedded = false }: NodePanelProps) {
   const graph = useGraphStore((state) => state.graph);
-  const updateGraph = useGraphStore((state) => state.updateGraph);
+  const submitGraphCommands = useGraphStore((state) => state.submitGraphCommands);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
@@ -331,11 +331,17 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         .filter((connection): connection is NonNullable<typeof connection> => connection !== null);
     }
 
-    void updateGraph({
-      nodes: nextNodes,
-      connections: nextConnections,
-    });
-  }, [graph, selectedNode, updateGraph]);
+    void submitGraphCommands([
+      {
+        kind: 'replace_nodes',
+        nodes: nextNodes,
+      },
+      {
+        kind: 'replace_connections',
+        connections: nextConnections,
+      },
+    ]);
+  }, [graph, selectedNode, submitGraphCommands]);
 
   const commitNodeName = useCallback(() => {
     if (!selectedNode) {
@@ -822,10 +828,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    void updateGraph({
+    void submitGraphCommands([{
+      kind: 'replace_nodes',
       nodes: nextNodes,
-    });
-  }, [graph, selectedNodes, updateGraph]);
+    }]);
+  }, [graph, selectedNodes, submitGraphCommands]);
 
   const applyNodeCardColorFromDialog = (color: string) => {
     if (cardColorDialogTarget === 'background') {

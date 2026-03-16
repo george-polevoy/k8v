@@ -248,11 +248,8 @@ test('updateNodePosition persists position to active projection nodePositions', 
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), true);
-    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodePositions.n1.x, 111);
-    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodePositions.n1.y, 222);
-    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodePositions.n1.x, 10);
-    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodePositions.n1.y, 20);
+    assert.equal(capturedPayload.nodes?.[0]?.position?.x, 111);
+    assert.equal(capturedPayload.nodes?.[0]?.position?.y, 222);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.x, 111);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.y, 222);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'default')?.nodePositions.n1.x, 10);
@@ -422,23 +419,8 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), true);
-    assert.equal(
-      capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
-      220
-    );
-    assert.equal(
-      capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodeCardSizes['n-size'].height,
-      80
-    );
-    assert.equal(
-      capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodeCardSizes['n-size'].width,
-      360
-    );
-    assert.equal(
-      capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodeCardSizes['n-size'].height,
-      200
-    );
+    assert.equal(capturedPayload.nodes?.[0]?.config?.config?.cardWidth, 360);
+    assert.equal(capturedPayload.nodes?.[0]?.config?.config?.cardHeight, 200);
     assert.equal(
       state.graph?.projections?.find((projection) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
       220

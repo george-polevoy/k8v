@@ -10,24 +10,14 @@ import {
 import { RecomputeManager } from '../core/RecomputeManager.js';
 import {
   executeGraphQuery,
-  GRAPH_QUERY_CONNECTION_FIELDS,
-  GRAPH_QUERY_NODE_FIELDS,
   GraphQueryValidationError,
-  type GraphQueryRequest,
 } from '../core/graphQuery.js';
 import { validate } from '../http/validate.js';
 import {
-  CanvasBackground,
-  Connection,
-  DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   GraphCommandRequest,
   Graph,
-  GraphCamera,
-  GraphConnectionStroke,
-  GraphDrawing,
-  GraphProjection,
-  GraphNode,
-  PythonEnvironment,
+  GraphQueryRequest,
+  GraphQueryRequestSchema,
 } from '../types/index.js';
 
 interface GraphRoutesDependencies {
@@ -38,54 +28,7 @@ interface GraphRoutesDependencies {
 
 const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
-  nodes: z.array(GraphNode).optional().default([]),
-  connections: z.array(Connection).optional().default([]),
-  recomputeConcurrency: z.number().int().min(1).max(32).optional(),
-  executionTimeoutMs: z.number().finite().positive().optional(),
-  canvasBackground: CanvasBackground.optional(),
-  connectionStroke: GraphConnectionStroke.optional(),
-  projections: z.array(GraphProjection).optional(),
-  activeProjectionId: z.string().trim().min(1).optional(),
-  cameras: z.array(GraphCamera).optional().default([]),
-  pythonEnvs: z.array(PythonEnvironment).optional().default([]),
-  drawings: z.array(GraphDrawing).optional().default([]),
-});
-
-const GraphQueryNodeFieldSchema = z.enum(GRAPH_QUERY_NODE_FIELDS);
-
-const GraphQueryConnectionFieldSchema = z.enum(GRAPH_QUERY_CONNECTION_FIELDS);
-
-const GraphQueryBaseSchema = z.object({
-  nodeFields: z.array(GraphQueryNodeFieldSchema).optional(),
-  connectionFields: z.array(GraphQueryConnectionFieldSchema).optional(),
-});
-
-const GraphOverviewQuerySchema = GraphQueryBaseSchema.extend({
-  operation: z.literal('overview'),
-});
-
-const GraphStartingVerticesQuerySchema = GraphQueryBaseSchema.extend({
-  operation: z.literal('starting_vertices'),
-});
-
-const GraphTraverseBfsQuerySchema = GraphQueryBaseSchema.extend({
-  operation: z.literal('traverse_bfs'),
-  startNodeIds: z.array(z.string().trim().min(1)).min(1),
-  depth: z.number().int().nonnegative().optional(),
-});
-
-const GraphTraverseDfsQuerySchema = GraphQueryBaseSchema.extend({
-  operation: z.literal('traverse_dfs'),
-  startNodeIds: z.array(z.string().trim().min(1)).min(1),
-  maxNodes: z.number().int().positive(),
-});
-
-const GraphQueryRequestSchema = z.discriminatedUnion('operation', [
-  GraphOverviewQuerySchema,
-  GraphStartingVerticesQuerySchema,
-  GraphTraverseBfsQuerySchema,
-  GraphTraverseDfsQuerySchema,
-]);
+}).strict();
 
 function isTruthyQueryFlag(value: unknown): boolean {
   if (typeof value === 'string') {
@@ -227,17 +170,6 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
     try {
       const graph = createGraphDocument({
         name: req.body.name,
-        nodes: req.body.nodes,
-        connections: req.body.connections,
-        recomputeConcurrency: req.body.recomputeConcurrency,
-        executionTimeoutMs: req.body.executionTimeoutMs ?? DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
-        canvasBackground: req.body.canvasBackground,
-        connectionStroke: req.body.connectionStroke,
-        projections: req.body.projections,
-        activeProjectionId: req.body.activeProjectionId,
-        cameras: req.body.cameras,
-        pythonEnvs: req.body.pythonEnvs,
-        drawings: req.body.drawings,
       });
       await dataStore.storeGraph(graph);
       res.json(graph);

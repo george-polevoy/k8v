@@ -158,16 +158,15 @@ Last reviewed: March 16, 2026.
 - `A-BE-73` `packages/backend/tests/app.test.ts`: nodes-only `POST /api/graphs/:id/commands` updates sync the active projection layout while preserving non-active projection metadata.
 - `A-BE-74` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default camera metadata when cameras are omitted.
 - `A-BE-75` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` preserves the default camera when a camera update would otherwise remove all cameras.
-- `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
-- `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
-- `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
-- `A-MCP-04` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `node_set_code` infers output ports from updated code, supports explicit `outputNames`, and preserves connected legacy output ports.
-- `A-MCP-05` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_query` schema validates BFS requests, accepts annotation anchor connection fields, and enforces required `maxNodes` for DFS requests.
-- `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function output matches direct frontend canvas capture for identical graph/region inputs.
-- `A-MCP-07` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function respects requested bitmap dimensions.
-- `A-MCP-08` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP frontend screenshot function works when loading graph data from backend (no override payload).
-- `A-MCP-09` `packages/mcp-server/tests/graphEdits.test.ts`: MCP bulk-edit operations create and update annotation nodes with persisted text/color/font-size config.
-- `A-MCP-10` `packages/mcp-server/tests/graphEdits.test.ts`: MCP annotation connection edits preserve source/target anchors and `connection_set` rewires one annotation anchor slot without removing unrelated annotation links.
+- `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
+- `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
+- `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
+- `A-MCP-04` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `connections_list` and `filterConnections` narrow graph connections by `nodeId` and `targetPort`.
+- `A-MCP-05` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `graph_query` validates requests with the shared `GraphQueryRequestSchema` and forwards the normalized payload to backend.
+- `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP `graph_screenshot_region` matches direct frontend canvas capture, respects requested bitmap dimensions, and works when loading the graph from backend.
+## MCP Coverage Notes
+- Backend/MCP tests cover `graph_create` producing an empty graph and `bulk_edit` forwarding ordered `GraphCommand[]` batches (including compute commands) to the backend command service.
+- `packages/mcp-server/tests/screenshotParity.test.ts` ensures `graph_screenshot_region` matches direct frontend canvas captures and respects requested bitmap dimensions.
 
 ## Manual Regression Test Cases
 
@@ -242,16 +241,8 @@ Last reviewed: March 16, 2026.
 - `M-COMPUTE-03`: Output panel refresh recovers from persistence lag without manual reload.
 - `M-VALID-01`: API rejects connection with missing source/target node references.
 - `M-VALID-02`: API rejects cycles on graph create and rejects all command updates on legacy cyclic graphs.
-- `M-MCP-01`: `graph_screenshot_region` captures the exact requested world rectangle into the requested fixed bitmap dimensions.
-- `M-MCP-02`: MCP screenshot renderer uses frontend `canvasOnly` mode and hides floating tool/sidebar windows.
-- `M-MCP-04`: MCP graph-edit tools (add/move/rename/code/input/connection/delete) persist through backend and are reflected by `graph_get`.
-- `M-MCP-05`: MCP drawing tools can create/move/rename/delete drawings and append drawing paths that appear in `graph_get`.
-- `M-MCP-06`: MCP screenshot renderer includes persisted drawing paths and drawing handle labels.
-- `M-MCP-07`: MCP Python env tools can add/edit/delete graph env definitions, and env renames/deletes keep node `pythonEnv` references consistent.
-- `M-MCP-08`: MCP projection tools can add a projection (cloned from active projection coordinates/card sizes/background by default) and switch active projection state.
-- `M-MCP-09`: MCP `bulk_edit` applies ordered graph-edit operations sequentially and persists the final graph state.
-- `M-MCP-10`: MCP numeric-input creation tools (`node_add_numeric_input` and `bulk_edit` `node_add_numeric_input`) persist slider nodes that round-trip through `graph_get`.
-- `M-MCP-11`: MCP `connections_list` and `connection_set`/`connection_replace` can inspect and atomically rewire one target input without duplicate inbound edges.
+## MCP Manual Notes
+- `M-MCP-01`: `graph_screenshot_region` renders the canvas in `canvasOnly` mode and produces fixed-size bitmaps for explicit world rectangles.
 
 ## Feature Coverage Map
 
@@ -275,7 +266,7 @@ Last reviewed: March 16, 2026.
 | Graph stores shared cameras with per-camera viewport/floating-window layout and always keeps a default camera | `A-FE-38`, `A-E2E-29`, `A-BE-74`, `A-BE-75` | Automated |
 | Current camera selection is scoped to the current browser window instead of the whole graph | `A-E2E-29`, `A-FE-38`, `M-GRAPH-14` | Automated + Manual |
 | Connections-only graph updates preserve node layout/projection metadata | `A-BE-56` | Automated |
-| New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
+| New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10` | Automated + Manual |
 | Graph panel Python env management | `M-GRAPH-07` | Manual |
 | Graph panel projection background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-BE-42`, `A-FE-19`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
 | Graph panel connection stroke management (per-graph colors + widths, 2x background ratio) | `A-BE-57`, `A-BE-58`, `A-FE-29`, `A-E2E-16`, `M-GRAPH-12` | Automated + Manual |
@@ -287,7 +278,7 @@ Last reviewed: March 16, 2026.
 | Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
 | Shared color-selection dialogs layer outside floating windows and are not clipped by narrow panel client areas | `A-E2E-24` | Automated |
 | Shared color-selection dialogs support hue, saturation/value, RGB, and optional opacity controls | `A-E2E-25`, `A-FE-35` | Automated |
-| Frontend `canvasOnly` mode hides floating toolbar/sidebar windows and keeps MCP screenshot bridge available | `A-E2E-18`, `M-MCP-02` | Automated + Manual |
+| Frontend `canvasOnly` mode hides floating toolbar/sidebar windows and keeps MCP screenshot bridge available | `A-E2E-18`, `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 | Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
 | Canvas per-projection background rendering (solid or base-color-driven gradient) | `A-FE-19`, `A-BE-42`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
@@ -303,16 +294,16 @@ Last reviewed: March 16, 2026.
 | Alt-dragging a selected node set duplicates the nodes, preserves their internal links, and keeps the duplicate set selected | `A-E2E-23`, `A-FE-34`, `M-CANVAS-31` | Automated + Manual |
 | Shared node-card background/border colors can be edited across the full selected node set | `A-E2E-22`, `A-FE-32` | Automated |
 | Drag-to-move nodes with persisted positions | `A-FE-02`, `A-FE-22`, `A-E2E-13`, `M-CANVAS-04` | Automated + Manual |
-| Node positions are stored per active projection | `A-FE-22`, `A-FE-39`, `A-BE-41`, `A-BE-73`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
-| Node card dimensions are stored per active projection | `A-FE-23`, `A-FE-39`, `A-BE-41`, `A-BE-73`, `M-GRAPH-10`, `M-MCP-08` | Automated + Manual |
-| Node card size normalization preserves oversized values (no fixed max cap) | `A-FE-25`, `A-BE-45`, `A-MCP-01` | Automated |
+| Node positions are stored per active projection | `A-FE-22`, `A-FE-39`, `A-BE-41`, `A-BE-73`, `M-GRAPH-10` | Automated + Manual |
+| Node card dimensions are stored per active projection | `A-FE-23`, `A-FE-39`, `A-BE-41`, `A-BE-73`, `M-GRAPH-10` | Automated + Manual |
+| Node card size normalization preserves oversized values (no fixed max cap) | `A-FE-25`, `A-BE-45` | Automated |
 | Edge rendering with Bezier curves and dual-layer visibility stroke | `A-FE-29`, `A-E2E-16`, `M-CANVAS-07`, `M-CANVAS-27` | Automated + Manual |
 | Edge hit-testing and selection | `M-CANVAS-07` | Manual |
 | Delete selected edge with `Delete`/`Backspace` | `M-CANVAS-07` | Manual |
 | Delete selected node with `Delete`/`Backspace` | `M-CANVAS-08` | Manual |
 | Connector hover highlighting | `M-CANVAS-05` | Manual |
 | Drag output to input to create connection | `M-CANVAS-06` | Manual |
-| Dragging a new edge onto an occupied input rewires that slot instead of persisting duplicate inbound edges | `A-E2E-26`, `A-FE-36`, `A-FE-37`, `M-MCP-11` | Automated + Manual |
+| Dragging a new edge onto an occupied input rewires that slot instead of persisting duplicate inbound edges | `A-E2E-26`, `A-FE-36`, `A-FE-37` | Automated + Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
 | Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
@@ -365,10 +356,9 @@ Last reviewed: March 16, 2026.
 | Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
 | Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `M-STATUS-04` | Manual |
 | Backend request validation via Zod | `A-BE-02`, `A-BE-03` | Automated |
-| Reject duplicate inbound connections on the same target slot | `A-BE-68`, `A-FE-36`, `A-FE-37`, `M-MCP-11` | Automated + Manual |
+| Reject duplicate inbound connections on the same target slot | `A-BE-68`, `A-FE-36`, `A-FE-37` | Automated + Manual |
 | Graph-level script execution timeout is configurable (default 30 seconds, no max cap) | `A-BE-49`, `A-BE-50`, `A-BE-51`, `A-E2E-12`, `A-FE-27` | Automated |
 | Graph python env names are unique | `A-BE-22` | Automated |
-| MCP graph Python env management | `M-MCP-07` | Manual |
 | Node `pythonEnv` references are valid and runtime-compatible | `A-BE-23`, `A-BE-24`, `A-BE-26`, `A-BE-27` | Automated |
 | Library nodes are not supported or exposed by backend APIs | `A-BE-69`, `A-BE-70` | Automated |
 | Graph node ids must remain unique on create and update | `A-BE-71`, `A-BE-72` | Automated |
@@ -382,10 +372,10 @@ Last reviewed: March 16, 2026.
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
-| MCP graph-query tool validation coverage | `A-MCP-05` | Automated |
-| MCP graph-edit API coverage | `A-MCP-02`, `A-MCP-03`, `A-MCP-04`, `A-MCP-09`, `A-MCP-10`, `M-MCP-04`, `M-MCP-07`, `M-MCP-08`, `M-MCP-09`, `M-MCP-10`, `M-MCP-11` | Automated + Manual |
-| MCP drawing-edit API coverage | `M-MCP-05` | Manual |
-| MCP internal rectangle screenshot (`graph_screenshot_region`) | `M-MCP-01`, `M-MCP-02`, `M-MCP-06` | Manual |
+| MCP graph-create contract coverage | `A-MCP-01` | Automated |
+| MCP bulk-edit contract coverage | `A-MCP-02`, `A-MCP-03` | Automated |
+| MCP read/query helper coverage (`connections_list`, `graph_query`) | `A-MCP-04`, `A-MCP-05` | Automated |
+| MCP internal rectangle screenshot (`graph_screenshot_region`) | `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 
 ## Open Gaps
 

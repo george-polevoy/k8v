@@ -1,90 +1,178 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BULK_EDIT_OPERATION_SCHEMA, applyBulkEditOperation } from '../src/graphEdits.ts';
+import test from 'node:test';
+import { GraphQueryRequestSchema, filterConnections } from '../src/index.ts';
+import { registerConnectionTools } from '../src/mcpConnectionTools.ts';
+import { registerGraphTools } from '../src/mcpGraphTools.ts';
 
-function createGraph() {
+type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: Array<{ text?: string }> }>;
+
+class FakeMcpServer {
+  readonly tools = new Map<string, ToolHandler>();
+
+  registerTool(
+    name: string,
+    _definition: { inputSchema: Record<string, unknown> },
+    handler: ToolHandler
+  ): void {
+    this.tools.set(name, handler);
+  }
+}
+
+function createGraphFixture() {
+  const now = Date.now();
   return {
     id: 'graph-1',
     name: 'Graph 1',
+    revision: 2,
     nodes: [
       {
-        id: 'node-1',
+        id: 'node-a',
         type: 'inline_code',
         position: { x: 0, y: 0 },
         metadata: {
-          name: 'Node 1',
-          inputs: [{ name: 'input', schema: { type: 'number' } }],
-          outputs: [{ name: 'output', schema: { type: 'number' } }],
+          name: 'A',
+          inputs: [{ name: 'in', schema: { type: 'number' } }],
+          outputs: [{ name: 'out', schema: { type: 'number' } }],
         },
-        config: {
-          type: 'inline_code',
-          code: 'outputs.output = inputs.input;',
-          runtime: 'javascript_vm',
-        },
-        version: 'node-1-v1',
+        config: { type: 'inline_code', code: 'outputs.out = 1;', runtime: 'javascript_vm' },
+        version: 'a-v1',
       },
       {
-        id: 'node-2',
+        id: 'node-b',
         type: 'inline_code',
         position: { x: 120, y: 0 },
         metadata: {
-          name: 'Node 2',
-          inputs: [{ name: 'input', schema: { type: 'number' } }],
-          outputs: [{ name: 'output', schema: { type: 'number' } }],
+          name: 'B',
+          inputs: [{ name: 'in', schema: { type: 'number' } }],
+          outputs: [{ name: 'out', schema: { type: 'number' } }],
         },
-        config: {
-          type: 'inline_code',
-          code: 'outputs.output = inputs.input;',
-          runtime: 'javascript_vm',
-        },
-        version: 'node-2-v1',
+        config: { type: 'inline_code', code: 'outputs.out = inputs.in;', runtime: 'javascript_vm' },
+        version: 'b-v1',
       },
     ],
-    connections: [],
+    connections: [
+      {
+        id: 'conn-1',
+        sourceNodeId: 'node-a',
+        sourcePort: 'out',
+        targetNodeId: 'node-b',
+        targetPort: 'in',
+      },
+      {
+        id: 'conn-2',
+        sourceNodeId: 'node-b',
+        sourcePort: 'out',
+        targetNodeId: 'node-a',
+        targetPort: 'in',
+      },
+    ],
+    recomputeConcurrency: 1,
+    executionTimeoutMs: 30_000,
+    canvasBackground: { mode: 'gradient', baseColor: '#1d437e' },
+    connectionStroke: {
+      foregroundColor: '#f8fafc',
+      backgroundColor: '#0f172a',
+      foregroundWidth: 2,
+      backgroundWidth: 4,
+    },
     projections: [],
-    activeProjectionId: undefined,
-    canvasBackground: undefined,
+    activeProjectionId: 'default',
+    cameras: [],
     pythonEnvs: [],
     drawings: [],
-    createdAt: 1,
-    updatedAt: 1,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
-test('BULK_EDIT_OPERATION_SCHEMA accepts operations from each bulk-edit domain', () => {
-  assert.equal(BULK_EDIT_OPERATION_SCHEMA.parse({ op: 'graph_set_name', name: 'Renamed' }).op, 'graph_set_name');
-  assert.equal(BULK_EDIT_OPERATION_SCHEMA.parse({ op: 'drawing_create', x: 1, y: 2 }).op, 'drawing_create');
-  assert.equal(BULK_EDIT_OPERATION_SCHEMA.parse({ op: 'node_set_name', nodeId: 'node-1', name: 'Node A' }).op, 'node_set_name');
-  assert.equal(
-    BULK_EDIT_OPERATION_SCHEMA.parse({
-      op: 'connection_add',
-      sourceNodeId: 'node-1',
-      sourcePort: 'output',
-      targetNodeId: 'node-2',
-      targetPort: 'input',
-    }).op,
-    'connection_add'
+function parseToolJson(result: { content: Array<{ text?: string }> }): unknown {
+  return JSON.parse(result.content[0]?.text ?? '{}');
+}
+
+test('connections_list tool returns filtered graph connections', async () => {
+  const server = new FakeMcpServer();
+  const graph = createGraphFixture();
+
+  registerConnectionTools(server as unknown as any, {
+    resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    getGraph: async () => graph as any,
+  });
+
+  const handler = server.tools.get('connections_list');
+  assert.ok(handler);
+
+  const result = await handler({
+    graphId: graph.id,
+    nodeId: 'node-a',
+  });
+  const parsed = parseToolJson(result) as Record<string, unknown>;
+
+  assert.equal(parsed.graphId, graph.id);
+  assert.equal(parsed.count, 2);
+  assert.deepEqual(
+    (parsed.connections as Array<Record<string, unknown>>).map((connection) => connection.id),
+    ['conn-1', 'conn-2']
   );
 });
 
-test('applyBulkEditOperation dispatches to composed handlers across graph, drawing, node, and connection domains', () => {
-  const graph = createGraph();
-
-  const renamed = applyBulkEditOperation(graph, { op: 'graph_set_name', name: 'Renamed' });
-  assert.equal(renamed.graph.name, 'Renamed');
-
-  const withDrawing = applyBulkEditOperation(renamed.graph, { op: 'drawing_create', name: 'Sketch', x: 10, y: 20 });
-  assert.equal(withDrawing.graph.drawings?.[0]?.name, 'Sketch');
-
-  const renamedNode = applyBulkEditOperation(withDrawing.graph, { op: 'node_set_name', nodeId: 'node-1', name: 'Source' });
-  assert.equal(renamedNode.graph.nodes[0].metadata.name, 'Source');
-
-  const connected = applyBulkEditOperation(renamedNode.graph, {
-    op: 'connection_add',
-    sourceNodeId: 'node-1',
-    sourcePort: 'output',
-    targetNodeId: 'node-2',
-    targetPort: 'input',
+test('filterConnections helper matches nodeId and targetPort filters', () => {
+  const graph = createGraphFixture();
+  const filtered = filterConnections(graph.connections as any, {
+    nodeId: 'node-b',
+    targetPort: 'in',
   });
-  assert.equal(connected.graph.connections.length, 1);
+  assert.equal(filtered.length, 2);
+  assert.deepEqual(
+    filtered.map((connection) => connection.id),
+    ['conn-1', 'conn-2']
+  );
+});
+
+test('graph_query tool forwards validated query payload to backend', async () => {
+  const server = new FakeMcpServer();
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+
+  registerGraphTools(server as unknown as any, {
+    resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+  });
+
+  const handler = server.tools.get('graph_query');
+  assert.ok(handler);
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      method: (init?.method ?? 'GET').toUpperCase(),
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    });
+    return new Response(JSON.stringify({ operation: 'overview', nodes: [], connections: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const query = GraphQueryRequestSchema.parse({
+      operation: 'traverse_bfs',
+      startNodeIds: ['node-a'],
+      depth: 1,
+      nodeFields: ['id'],
+      connectionFields: ['id', 'sourceNodeId', 'targetNodeId'],
+    });
+    const result = await handler({
+      graphId: 'graph-1',
+      ...query,
+      backendUrl: 'http://backend.test',
+    });
+
+    const parsed = parseToolJson(result) as Record<string, unknown>;
+    assert.equal(parsed.operation, 'overview');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/query');
+    assert.equal(requests[0]?.method, 'POST');
+    assert.deepEqual(requests[0]?.body, query);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
