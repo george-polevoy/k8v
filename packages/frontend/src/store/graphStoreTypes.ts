@@ -1,4 +1,4 @@
-import type { GraphicsArtifact } from '../types';
+import type { ComputationResult, GraphicsArtifact } from '../types';
 
 export type PencilColor = string;
 export type PencilThickness = 1 | 3 | 9;
@@ -36,9 +36,11 @@ export interface NodeGraphicsComputationDebug {
 }
 
 export type NodeGraphicsOutputMap = Record<string, GraphicsArtifact | null>;
+export type NodeResultMap = Record<string, ComputationResult | null>;
 
 export interface GraphSummary {
   id: string;
   name: string;
+  revision: number;
   updatedAt: number;
 }

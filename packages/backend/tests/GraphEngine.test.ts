@@ -16,6 +16,7 @@ function createGraph(initialInput: number): Graph {
   return {
     id: 'graph-1',
     name: 'Dependency Recompute Graph',
+    revision: 0,
     createdAt: now,
     updatedAt: now,
     pythonEnvs: [],
@@ -102,6 +103,7 @@ test('GraphEngine recomputes downstream node after upstream result changes', asy
   const graph = createGraph(1);
 
   try {
+    await dataStore.storeGraph(graph);
     const initialDownstream = await graphEngine.computeNode(graph, 'downstream-node');
     assert.equal(initialDownstream.outputs.output, 20);
 
@@ -156,6 +158,7 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
   const graph: Graph = {
     id: 'graph-manual-recompute',
     name: 'Manual Recompute Graph',
+    revision: 0,
     createdAt: now,
     updatedAt: now,
     pythonEnvs: [],
@@ -182,6 +185,7 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
   };
 
   try {
+    await dataStore.storeGraph(graph);
     const initial = await graphEngine.computeNode(graph, 'counter-node');
     assert.equal(initial.outputs.count, 1);
     assert.equal(executionCount, 1);
@@ -217,6 +221,7 @@ test('GraphEngine ignores annotation-linked cycles when computing executable nod
   const graph: Graph = {
     id: 'graph-annotation-cycle',
     name: 'Annotation Cycle Graph',
+    revision: 0,
     createdAt: now,
     updatedAt: now,
     pythonEnvs: [],
@@ -280,6 +285,7 @@ test('GraphEngine ignores annotation-linked cycles when computing executable nod
   };
 
   try {
+    await dataStore.storeGraph(graph);
     const result = await graphEngine.computeNode(graph, 'compute-node');
     assert.equal(result.outputs.output, 1);
   } finally {

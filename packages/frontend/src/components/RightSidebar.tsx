@@ -1,11 +1,20 @@
-import { ReactNode, useEffect, useState } from 'react';
-import GraphPanel from './GraphPanel';
-import NodePanel from './NodePanel';
-import OutputPanel from './OutputPanel';
-import DiagnosticsPanel from './DiagnosticsPanel';
+import { ReactNode, Suspense, lazy, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
 
+const GraphPanel = lazy(() => import('./GraphPanel'));
+const NodePanel = lazy(() => import('./NodePanel'));
+const OutputPanel = lazy(() => import('./OutputPanel'));
+const DiagnosticsPanel = lazy(() => import('./DiagnosticsPanel'));
+
 type SidebarSectionId = 'graph' | 'node' | 'output' | 'diagnostics';
+
+function PanelSuspense({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<div style={{ fontSize: '12px', color: '#64748b' }}>Loading panel...</div>}>
+      {children}
+    </Suspense>
+  );
+}
 
 interface AccordionSectionProps {
   id: SidebarSectionId;
@@ -137,7 +146,9 @@ function RightSidebar() {
         expanded={expandedSection === 'graph'}
         onToggle={handleToggleSection}
       >
-        <GraphPanel embedded />
+        <PanelSuspense>
+          <GraphPanel embedded />
+        </PanelSuspense>
       </AccordionSection>
       <AccordionSection
         id="node"
@@ -145,7 +156,9 @@ function RightSidebar() {
         expanded={expandedSection === 'node'}
         onToggle={handleToggleSection}
       >
-        <NodePanel embedded />
+        <PanelSuspense>
+          <NodePanel embedded />
+        </PanelSuspense>
       </AccordionSection>
       <AccordionSection
         id="output"
@@ -153,7 +166,9 @@ function RightSidebar() {
         expanded={expandedSection === 'output'}
         onToggle={handleToggleSection}
       >
-        <OutputPanel embedded />
+        <PanelSuspense>
+          <OutputPanel embedded />
+        </PanelSuspense>
       </AccordionSection>
       <AccordionSection
         id="diagnostics"
@@ -162,7 +177,9 @@ function RightSidebar() {
         expanded={expandedSection === 'diagnostics'}
         onToggle={handleToggleSection}
       >
-        <DiagnosticsPanel embedded />
+        <PanelSuspense>
+          <DiagnosticsPanel embedded />
+        </PanelSuspense>
       </AccordionSection>
     </aside>
   );

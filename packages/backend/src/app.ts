@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
 import { DataStore } from './core/DataStore.js';
+import { GraphEventBroker } from './core/GraphEventBroker.js';
 import { GraphEngine } from './core/GraphEngine.js';
 import { NodeExecutor } from './core/NodeExecutor.js';
 import { RecomputeManager } from './core/RecomputeManager.js';
@@ -23,23 +24,12 @@ export function createApp(deps?: AppDependencies) {
   app.use(cors());
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
-  const dataStore = deps?.dataStore ?? new DataStore('./k8v.db', './data');
+  const dataStore = deps?.dataStore ?? new DataStore();
   const graphEngine =
     deps?.graphEngine ?? new GraphEngine(dataStore, new NodeExecutor(dataStore));
-  const recomputeManager = new RecomputeManager(dataStore, graphEngine);
-  app.use('/api/graphs', createGraphRouter({ dataStore, recomputeManager }));
-
-  app.get('/api/nodes/:id/result', async (req, res) => {
-    try {
-      const result = await dataStore.getResult(req.params.id, req.query.version as string);
-      if (!result) {
-        return res.status(404).json({ error: 'Result not found' });
-      }
-      res.json(result);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+  const eventBroker = new GraphEventBroker();
+  const recomputeManager = new RecomputeManager(dataStore, graphEngine, eventBroker);
+  app.use('/api/graphs', createGraphRouter({ dataStore, recomputeManager, eventBroker }));
 
   app.get('/api/graphics/:id', async (req, res) => {
     try {

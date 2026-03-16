@@ -39,7 +39,7 @@ export class GraphEngine {
       await this.computeNode(graph, depNodeId, options);
     }
 
-    const currentResult = await this.getCachedOrStoredResult(nodeId);
+    const currentResult = await this.getCachedOrStoredResult(graph.id, nodeId);
 
     // Check if recomputation is needed
     if (await this.needsRecomputation(graph, node, currentResult, options)) {
@@ -50,15 +50,15 @@ export class GraphEngine {
       const executedResult = await this.nodeExecutor.execute(node, inputs, graph);
 
       // Store result
-      await this.dataStore.storeResult(nodeId, executedResult);
-      const storedResult = await this.dataStore.getResult(nodeId, executedResult.version);
+      await this.dataStore.storeResult(graph.id, nodeId, executedResult);
+      const storedResult = await this.dataStore.getResult(graph.id, nodeId, executedResult.version);
       const result = storedResult ?? {
         ...executedResult,
         graphicsOutput: undefined,
       };
-      this.computationCache.set(nodeId, result);
+      this.computationCache.set(this.makeCacheKey(graph.id, nodeId), result);
       if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
-        this.manualRecomputeVersionByNodeId.set(nodeId, options.recomputeVersion);
+        this.manualRecomputeVersionByNodeId.set(this.makeCacheKey(graph.id, nodeId), options.recomputeVersion);
       }
 
       // Update node version to mark as computed
@@ -84,7 +84,9 @@ export class GraphEngine {
     options: { recomputeVersion?: number }
   ): Promise<boolean> {
     if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
-      const lastManualRecomputeVersion = this.manualRecomputeVersionByNodeId.get(node.id);
+      const lastManualRecomputeVersion = this.manualRecomputeVersionByNodeId.get(
+        this.makeCacheKey(graph.id, node.id)
+      );
       if (lastManualRecomputeVersion !== options.recomputeVersion) {
         return true;
       }
@@ -98,7 +100,7 @@ export class GraphEngine {
     // If any dependency was computed more recently, inputs may have changed.
     const dependencies = this.getDependencies(graph, node.id);
     for (const depNodeId of dependencies) {
-      const depResult = await this.getCachedOrStoredResult(depNodeId);
+      const depResult = await this.getCachedOrStoredResult(graph.id, depNodeId);
       if (!depResult || depResult.timestamp > currentResult.timestamp) {
         return true;
       }
@@ -129,7 +131,7 @@ export class GraphEngine {
     ).filter((connection) => connection.targetNodeId === nodeId);
 
     for (const connection of connections) {
-      const sourceResult = await this.dataStore.getResult(connection.sourceNodeId);
+      const sourceResult = await this.dataStore.getResult(graph.id, connection.sourceNodeId);
       if (sourceResult) {
         if (sourceResult.outputs[connection.sourcePort] !== undefined) {
           inputs[connection.targetPort] = sourceResult.outputs[connection.sourcePort];
@@ -200,18 +202,23 @@ export class GraphEngine {
     this.manualRecomputeVersionByNodeId.clear();
   }
 
-  private async getCachedOrStoredResult(nodeId: string): Promise<ComputationResult | null> {
-    const cached = this.computationCache.get(nodeId);
+  private async getCachedOrStoredResult(graphId: string, nodeId: string): Promise<ComputationResult | null> {
+    const cacheKey = this.makeCacheKey(graphId, nodeId);
+    const cached = this.computationCache.get(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const stored = await this.dataStore.getResult(nodeId);
+    const stored = await this.dataStore.getResult(graphId, nodeId);
     if (stored) {
-      this.computationCache.set(nodeId, stored);
+      this.computationCache.set(cacheKey, stored);
       return stored;
     }
 
     return null;
+  }
+
+  private makeCacheKey(graphId: string, nodeId: string): string {
+    return `${graphId}:${nodeId}`;
   }
 }

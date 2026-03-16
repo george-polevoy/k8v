@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { DataStore } from '../core/DataStore.js';
+import { GraphCommandService, GraphCommandValidationError, GraphRevisionConflictError } from '../core/GraphCommandService.js';
+import { GraphEventBroker } from '../core/GraphEventBroker.js';
 import {
-  GraphConflictError,
-  GraphNotFoundError,
-  GraphUpdateService,
-  GraphWriteValidationError,
-} from '../core/GraphUpdateService.js';
+  createGraphDocument,
+  GraphDocumentValidationError,
+} from '../core/graphDocumentFactory.js';
 import { RecomputeManager } from '../core/RecomputeManager.js';
 import {
   executeGraphQuery,
@@ -20,6 +20,7 @@ import {
   CanvasBackground,
   Connection,
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
+  GraphCommandRequest,
   Graph,
   GraphCamera,
   GraphConnectionStroke,
@@ -32,6 +33,7 @@ import {
 interface GraphRoutesDependencies {
   dataStore: DataStore;
   recomputeManager: RecomputeManager;
+  eventBroker: GraphEventBroker;
 }
 
 const CreateGraphSchema = z.object({
@@ -47,26 +49,6 @@ const CreateGraphSchema = z.object({
   cameras: z.array(GraphCamera).optional().default([]),
   pythonEnvs: z.array(PythonEnvironment).optional().default([]),
   drawings: z.array(GraphDrawing).optional().default([]),
-});
-
-const UpdateGraphSchema = z.object({
-  name: z.string().optional(),
-  nodes: z.array(GraphNode).optional(),
-  connections: z.array(Connection).optional(),
-  recomputeConcurrency: z.number().int().min(1).max(32).optional(),
-  executionTimeoutMs: z.number().finite().positive().optional(),
-  canvasBackground: CanvasBackground.optional(),
-  connectionStroke: GraphConnectionStroke.optional(),
-  projections: z.array(GraphProjection).optional(),
-  activeProjectionId: z.string().trim().min(1).optional(),
-  cameras: z.array(GraphCamera).optional(),
-  pythonEnvs: z.array(PythonEnvironment).optional(),
-  drawings: z.array(GraphDrawing).optional(),
-  ifMatchUpdatedAt: z.number().optional(),
-});
-
-const ComputeRequestSchema = z.object({
-  nodeId: z.string().optional(),
 });
 
 const GraphQueryNodeFieldSchema = z.enum(GRAPH_QUERY_NODE_FIELDS);
@@ -119,8 +101,8 @@ function isTruthyQueryFlag(value: unknown): boolean {
 }
 
 export function createGraphRouter(deps: GraphRoutesDependencies): Router {
-  const { dataStore, recomputeManager } = deps;
-  const graphUpdateService = new GraphUpdateService(dataStore, recomputeManager);
+  const { dataStore, recomputeManager, eventBroker } = deps;
+  const graphCommandService = new GraphCommandService(dataStore, recomputeManager, eventBroker);
   const router = Router();
 
   router.get('/', async (_req, res) => {
@@ -156,6 +138,75 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
     }
   });
 
+  router.get('/:id/runtime-state', async (req, res) => {
+    try {
+      const graph = await dataStore.getGraph(req.params.id);
+      if (!graph) {
+        return res.status(404).json({ error: 'Graph not found' });
+      }
+
+      return res.json(await graphCommandService.buildRuntimeState(graph));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.get('/:id/nodes/:nodeId/result', async (req, res) => {
+    try {
+      const graph = await dataStore.getGraph(req.params.id);
+      if (!graph) {
+        return res.status(404).json({ error: 'Graph not found' });
+      }
+
+      const result = await dataStore.getResult(
+        graph.id,
+        req.params.nodeId,
+        typeof req.query.version === 'string' ? req.query.version : undefined
+      );
+      if (!result) {
+        return res.status(404).json({ error: 'Result not found' });
+      }
+
+      return res.json(result);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.get('/:id/events', async (req, res) => {
+    try {
+      const graph = await dataStore.getGraph(req.params.id);
+      if (!graph) {
+        return res.status(404).json({ error: 'Graph not found' });
+      }
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      const unsubscribe = eventBroker.subscribe(graph.id, (event) => {
+        res.write(`event: ${event.type}\n`);
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      });
+
+      const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 15_000);
+
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+        res.end();
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
   router.post('/:id/query', validate(GraphQueryRequestSchema), async (req, res) => {
     try {
       const graph = await dataStore.getGraph(req.params.id) as Graph | null;
@@ -174,7 +225,7 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
 
   router.post('/', validate(CreateGraphSchema), async (req, res) => {
     try {
-      const graph = await graphUpdateService.createGraph({
+      const graph = createGraphDocument({
         name: req.body.name,
         nodes: req.body.nodes,
         connections: req.body.connections,
@@ -188,9 +239,10 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
         pythonEnvs: req.body.pythonEnvs,
         drawings: req.body.drawings,
       });
+      await dataStore.storeGraph(graph);
       res.json(graph);
     } catch (error: unknown) {
-      if (error instanceof GraphWriteValidationError) {
+      if (error instanceof GraphDocumentValidationError) {
         return res.status(400).json({ error: error.message });
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -198,23 +250,30 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
     }
   });
 
-  router.put('/:id', validate(UpdateGraphSchema), async (req, res) => {
+  router.post('/:id/commands', validate(GraphCommandRequest), async (req, res) => {
     try {
       const noRecompute = isTruthyQueryFlag(req.query.noRecompute);
-      const graph = await graphUpdateService.updateGraph(req.params.id, req.body, { noRecompute });
-      res.json(graph);
+      const response = await graphCommandService.executeCommands(
+        req.params.id,
+        req.body.baseRevision,
+        req.body.commands,
+        {
+          noRecompute,
+        }
+      );
+      return res.json(response);
     } catch (error: unknown) {
-      if (error instanceof GraphNotFoundError) {
-        return res.status(404).json({ error: 'Graph not found' });
-      }
-      if (error instanceof GraphConflictError) {
+      if (error instanceof GraphRevisionConflictError) {
         return res.status(409).json({
           error: error.message,
-          currentUpdatedAt: error.currentUpdatedAt,
+          currentRevision: error.currentRevision,
         });
       }
-      if (error instanceof GraphWriteValidationError) {
+      if (error instanceof GraphCommandValidationError) {
         return res.status(400).json({ error: error.message });
+      }
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        return res.status(404).json({ error: error.message });
       }
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({ error: message });
@@ -229,43 +288,6 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       }
       recomputeManager.dropGraphState(req.params.id);
       res.status(204).send();
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.post('/:id/compute', validate(ComputeRequestSchema), async (req, res) => {
-    try {
-      const graph = await dataStore.getGraph(req.params.id);
-      if (!graph) {
-        return res.status(404).json({ error: 'Graph not found' });
-      }
-
-      const nodeId = req.body.nodeId;
-      if (nodeId) {
-        const result = await recomputeManager.requestNodeRecompute(graph.id, nodeId);
-        res.json(result);
-      } else {
-        const results = await recomputeManager.requestGraphRecompute(graph.id);
-        res.json(Array.from(results.values()));
-      }
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.get('/:id/recompute-status', async (req, res) => {
-    try {
-      const graph = await dataStore.getGraph(req.params.id);
-      if (!graph) {
-        return res.status(404).json({ error: 'Graph not found' });
-      }
-
-      const status = await recomputeManager.getGraphStatus(graph.id);
-      res.json({
-        ...status,
-        graphUpdatedAt: graph.updatedAt,
-      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

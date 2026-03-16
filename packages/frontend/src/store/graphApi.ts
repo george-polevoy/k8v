@@ -1,7 +1,10 @@
 import axios from 'axios';
-import type { ComputationResult, Graph } from '../types';
-import type { BackendRecomputeStatus } from './graphStoreState';
-import type { GraphUpdatePayload } from './graphUpdateRebase';
+import type {
+  Graph,
+  GraphCommand,
+  GraphRuntimeState,
+  GraphSummary,
+} from '../types';
 
 export const graphApi = {
   async fetchGraph(graphId: string): Promise<Graph> {
@@ -23,28 +26,29 @@ export const graphApi = {
     return response.data as Graph;
   },
 
-  async listGraphs(): Promise<unknown> {
+  async listGraphs(): Promise<{ graphs: GraphSummary[] }> {
     const response = await axios.get('/api/graphs');
-    return response.data;
+    return response.data as { graphs: GraphSummary[] };
   },
 
-  async updateGraph(graphId: string, graph: GraphUpdatePayload & { ifMatchUpdatedAt: number }): Promise<Graph> {
-    const response = await axios.put(`/api/graphs/${graphId}`, graph);
-    return response.data as Graph;
+  async fetchRuntimeState(graphId: string): Promise<GraphRuntimeState> {
+    const response = await axios.get(`/api/graphs/${graphId}/runtime-state`);
+    return response.data as GraphRuntimeState;
   },
 
-  async fetchNodeResult(nodeId: string): Promise<unknown> {
-    const response = await axios.get(`/api/nodes/${nodeId}/result`);
-    return response.data;
+  async submitCommands(
+    graphId: string,
+    baseRevision: number,
+    commands: GraphCommand[]
+  ): Promise<{ graph: Graph; runtimeState: GraphRuntimeState }> {
+    const response = await axios.post(`/api/graphs/${graphId}/commands`, {
+      baseRevision,
+      commands,
+    });
+    return response.data as { graph: Graph; runtimeState: GraphRuntimeState };
   },
 
-  async fetchRecomputeStatus(graphId: string): Promise<BackendRecomputeStatus> {
-    const response = await axios.get(`/api/graphs/${graphId}/recompute-status`);
-    return response.data as BackendRecomputeStatus;
-  },
-
-  async computeGraph(graphId: string, nodeId?: string): Promise<ComputationResult | ComputationResult[]> {
-    const response = await axios.post(`/api/graphs/${graphId}/compute`, nodeId ? { nodeId } : {});
-    return response.data as ComputationResult | ComputationResult[];
+  createEventsSource(graphId: string): EventSource {
+    return new EventSource(`/api/graphs/${graphId}/events`);
   },
 };

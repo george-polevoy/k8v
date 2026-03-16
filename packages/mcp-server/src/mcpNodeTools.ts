@@ -13,6 +13,7 @@ import {
 } from './graphNodeEdits.js';
 import { textResult } from './mcpHttp.js';
 import {
+  NodeType,
   type Graph,
   type GraphNode,
   normalizeGraphProjectionState,
@@ -98,7 +99,7 @@ export function registerNodeTools(server: any, deps: NodeToolRegistrarDeps): voi
 
       const node: GraphNode = {
         id: nodeId,
-        type: 'inline_code',
+        type: NodeType.INLINE_CODE,
         position: { x, y },
         metadata: {
           name: name ?? 'Inline Code',
@@ -106,7 +107,7 @@ export function registerNodeTools(server: any, deps: NodeToolRegistrarDeps): voi
           outputs,
         },
         config: {
-          type: 'inline_code',
+          type: NodeType.INLINE_CODE,
           runtime: runtime ?? 'javascript_vm',
           ...(pythonEnv ? { pythonEnv } : {}),
           code: inlineCode,
@@ -449,7 +450,7 @@ export function registerNodeTools(server: any, deps: NodeToolRegistrarDeps): voi
                       ...candidate.metadata.inputs,
                       {
                         name: inputName,
-                        schema: { type: 'object' },
+                        schema: { type: 'object' as const },
                       },
                     ],
                   },

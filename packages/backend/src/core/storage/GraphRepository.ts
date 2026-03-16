@@ -1,62 +1,70 @@
 import type Database from 'better-sqlite3';
+import { Graph, type Graph as GraphType } from '../../types/index.js';
 
 export class GraphRepository {
   constructor(private readonly db: Database.Database) {}
 
-  async storeGraph(graph: any): Promise<void> {
-    const stmt = this.db.prepare(`
+  async storeGraph(graph: GraphType): Promise<void> {
+    this.db.prepare(`
       INSERT OR REPLACE INTO graphs
-      (id, name, data, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    const now = Date.now();
-    stmt.run(
+      (id, name, revision, document_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
       graph.id,
       graph.name,
+      graph.revision,
       JSON.stringify(graph),
-      graph.createdAt || now,
-      graph.updatedAt || now
+      graph.createdAt,
+      graph.updatedAt
     );
   }
 
-  async getGraph(graphId: string): Promise<any | null> {
-    const stmt = this.db.prepare('SELECT * FROM graphs WHERE id = ?');
-    const row = stmt.get(graphId) as { data: string } | undefined;
+  async getGraph(graphId: string): Promise<GraphType | null> {
+    const row = this.db.prepare(`
+      SELECT document_json
+      FROM graphs
+      WHERE id = ?
+    `).get(graphId) as { document_json: string } | undefined;
 
     if (!row) {
       return null;
     }
 
-    return JSON.parse(row.data);
+    return Graph.parse(JSON.parse(row.document_json));
   }
 
   async deleteGraph(graphId: string): Promise<boolean> {
-    const stmt = this.db.prepare('DELETE FROM graphs WHERE id = ?');
-    const result = stmt.run(graphId);
+    const result = this.db.prepare('DELETE FROM graphs WHERE id = ?').run(graphId);
     return result.changes > 0;
   }
 
-  async listGraphs(): Promise<Array<{ id: string; name: string; updatedAt: number }>> {
-    const stmt = this.db.prepare('SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC');
-    const rows = stmt.all() as Array<{ id: string; name: string; updated_at: number }>;
+  async listGraphs(): Promise<Array<{ id: string; name: string; revision: number; updatedAt: number }>> {
+    const rows = this.db.prepare(`
+      SELECT id, name, revision, updated_at
+      FROM graphs
+      ORDER BY updated_at DESC
+    `).all() as Array<{ id: string; name: string; revision: number; updated_at: number }>;
 
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
+      revision: row.revision,
       updatedAt: row.updated_at,
     }));
   }
 
-  async getLatestGraph(): Promise<any | null> {
-    const stmt = this.db.prepare('SELECT data FROM graphs ORDER BY updated_at DESC LIMIT 1');
-    const row = stmt.get() as { data: string } | undefined;
+  async getLatestGraph(): Promise<GraphType | null> {
+    const row = this.db.prepare(`
+      SELECT document_json
+      FROM graphs
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get() as { document_json: string } | undefined;
 
     if (!row) {
       return null;
     }
 
-    return JSON.parse(row.data);
+    return Graph.parse(JSON.parse(row.document_json));
   }
 }
-

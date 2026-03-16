@@ -167,11 +167,16 @@ test('graph store restores and saves the current camera selection per window', a
     if (url === '/api/graphs/g-cameras') {
       return { data: graph };
     }
-    if (url === '/api/graphs/g-cameras/recompute-status') {
+    if (url === '/api/graphs/g-cameras/runtime-state') {
       return {
         data: {
           graphId: 'g-cameras',
+          revision: graph.revision ?? 0,
+          statusVersion: 1,
+          queueLength: 0,
+          workerConcurrency: 1,
           nodeStates: {},
+          results: {},
         },
       };
     }

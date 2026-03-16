@@ -9,6 +9,7 @@ import { createApp } from '../src/app.ts';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { GraphEngine } from '../src/core/GraphEngine.ts';
+import { buildGraphCommandsFromSnapshotChange, type GraphCommand } from '../../domain/dist/index.js';
 
 interface AppTestContext {
   baseUrl: string;
@@ -170,6 +171,70 @@ async function createGraph(baseUrl: string, payload?: Record<string, unknown>) {
   });
 }
 
+async function fetchGraph(baseUrl: string, graphId: string) {
+  const response = await fetch(`${baseUrl}/api/graphs/${graphId}`);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+async function submitGraphCommands(
+  baseUrl: string,
+  graphId: string,
+  baseRevision: number,
+  commands: GraphCommand[],
+  options: { noRecompute?: boolean } = {}
+) {
+  const query = options.noRecompute ? '?noRecompute=true' : '';
+  const response = await fetch(`${baseUrl}/api/graphs/${graphId}/commands${query}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      baseRevision,
+      commands,
+    }),
+  });
+  return response;
+}
+
+async function computeNode(baseUrl: string, graphId: string, nodeId: string) {
+  const graph = await fetchGraph(baseUrl, graphId);
+  const response = await submitGraphCommands(baseUrl, graphId, graph.revision ?? 0, [
+    { kind: 'compute_node', nodeId },
+  ]);
+  return response;
+}
+
+async function computeGraph(baseUrl: string, graphId: string) {
+  const graph = await fetchGraph(baseUrl, graphId);
+  const response = await submitGraphCommands(baseUrl, graphId, graph.revision ?? 0, [
+    { kind: 'compute_graph' },
+  ]);
+  return response;
+}
+
+async function updateGraphWithCommands(
+  baseUrl: string,
+  graphId: string,
+  mutate: (graph: any) => any,
+  options: { noRecompute?: boolean } = {}
+) {
+  const currentGraph = await fetchGraph(baseUrl, graphId);
+  const nextGraph = mutate(structuredClone(currentGraph));
+  const commands = buildGraphCommandsFromSnapshotChange(currentGraph, nextGraph);
+  return submitGraphCommands(
+    baseUrl,
+    graphId,
+    currentGraph.revision ?? 0,
+    commands,
+    options
+  );
+}
+
+async function fetchRuntimeState(baseUrl: string, graphId: string) {
+  const response = await fetch(`${baseUrl}/api/graphs/${graphId}/runtime-state`);
+  return response;
+}
+
 function createSampleDrawing(id: string) {
   return {
     id,
@@ -287,7 +352,7 @@ test('library node manifest API is not exposed', async () => {
   }
 });
 
-test('POST /api/graphs accepts numeric_input nodes and compute returns numeric value', async () => {
+test('POST /api/graphs accepts numeric_input nodes and command compute returns numeric value', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -299,20 +364,17 @@ test('POST /api/graphs accepts numeric_input nodes and compute returns numeric v
     const createdGraph = await createResponse.json();
     assert.equal(createdGraph.nodes[0].type, 'numeric_input');
 
-    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'numeric-1' }),
-    });
+    const computeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'numeric-1');
     assert.equal(computeResponse.status, 200);
-    const result = await computeResponse.json();
+    const commandResponse = await computeResponse.json();
+    const result = commandResponse.runtimeState.results['numeric-1'];
     assert.equal(result.outputs.value, 42);
   } finally {
     await ctx.close();
   }
 });
 
-test('annotation nodes are accepted and are non-executable via node compute endpoint', async () => {
+test('annotation nodes are accepted and are non-executable via command compute', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -324,11 +386,7 @@ test('annotation nodes are accepted and are non-executable via node compute endp
     const createdGraph = await createResponse.json();
     assert.equal(createdGraph.nodes[0].type, 'annotation');
 
-    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'annotation-1' }),
-    });
+    const computeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'annotation-1');
     assert.equal(computeResponse.status, 500);
     const body = await computeResponse.json();
     assert.match(String(body.error ?? ''), /not executable/i);
@@ -389,7 +447,7 @@ test('annotation-linked connections preserve anchors and are excluded from DAG v
   }
 });
 
-test('POST /api/graphs/:id/compute performs manual recompute even when node version is unchanged', async () => {
+test('POST /api/graphs/:id/commands performs manual recompute even when node version is unchanged', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -399,24 +457,18 @@ test('POST /api/graphs/:id/compute performs manual recompute even when node vers
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const firstComputeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'node-1' }),
-    });
+    const firstComputeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'node-1');
     assert.equal(firstComputeResponse.status, 200);
-    const firstResult = await firstComputeResponse.json();
+    const firstCommandResponse = await firstComputeResponse.json();
+    const firstResult = firstCommandResponse.runtimeState.results['node-1'];
     assert.equal(firstResult.outputs.output, 1);
 
     await delay(5);
 
-    const secondComputeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'node-1' }),
-    });
+    const secondComputeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'node-1');
     assert.equal(secondComputeResponse.status, 200);
-    const secondResult = await secondComputeResponse.json();
+    const secondCommandResponse = await secondComputeResponse.json();
+    const secondResult = secondCommandResponse.runtimeState.results['node-1'];
     assert.equal(secondResult.outputs.output, 1);
 
     assert.equal(typeof firstResult.timestamp, 'number');
@@ -445,7 +497,7 @@ test('POST /api/graphs applies default graph execution timeout', async () => {
   }
 });
 
-test('PUT /api/graphs persists graph execution timeout and allows large values', async () => {
+test('POST /api/graphs/:id/commands persists graph execution timeout and allows large values', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -456,15 +508,12 @@ test('PUT /api/graphs persists graph execution timeout and allows large values',
     const createdGraph = await createResponse.json();
     assert.equal(createdGraph.executionTimeoutMs, 30_000);
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        executionTimeoutMs: 100_000_000,
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      executionTimeoutMs: 100_000_000,
+    }));
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.executionTimeoutMs, 100_000_000);
   } finally {
     await ctx.close();
@@ -966,7 +1015,7 @@ test('POST /api/graphs applies default connection stroke settings', async () => 
   }
 });
 
-test('PUT /api/graphs normalizes and persists connection stroke settings', async () => {
+test('POST /api/graphs/:id/commands normalizes and persists connection stroke settings', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -990,21 +1039,22 @@ test('PUT /api/graphs normalizes and persists connection stroke settings', async
       ) >= 24
     );
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         connectionStroke: {
           foregroundColor: '#204060',
           backgroundColor: '#204060',
           foregroundWidth: 2.25,
           backgroundWidth: 11,
         },
-      }),
-    });
+      })
+    );
 
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.connectionStroke.foregroundColor, '#204060');
     assert.equal(updatedGraph.connectionStroke.foregroundWidth, 2.25);
     assert.equal(updatedGraph.connectionStroke.backgroundWidth, 4.5);
@@ -1019,7 +1069,7 @@ test('PUT /api/graphs normalizes and persists connection stroke settings', async
   }
 });
 
-test('PUT /api/graphs persists canvas background mode and base color updates', async () => {
+test('POST /api/graphs/:id/commands persists canvas background mode and base color updates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1036,19 +1086,20 @@ test('PUT /api/graphs persists canvas background mode and base color updates', a
       baseColor: '#204060',
     });
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         canvasBackground: {
           mode: 'gradient',
           baseColor: '#4a7ab4',
         },
-      }),
-    });
+      })
+    );
 
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.deepEqual(updatedGraph.canvasBackground, {
       mode: 'gradient',
       baseColor: '#4a7ab4',
@@ -1107,7 +1158,7 @@ test('POST /api/graphs initializes default camera metadata when omitted', async 
   }
 });
 
-test('PUT /api/graphs preserves the default camera when camera updates would otherwise remove all cameras', async () => {
+test('POST /api/graphs/:id/commands preserves the default camera when camera updates would otherwise remove all cameras', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1117,17 +1168,13 @@ test('PUT /api/graphs preserves the default camera when camera updates would oth
     assert.equal(createResponse.status, 200);
     const graph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        cameras: [],
-        ifMatchUpdatedAt: graph.updatedAt,
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, graph.id, (currentGraph) => ({
+      ...currentGraph,
+      cameras: [],
+    }));
 
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.deepEqual(updatedGraph.cameras, [
       {
         id: 'default-camera',
@@ -1165,7 +1212,7 @@ test('POST /api/graphs preserves oversized fallback node card dimensions', async
   }
 });
 
-test('PUT /api/graphs recomputes target node after inbound connection changes without manual rename', async () => {
+test('POST /api/graphs/:id/commands recomputes target node after inbound connection changes without manual rename', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1188,20 +1235,12 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const computeSourceResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'source-node' }),
-    });
+    const computeSourceResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'source-node');
     assert.equal(computeSourceResponse.status, 200);
 
-    const computeTargetBeforeConnectionResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'target-node' }),
-    });
+    const computeTargetBeforeConnectionResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'target-node');
     assert.equal(computeTargetBeforeConnectionResponse.status, 200);
-    const beforeConnection = await computeTargetBeforeConnectionResponse.json();
+    const beforeConnection = (await computeTargetBeforeConnectionResponse.json()).runtimeState.results['target-node'];
     assert.match(String(beforeConnection.textOutput ?? ''), /Error: A/);
 
     const currentGraphResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`);
@@ -1210,11 +1249,11 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
     const targetNodeBeforeUpdate = currentGraph.nodes.find((node: any) => node.id === 'target-node');
     assert.ok(targetNodeBeforeUpdate);
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ifMatchUpdatedAt: currentGraph.updatedAt,
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         connections: [
           {
             id: 'conn-source-to-target',
@@ -1224,21 +1263,17 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
             targetPort: 'A',
           },
         ],
-      }),
-    });
+      })
+    );
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     const targetNodeAfterUpdate = updatedGraph.nodes.find((node: any) => node.id === 'target-node');
     assert.ok(targetNodeAfterUpdate);
     assert.notEqual(targetNodeAfterUpdate.version, targetNodeBeforeUpdate.version);
 
-    const computeTargetAfterConnectionResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: 'target-node' }),
-    });
+    const computeTargetAfterConnectionResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'target-node');
     assert.equal(computeTargetAfterConnectionResponse.status, 200);
-    const afterConnection = await computeTargetAfterConnectionResponse.json();
+    const afterConnection = (await computeTargetAfterConnectionResponse.json()).runtimeState.results['target-node'];
     assert.equal(afterConnection.outputs.output, 6);
     assert.ok(!String(afterConnection.textOutput ?? '').includes('Error: A'));
   } finally {
@@ -1246,7 +1281,7 @@ test('PUT /api/graphs recomputes target node after inbound connection changes wi
   }
 });
 
-test('graph recompute status reports graph-level worker concurrency and graph freshness', async () => {
+test('runtime state reports graph-level worker concurrency and revision', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1259,34 +1294,31 @@ test('graph recompute status reports graph-level worker concurrency and graph fr
     const createdGraph = await createResponse.json();
     assert.equal(createdGraph.recomputeConcurrency, 3);
 
-    const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
     assert.equal(statusResponse.status, 200);
     const status = await statusResponse.json();
     assert.equal(status.workerConcurrency, 3);
-    assert.equal(status.graphUpdatedAt, createdGraph.updatedAt);
+    assert.equal(status.revision, createdGraph.revision);
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        recomputeConcurrency: 2,
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      recomputeConcurrency: 2,
+    }));
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.recomputeConcurrency, 2);
 
-    const updatedStatusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    const updatedStatusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
     assert.equal(updatedStatusResponse.status, 200);
     const updatedStatus = await updatedStatusResponse.json();
     assert.equal(updatedStatus.workerConcurrency, 2);
-    assert.equal(updatedStatus.graphUpdatedAt, updatedGraph.updatedAt);
+    assert.equal(updatedStatus.revision, updatedGraph.revision);
   } finally {
     await ctx.close();
   }
 });
 
-test('PUT /api/graphs enqueues backend recompute for all impacted descendants', async () => {
+test('POST /api/graphs/:id/commands enqueues backend recompute for all impacted descendants', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1365,11 +1397,9 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        nodes: createdGraph.nodes.map((node: any) =>
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
           node.id === 'node-a'
             ? {
                 ...node,
@@ -1381,8 +1411,7 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
               }
             : node
         ),
-      }),
-    });
+    }));
     assert.equal(updateResponse.status, 200);
 
     let sawRootActive = false;
@@ -1390,7 +1419,7 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
     let sawLeafPending = false;
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
       assert.equal(statusResponse.status, 200);
       const status = await statusResponse.json();
       const nodeStates = status.nodeStates ?? {};
@@ -1422,7 +1451,7 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
     assert.equal(sawMiddlePending, true);
     assert.equal(sawLeafPending, true);
 
-    const settledStatusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+    const settledStatusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
     assert.equal(settledStatusResponse.status, 200);
     const settledStatus = await settledStatusResponse.json();
     const settledNodeStates = settledStatus.nodeStates ?? {};
@@ -1435,7 +1464,7 @@ test('PUT /api/graphs enqueues backend recompute for all impacted descendants', 
   }
 });
 
-test('PUT /api/graphs supports noRecompute query flag for topology updates', async () => {
+test('POST /api/graphs/:id/commands supports noRecompute query flag for topology updates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1490,18 +1519,20 @@ test('PUT /api/graphs supports noRecompute query flag for topology updates', asy
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}?noRecompute=true`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         connections: [],
       }),
-    });
+      { noRecompute: true }
+    );
     assert.equal(updateResponse.status, 200);
 
     let sawQueuedWork = false;
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const statusResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/recompute-status`);
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
       assert.equal(statusResponse.status, 200);
       const status = await statusResponse.json();
       const nodeStates = status.nodeStates ?? {};
@@ -1523,7 +1554,7 @@ test('PUT /api/graphs supports noRecompute query flag for topology updates', asy
   }
 });
 
-test('PUT /api/graphs preserves node layout and projection metadata on connections-only updates', async () => {
+test('POST /api/graphs/:id/commands preserves node layout and projection metadata on connections-only updates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1610,10 +1641,11 @@ test('PUT /api/graphs preserves node layout and projection metadata on connectio
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         connections: [
           {
             id: 'ab',
@@ -1623,10 +1655,10 @@ test('PUT /api/graphs preserves node layout and projection metadata on connectio
             targetPort: 'input',
           },
         ],
-      }),
-    });
+      })
+    );
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
 
     const extractLayout = (graph: any) =>
       graph.nodes
@@ -1646,7 +1678,7 @@ test('PUT /api/graphs preserves node layout and projection metadata on connectio
   }
 });
 
-test('PUT /api/graphs syncs active projection layout on nodes-only updates', async () => {
+test('POST /api/graphs/:id/commands syncs active projection layout on nodes-only updates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1694,11 +1726,9 @@ test('PUT /api/graphs syncs active projection layout on nodes-only updates', asy
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        nodes: createdGraph.nodes.map((candidate: any) =>
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((candidate: any) =>
           candidate.id === 'node-1'
             ? {
                 ...candidate,
@@ -1714,10 +1744,9 @@ test('PUT /api/graphs syncs active projection layout on nodes-only updates', asy
               }
             : candidate
         ),
-      }),
-    });
+    }));
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
 
     const defaultProjection = updatedGraph.projections.find((projection: any) => projection.id === 'default');
     const altProjection = updatedGraph.projections.find((projection: any) => projection.id === 'alt');
@@ -1741,7 +1770,7 @@ test('PUT /api/graphs syncs active projection layout on nodes-only updates', asy
   }
 });
 
-test('PUT /api/graphs switches active projection and applies projected node coordinates', async () => {
+test('POST /api/graphs/:id/commands switches active projection and applies projected node coordinates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1752,10 +1781,11 @@ test('PUT /api/graphs switches active projection and applies projected node coor
     const createdGraph = await createResponse.json();
 
     const altProjectionId = 'alt-projection';
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         projections: [
           {
             id: 'default',
@@ -1787,11 +1817,11 @@ test('PUT /api/graphs switches active projection and applies projected node coor
           },
         ],
         activeProjectionId: altProjectionId,
-      }),
-    });
+      })
+    );
 
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.activeProjectionId, altProjectionId);
     assert.equal(updatedGraph.nodes[0].position.x, 320);
     assert.equal(updatedGraph.nodes[0].position.y, 180);
@@ -1822,7 +1852,7 @@ test('PUT /api/graphs switches active projection and applies projected node coor
   }
 });
 
-test('PUT /api/graphs switches graph canvas background to selected projection background', async () => {
+test('POST /api/graphs/:id/commands switches graph canvas background to selected projection background', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1867,15 +1897,12 @@ test('PUT /api/graphs switches graph canvas background to selected projection ba
       baseColor: '#1d437e',
     });
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        activeProjectionId: 'alt',
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      activeProjectionId: 'alt',
+    }));
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.activeProjectionId, 'alt');
     assert.deepEqual(updatedGraph.canvasBackground, {
       mode: 'solid',
@@ -1886,7 +1913,7 @@ test('PUT /api/graphs switches graph canvas background to selected projection ba
   }
 });
 
-test('PUT /api/graphs rejects updates that remove all projections', async () => {
+test('POST /api/graphs/:id/commands rejects updates that remove all projections', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1896,13 +1923,10 @@ test('PUT /api/graphs rejects updates that remove all projections', async () => 
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        projections: [],
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      projections: [],
+    }));
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -1912,7 +1936,7 @@ test('PUT /api/graphs rejects updates that remove all projections', async () => 
   }
 });
 
-test('PUT /api/graphs rejects stale ifMatchUpdatedAt values with conflict', async () => {
+test('POST /api/graphs/:id/commands rejects stale baseRevision values with conflict', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -1922,20 +1946,35 @@ test('PUT /api/graphs rejects stale ifMatchUpdatedAt values with conflict', asyn
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        name: toAutotestGraphName('conflict_name'),
-        ifMatchUpdatedAt: createdGraph.updatedAt - 1,
-      }),
-    });
+    const firstUpdateResponse = await submitGraphCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      createdGraph.revision ?? 0,
+      [
+        {
+          kind: 'set_graph_name',
+          name: toAutotestGraphName('conflict_name_seed'),
+        },
+      ]
+    );
+    assert.equal(firstUpdateResponse.status, 200);
+
+    const updateResponse = await submitGraphCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      createdGraph.revision ?? 0,
+      [
+        {
+          kind: 'set_graph_name',
+          name: toAutotestGraphName('conflict_name'),
+        },
+      ]
+    );
 
     assert.equal(updateResponse.status, 409);
     const payload = await updateResponse.json();
-    assert.match(payload.error, /reload and retry/i);
-    assert.equal(typeof payload.currentUpdatedAt, 'number');
-    assert.equal(payload.currentUpdatedAt, createdGraph.updatedAt);
+    assert.match(payload.error, /reload the latest graph and retry/i);
+    assert.equal(payload.currentRevision, (createdGraph.revision ?? 0) + 1);
   } finally {
     await ctx.close();
   }
@@ -2127,7 +2166,7 @@ test('POST /api/graphs normalizes drawing colors to hex format', async () => {
   }
 });
 
-test('PUT /api/graphs/:id accepts updates with payload larger than 100KB', async () => {
+test('POST /api/graphs/:id/commands accepts updates with payload larger than 100KB', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2149,14 +2188,13 @@ test('PUT /api/graphs/:id accepts updates with payload larger than 100KB', async
       `Expected test payload > 100KB, received ${serializedPayload.length} bytes`
     );
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: serializedPayload,
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      ...updatePayload,
+    }));
 
     assert.equal(updateResponse.status, 200);
-    const updatedGraph = await updateResponse.json();
+    const updatedGraph = (await updateResponse.json()).graph;
     assert.equal(updatedGraph.nodes.length, 2);
     assert.equal(updatedGraph.drawings.length, 2);
     assert.equal(updatedGraph.drawings[1].paths[0].points.length, 12_000);
@@ -2203,7 +2241,7 @@ test('POST /api/graphs rejects duplicate node ids', async () => {
   }
 });
 
-test('PUT /api/graphs/:id rejects duplicate node ids', async () => {
+test('POST /api/graphs/:id/commands rejects duplicate node ids', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2213,10 +2251,11 @@ test('PUT /api/graphs/:id rejects duplicate node ids', async () => {
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const updateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
         nodes: [
           createdGraph.nodes[0],
           {
@@ -2225,8 +2264,8 @@ test('PUT /api/graphs/:id rejects duplicate node ids', async () => {
           },
         ],
         connections: [],
-      }),
-    });
+      })
+    );
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -2280,7 +2319,7 @@ test('POST /api/graphs rejects malformed node config', async () => {
   }
 });
 
-test('PUT /api/graphs/:id rejects malformed runtime updates', async () => {
+test('POST /api/graphs/:id/commands rejects malformed runtime updates', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2291,13 +2330,10 @@ test('PUT /api/graphs/:id rejects malformed runtime updates', async () => {
     const invalidNode = createValidInlineNode();
     invalidNode.config.runtime = '';
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        nodes: [invalidNode],
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: [invalidNode],
+    }));
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -2307,7 +2343,7 @@ test('PUT /api/graphs/:id rejects malformed runtime updates', async () => {
   }
 });
 
-test('POST /api/graphs/:id/compute returns clear error for unregistered runtime', async () => {
+test('POST /api/graphs/:id/commands returns clear error for unregistered runtime', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2320,11 +2356,7 @@ test('POST /api/graphs/:id/compute returns clear error for unregistered runtime'
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    });
+    const computeResponse = await computeGraph(ctx.baseUrl, createdGraph.id);
 
     assert.equal(computeResponse.status, 500);
     const payload = await computeResponse.json();
@@ -2370,7 +2402,7 @@ test('POST /api/graphs rejects cyclic graph structures', async () => {
   }
 });
 
-test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
+test('POST /api/graphs/:id/commands rejects updates that introduce cycles', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2393,22 +2425,19 @@ test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        connections: [
-          ...createdGraph.connections,
-          {
-            id: 'c2',
-            sourceNodeId: 'node-b',
-            sourcePort: 'output',
-            targetNodeId: 'node-a',
-            targetPort: 'input',
-          },
-        ],
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      connections: [
+        ...graph.connections,
+        {
+          id: 'c2',
+          sourceNodeId: 'node-b',
+          sourcePort: 'output',
+          targetNodeId: 'node-a',
+          targetPort: 'input',
+        },
+      ],
+    }));
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -2418,7 +2447,7 @@ test('PUT /api/graphs/:id rejects updates that introduce cycles', async () => {
   }
 });
 
-test('PUT /api/graphs/:id rejects multiple inbound connections on the same input slot', async () => {
+test('POST /api/graphs/:id/commands rejects multiple inbound connections on the same input slot', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2442,23 +2471,19 @@ test('PUT /api/graphs/:id rejects multiple inbound connections on the same input
     assert.equal(createResponse.status, 200);
     const createdGraph = await createResponse.json();
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...createdGraph,
-        connections: [
-          ...createdGraph.connections,
-          {
-            id: 'conn-b',
-            sourceNodeId: 'source-b',
-            sourcePort: 'value',
-            targetNodeId: 'target',
-            targetPort: 'input',
-          },
-        ],
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      connections: [
+        ...graph.connections,
+        {
+          id: 'conn-b',
+          sourceNodeId: 'source-b',
+          sourcePort: 'value',
+          targetNodeId: 'target',
+          targetPort: 'input',
+        },
+      ],
+    }));
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -2468,7 +2493,7 @@ test('PUT /api/graphs/:id rejects multiple inbound connections on the same input
   }
 });
 
-test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', async () => {
+test('POST /api/graphs/:id/commands rejects all updates on cyclic graphs (strict DAG)', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2477,6 +2502,7 @@ test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', as
     const legacyGraph = {
       id: 'legacy-cyclic',
       name: toAutotestGraphName('legacy_cyclic_graph'),
+      revision: 0,
       nodes: [nodeA, nodeB],
       connections: [
         {
@@ -2500,13 +2526,10 @@ test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', as
 
     await ctx.dataStore.storeGraph(legacyGraph);
 
-    const updateResponse = await fetch(`${ctx.baseUrl}/api/graphs/${legacyGraph.id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        nodes: [...legacyGraph.nodes, createPassThroughNode('node-c')],
-      }),
-    });
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, legacyGraph.id, (graph) => ({
+      ...graph,
+      nodes: [...graph.nodes, createPassThroughNode('node-c')],
+    }));
 
     assert.equal(updateResponse.status, 400);
     const payload = await updateResponse.json();
@@ -2516,7 +2539,7 @@ test('PUT /api/graphs/:id rejects all updates on cyclic graphs (strict DAG)', as
   }
 });
 
-test('compute responses include graphics metadata without embedding raw image payload', async () => {
+test('compute command responses include graphics metadata without embedding raw image payload', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2527,13 +2550,9 @@ test('compute responses include graphics metadata without embedding raw image pa
     assert.equal(createResponse.status, 200);
     const graph = await createResponse.json();
 
-    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: graphicsNode.id }),
-    });
+    const computeResponse = await computeNode(ctx.baseUrl, graph.id, graphicsNode.id);
     assert.equal(computeResponse.status, 200);
-    const computed = await computeResponse.json();
+    const computed = (await computeResponse.json()).runtimeState.results[graphicsNode.id];
 
     assert.equal(typeof computed.graphics?.id, 'string');
     assert.equal(computed.graphics?.mimeType, 'image/png');
@@ -2542,7 +2561,9 @@ test('compute responses include graphics metadata without embedding raw image pa
     assert.equal(computed.graphics?.levels[0]?.height, 4);
     assert.equal(computed.graphicsOutput, undefined);
 
-    const resultResponse = await fetch(`${ctx.baseUrl}/api/nodes/${graphicsNode.id}/result`);
+    const resultResponse = await fetch(
+      `${ctx.baseUrl}/api/graphs/${graph.id}/nodes/${graphicsNode.id}/result`
+    );
     assert.equal(resultResponse.status, 200);
     const stored = await resultResponse.json();
     assert.equal(stored.graphics?.id, computed.graphics?.id);
@@ -2563,13 +2584,9 @@ test('GET /api/graphics/:id/image selects mip level by maxPixels and returns bin
     assert.equal(createResponse.status, 200);
     const graph = await createResponse.json();
 
-    const computeResponse = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}/compute`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: graphicsNode.id }),
-    });
+    const computeResponse = await computeNode(ctx.baseUrl, graph.id, graphicsNode.id);
     assert.equal(computeResponse.status, 200);
-    const computed = await computeResponse.json();
+    const computed = (await computeResponse.json()).runtimeState.results[graphicsNode.id];
     const graphicsId = computed.graphics?.id as string;
     assert.ok(graphicsId);
 

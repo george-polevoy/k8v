@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  NodeType,
   type Connection,
   type GraphNode,
   type PortDefinition,
@@ -153,7 +154,7 @@ function reconcileInlineOutputPorts(
     }
     return {
       name,
-      schema: { type: 'object' },
+      schema: { type: 'object' as const },
     };
   });
 }
@@ -202,9 +203,11 @@ export function updateInlineCodeNodeCode(
   };
 
   const explicitOutputNames = resolveExplicitOutputNames();
-  const nextOutputs = node.type === 'inline_code'
+  const nextOutputs = node.type === NodeType.INLINE_CODE
     ? (explicitOutputNames
-      ? explicitOutputNames.map((name) => existingByName.get(name) ?? { name, schema: { type: 'object' } })
+      ? explicitOutputNames.map(
+        (name) => existingByName.get(name) ?? { name, schema: { type: 'object' as const } }
+      )
       : reconcileInlineOutputPorts(node, code, connections))
     : node.metadata.outputs;
   const outputNamesChanged =
@@ -281,7 +284,7 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
 
   return {
     id: nodeId,
-    type: 'annotation',
+    type: NodeType.ANNOTATION,
     position: { x: options.x, y: options.y },
     metadata: {
       name: options.name ?? 'Annotation',
@@ -289,7 +292,7 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
       outputs: [],
     },
     config: {
-      type: 'annotation',
+      type: NodeType.ANNOTATION,
       config: {
         text: options.text ?? DEFAULT_ANNOTATION_TEXT,
         backgroundColor: normalizeAnnotationColor(
@@ -434,7 +437,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
 
   return {
     id: nodeId,
-    type: 'numeric_input',
+    type: NodeType.NUMERIC_INPUT,
     position: { x: options.x, y: options.y },
     metadata: {
       name: options.name ?? 'Numeric Input',
@@ -442,7 +445,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
+      type: NodeType.NUMERIC_INPUT,
       config: {
         value: numericConfig.value,
         min: numericConfig.min,

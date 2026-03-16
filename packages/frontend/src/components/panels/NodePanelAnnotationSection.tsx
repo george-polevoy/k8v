@@ -13,7 +13,7 @@ interface NodePanelAnnotationSectionProps {
     backgroundColor?: string;
     borderColor?: string;
     fontColor?: string;
-    fontSize?: number;
+    fontSize?: number | string;
   }) => void;
   onResetAnnotationDrafts: () => void;
   onAnnotationFontSizeChange: (value: string) => void;
@@ -111,7 +111,7 @@ function NodePanelAnnotationSection({
           step={1}
           value={annotationFontSizeDraft}
           onChange={(event) => onAnnotationFontSizeChange(event.target.value)}
-          onBlur={() => onCommitAnnotationSettings()}
+          onBlur={(event) => onCommitAnnotationSettings({ fontSize: event.currentTarget.value })}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.currentTarget.blur();

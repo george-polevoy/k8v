@@ -14,13 +14,91 @@ test.beforeEach(() => {
   resetGraphStoreState();
 });
 
+function buildRuntimeState(graph: Graph) {
+  return {
+    graphId: graph.id,
+    revision: graph.revision,
+    statusVersion: 0,
+    queueLength: 0,
+    workerConcurrency: graph.recomputeConcurrency ?? 1,
+    nodeStates: {},
+    results: {},
+  };
+}
+
+function buildCommandResponse(graph: Graph) {
+  const persistedGraph: Graph = {
+    ...graph,
+    revision: graph.revision ?? 1,
+  };
+
+  return {
+    data: {
+      graph: persistedGraph,
+      runtimeState: buildRuntimeState(persistedGraph),
+    },
+  };
+}
+
+function extractCommandUpdatePayload(body: any): any {
+  const payload: Record<string, unknown> = {
+    baseRevision: body?.baseRevision,
+  };
+
+  for (const command of body?.commands ?? []) {
+    switch (command.kind) {
+      case 'set_graph_name':
+        payload.name = command.name;
+        break;
+      case 'set_recompute_concurrency':
+        payload.recomputeConcurrency = command.recomputeConcurrency;
+        break;
+      case 'set_execution_timeout':
+        payload.executionTimeoutMs = command.executionTimeoutMs;
+        break;
+      case 'set_connection_stroke':
+        payload.connectionStroke = command.connectionStroke;
+        break;
+      case 'set_canvas_background':
+        payload.canvasBackground = command.canvasBackground;
+        break;
+      case 'set_active_projection':
+        payload.activeProjectionId = command.activeProjectionId;
+        break;
+      case 'replace_python_envs':
+        payload.pythonEnvs = command.pythonEnvs;
+        break;
+      case 'replace_cameras':
+        payload.cameras = command.cameras;
+        break;
+      case 'replace_drawings':
+        payload.drawings = command.drawings;
+        break;
+      case 'replace_nodes':
+        payload.nodes = command.nodes;
+        break;
+      case 'replace_connections':
+        payload.connections = command.connections;
+        break;
+      case 'replace_projections':
+        payload.projections = command.projections;
+        break;
+      default:
+        break;
+    }
+  }
+
+  return payload;
+}
+
 test('updateNodePosition persists position without changing node version', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const initialGraph: Graph = {
     id: 'g1',
     name: 'Graph g1',
+    revision: 0,
     nodes: [
       {
         id: 'n1',
@@ -44,20 +122,19 @@ test('updateNodePosition persists position without changing node version', async
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return {
-      data: {
-        ...initialGraph,
-        nodes: [
-          {
-            ...initialGraph.nodes[0],
-            position: { x: 111, y: 222 },
-          },
-        ],
-        updatedAt: 2,
-      },
-    };
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      nodes: [
+        {
+          ...initialGraph.nodes[0],
+          position: { x: 111, y: 222 },
+        },
+      ],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -73,17 +150,18 @@ test('updateNodePosition persists position without changing node version', async
     assert.equal(capturedPayload.nodes[0].version, 'node-version-1');
     assert.equal(state.graph?.nodes[0].version, 'node-version-1');
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('updateNodePosition persists position to active projection nodePositions', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const initialGraph: Graph = {
     id: 'g-projections',
     name: 'Graph projections',
+    revision: 0,
     nodes: [
       {
         id: 'n1',
@@ -138,29 +216,28 @@ test('updateNodePosition persists position to active projection nodePositions', 
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return {
-      data: {
-        ...initialGraph,
-        nodes: [
-          {
-            ...initialGraph.nodes[0],
-            position: { x: 111, y: 222 },
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      nodes: [
+        {
+          ...initialGraph.nodes[0],
+          position: { x: 111, y: 222 },
+        },
+      ],
+      projections: [
+        initialGraph.projections![0],
+        {
+          ...initialGraph.projections![1],
+          nodePositions: {
+            n1: { x: 111, y: 222 },
           },
-        ],
-        projections: [
-          initialGraph.projections![0],
-          {
-            ...initialGraph.projections![1],
-            nodePositions: {
-              n1: { x: 111, y: 222 },
-            },
-          },
-        ],
-        updatedAt: 2,
-      },
-    };
+        },
+      ],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -171,23 +248,28 @@ test('updateNodePosition persists position to active projection nodePositions', 
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), true);
+    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodePositions.n1.x, 111);
+    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodePositions.n1.y, 222);
+    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodePositions.n1.x, 10);
+    assert.equal(capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodePositions.n1.y, 20);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.x, 111);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'alt')?.nodePositions.n1.y, 222);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'default')?.nodePositions.n1.x, 10);
     assert.equal(state.graph?.projections?.find((projection) => projection.id === 'default')?.nodePositions.n1.y, 20);
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('updateNodeCardSize persists dimensions without changing node version', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const initialGraph: Graph = {
     id: 'g-size',
     name: 'Graph size',
+    revision: 0,
     nodes: [
       {
         id: 'n-size',
@@ -211,26 +293,25 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return {
-      data: {
-        ...initialGraph,
-        nodes: [
-          {
-            ...initialGraph.nodes[0],
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      nodes: [
+        {
+          ...initialGraph.nodes[0],
+          config: {
+            ...initialGraph.nodes[0].config,
             config: {
-              ...initialGraph.nodes[0].config,
-              config: {
-                cardWidth: 360,
-                cardHeight: 200,
-              },
+              cardWidth: 360,
+              cardHeight: 200,
             },
           },
-        ],
-        updatedAt: 2,
-      },
-    };
+        },
+      ],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -246,17 +327,18 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
     assert.equal(capturedPayload.nodes[0].version, 'node-size-version-1');
     assert.equal(state.graph?.nodes[0].version, 'node-size-version-1');
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('updateNodeCardSize persists dimensions to active projection nodeCardSizes', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const initialGraph: Graph = {
     id: 'g-size-proj',
     name: 'Graph size projections',
+    revision: 0,
     nodes: [
       {
         id: 'n-size',
@@ -301,36 +383,35 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return {
-      data: {
-        ...initialGraph,
-        nodes: [
-          {
-            ...initialGraph.nodes[0],
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      nodes: [
+        {
+          ...initialGraph.nodes[0],
+          config: {
+            ...initialGraph.nodes[0].config,
             config: {
-              ...initialGraph.nodes[0].config,
-              config: {
-                ...(initialGraph.nodes[0].config.config ?? {}),
-                cardWidth: 360,
-                cardHeight: 200,
-              },
+              ...(initialGraph.nodes[0].config.config ?? {}),
+              cardWidth: 360,
+              cardHeight: 200,
             },
           },
-        ],
-        projections: [
-          initialGraph.projections![0],
-          {
-            ...initialGraph.projections![1],
-            nodeCardSizes: {
-              'n-size': { width: 360, height: 200 },
-            },
+        },
+      ],
+      projections: [
+        initialGraph.projections![0],
+        {
+          ...initialGraph.projections![1],
+          nodeCardSizes: {
+            'n-size': { width: 360, height: 200 },
           },
-        ],
-        updatedAt: 2,
-      },
-    };
+        },
+      ],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph: initialGraph });
@@ -341,7 +422,23 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload, 'projections'), true);
+    assert.equal(
+      capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
+      220
+    );
+    assert.equal(
+      capturedPayload.projections?.find((projection: any) => projection.id === 'default')?.nodeCardSizes['n-size'].height,
+      80
+    );
+    assert.equal(
+      capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodeCardSizes['n-size'].width,
+      360
+    );
+    assert.equal(
+      capturedPayload.projections?.find((projection: any) => projection.id === 'alt')?.nodeCardSizes['n-size'].height,
+      200
+    );
     assert.equal(
       state.graph?.projections?.find((projection) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
       220
@@ -359,17 +456,18 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
       200
     );
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('addConnection rewires an occupied input instead of appending duplicate inbound edges', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const graph: Graph = {
     id: 'g-single-inbound',
     name: 'Single Inbound Graph',
+    revision: 0,
     nodes: [
       {
         id: 'source-a',
@@ -431,23 +529,22 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return {
-      data: {
-        ...graph,
-        connections: [
-          {
-            id: 'conn-b',
-            sourceNodeId: 'source-b',
-            sourcePort: 'value',
-            targetNodeId: 'target',
-            targetPort: 'input',
-          },
-        ],
-        updatedAt: 2,
-      },
-    };
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...graph,
+      revision: 1,
+      connections: [
+        {
+          id: 'conn-b',
+          sourceNodeId: 'source-b',
+          sourcePort: 'value',
+          targetNodeId: 'target',
+          targetPort: 'input',
+        },
+      ],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph });
@@ -475,7 +572,7 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
     assert.equal(state.graph?.connections.length, 1);
     assert.equal(state.graph?.connections[0]?.sourceNodeId, 'source-b');
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
@@ -581,12 +678,13 @@ test('drawing UI actions update local drawing state', () => {
 });
 
 test('addDrawing persists drawing objects in graph payload', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const graph: Graph = {
     id: 'g-drawings',
     name: 'Drawing Graph',
+    revision: 0,
     nodes: [],
     connections: [],
     drawings: [],
@@ -594,9 +692,14 @@ test('addDrawing persists drawing objects in graph payload', async () => {
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return { data: body };
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...graph,
+      revision: 1,
+      drawings: capturedPayload.drawings as Graph['drawings'],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({ graph } as any);
@@ -622,17 +725,18 @@ test('addDrawing persists drawing objects in graph payload', async () => {
     assert.equal(capturedPayload.drawings[0].name, 'Sketch');
     assert.equal(capturedPayload.drawings[0].paths.length, 1);
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('deleteDrawing clears selected drawing before persisting removal', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const graph: Graph = {
     id: 'g-drawings-delete',
     name: 'Drawing Graph Delete',
+    revision: 0,
     nodes: [],
     connections: [],
     drawings: [
@@ -647,9 +751,14 @@ test('deleteDrawing clears selected drawing before persisting removal', async ()
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return { data: body };
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...graph,
+      revision: 1,
+      drawings: [],
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({
@@ -666,17 +775,18 @@ test('deleteDrawing clears selected drawing before persisting removal', async ()
     assert.ok(capturedPayload, 'expected graph update payload');
     assert.equal(capturedPayload.drawings.length, 0);
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('deleteNode reconciles multi-select state when a selected node is removed', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
   let capturedPayload: any = null;
 
   const graph: Graph = {
     id: 'g-delete-node-selection',
     name: 'Node Delete Selection',
+    revision: 0,
     nodes: [
       {
         id: 'node-1',
@@ -716,9 +826,14 @@ test('deleteNode reconciles multi-select state when a selected node is removed',
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => {
-    capturedPayload = body;
-    return { data: body };
+  (axios as any).post = async (_url: string, body: unknown) => {
+    capturedPayload = extractCommandUpdatePayload(body);
+    return buildCommandResponse({
+      ...graph,
+      revision: 1,
+      nodes: graph.nodes.filter((node) => node.id !== 'node-2'),
+      updatedAt: 2,
+    });
   };
 
   resetGraphStoreState({
@@ -736,6 +851,6 @@ test('deleteNode reconciles multi-select state when a selected node is removed',
     assert.equal(state.selectedNodeId, 'node-1');
     assert.deepEqual(state.selectedNodeIds, ['node-1']);
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });

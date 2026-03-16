@@ -19,28 +19,32 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Delegates task planning and stale-state derivation to `packages/backend/src/core/recompute/`
 - Computes impacted downstream chains and marks all queued descendants as pending before execution
 - Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
-- Uses an internal `RecomputeStateStore` to track node execution state snapshots exposed to polling clients
-- Exposes `/api/graphs/:id/recompute-status` state for frontend polling
-- Graph updates can bypass enqueueing update-driven recompute via `PUT /api/graphs/:id?noRecompute=true`
+- Uses an internal `RecomputeStateStore` to track node execution state snapshots exposed through graph runtime-state responses and SSE-triggered refreshes
+- Graph command batches can bypass enqueueing update-driven recompute via `POST /api/graphs/:id/commands?noRecompute=true`
 
 #### DataStore (`packages/backend/src/core/DataStore.ts`)
 - Thin persistence facade over `packages/backend/src/core/storage/`
 - Stores graph metadata through `GraphRepository`
 - Persists computation results and schemas through `ComputationResultRepository`
 - Persists graphics as id-addressable artifacts with PNG mip-map levels through `GraphicsArtifactStore`
-- Centralizes SQLite bootstrap/migrations through `DatabaseBootstrap`
+- Centralizes schema-versioned SQLite bootstrap and version-scoped storage initialization through `DatabaseBootstrap`
 
-#### GraphUpdateService (`packages/backend/src/core/GraphUpdateService.ts`)
-- Owns graph write policy used by REST graph updates
-- Normalizes and validates incoming graph payloads before persistence
-- Preserves version-bump and optimistic-concurrency behavior for graph writes
-- Triggers update-driven recompute enqueueing after successful persistence unless `noRecompute=true`
+#### GraphCommandService (`packages/backend/src/core/GraphCommandService.ts`)
+- Owns graph mutation and compute policy for the command API (`POST /api/graphs/:id/commands`)
+- Applies typed graph commands against a base graph revision and rejects stale writes with revision conflicts
+- Normalizes graph persistence details after command batches (projection sync, camera normalization, connection-stroke normalization, node version bumps)
+- Triggers update-driven recompute enqueueing after persisted command batches unless `noRecompute=true`
+- Builds graph-scoped runtime-state snapshots returned by `GET /api/graphs/:id/runtime-state` and command responses
+
+#### Graph Document Factory (`packages/backend/src/core/graphDocumentFactory.ts`)
+- Normalizes and validates first-write graph documents for `POST /api/graphs`
+- Applies graph defaults (projection, camera, timeout, drawing/env collections) before persistence
 
 #### NodeExecutor (`packages/backend/src/core/NodeExecutor.ts`)
 - Executes current node types (inline code, numeric input, annotation)
 - Infers data schemas from outputs
 - Delegates inline code execution to runtime implementations (`packages/backend/src/core/execution/`)
-- Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout)
+- Current default runtime: `JavaScriptVmRuntime` (Node `vm` sandbox with timeout, retained as an interim runtime rather than a production isolation boundary)
 - Additional runtime: `PythonProcessRuntime` (`python_process`) via spawned `python3` process with timeout
 - Resolves graph-scoped named Python environments (`name`, `pythonPath`, `cwd`) for per-node Python execution when `node.config.pythonEnv` is set
 - Uses graph-level `executionTimeoutMs` for inline runtime timeouts (default: 30 seconds)
@@ -81,9 +85,9 @@ k8v is a flow-based modeling software that enables visual programming through an
 - API integration with backend
 - Node and connection management
 - Persistent drawing object management (create/select/rename/move/delete/path append)
-- Optimistic persistence for graph edits
-- Node execution state tracking (pending/computing/error/stale/last-run)
-- Backend recompute-status polling for execution updates
+- Optimistic persistence for graph edits through graph command batches
+- Node execution state and latest node-result tracking (pending/computing/error/stale/last-run)
+- Real-time graph/runtime sync through SSE with runtime-state polling fallback
 
 ## Data Flow
 
@@ -91,7 +95,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 2. **Connection**: User connects node outputs to other node inputs
 3. **Computation**: GraphEngine computes nodes in topological order
 4. **Persistence**: Results are serialized and stored
-5. **Recomputation**: Backend recompute manager detects impacted chains, schedules queued work, and publishes node execution state updates
+5. **Recomputation**: Backend recompute manager detects impacted chains, schedules queued work, and publishes runtime updates consumed through SSE and graph-scoped runtime-state snapshots
 
 ## Directed Graph Semantics
 

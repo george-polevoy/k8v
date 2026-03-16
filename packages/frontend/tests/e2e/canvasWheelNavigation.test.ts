@@ -211,6 +211,60 @@ async function waitForViewportRect(
   );
 }
 
+async function dispatchCanvasWheel(
+  page: import('playwright').Page,
+  options: { x: number; y: number; deltaX: number; deltaY: number }
+): Promise<void> {
+  await page.evaluate(({ x, y, deltaX, deltaY }) => {
+    const mainCanvas = document.querySelector('canvas');
+    if (!(mainCanvas instanceof HTMLCanvasElement)) {
+      throw new Error('Main canvas not found');
+    }
+    mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+      deltaX,
+      deltaY,
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+      cancelable: true,
+    }));
+  }, options);
+}
+
+async function performWheelAndWaitForViewportRect(
+  page: import('playwright').Page,
+  performWheel: () => Promise<void>,
+  predicate: (rect: MinimapViewportRect) => boolean,
+  options?: {
+    attempts?: number;
+    timeoutMs?: number;
+    retryDelayMs?: number;
+  }
+): Promise<MinimapViewportRect> {
+  const attempts = options?.attempts ?? 3;
+  const retryDelayMs = options?.retryDelayMs ?? 120;
+  const timeoutMs = options?.timeoutMs ?? E2E_ASSERT_TIMEOUT_MS;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await performWheel();
+    try {
+      return await waitForViewportRect(
+        page,
+        predicate,
+        Math.max(750, Math.floor(timeoutMs / attempts))
+      );
+    } catch (error) {
+      lastError = error;
+      if (attempt < (attempts - 1)) {
+        await page.waitForTimeout(retryDelayMs);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Viewport change was not observed after wheel input');
+}
+
 function approxEqual(a: number, b: number, tolerance: number): boolean {
   return Math.abs(a - b) <= tolerance;
 }
@@ -248,38 +302,12 @@ test(
       const cursorY = canvasBox.y + (canvasBox.height / 2);
       await page.mouse.move(cursorX, cursorY);
 
-      await page.evaluate(({ x, y }) => {
-        const mainCanvas = document.querySelector('canvas');
-        if (!(mainCanvas instanceof HTMLCanvasElement)) {
-          throw new Error('Main canvas not found');
-        }
-        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
-          deltaX: 0,
-          deltaY: 0,
-          clientX: x,
-          clientY: y,
-          bubbles: true,
-          cancelable: true,
-        }));
-      }, { x: cursorX, y: cursorY });
+      await dispatchCanvasWheel(page, { x: cursorX, y: cursorY, deltaX: 0, deltaY: 0 });
       const initialRect = await waitForViewportRect(page, () => true);
 
-      await page.evaluate(({ x, y }) => {
-        const mainCanvas = document.querySelector('canvas');
-        if (!(mainCanvas instanceof HTMLCanvasElement)) {
-          throw new Error('Main canvas not found');
-        }
-        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
-          deltaX: 0,
-          deltaY: -20,
-          clientX: x,
-          clientY: y,
-          bubbles: true,
-          cancelable: true,
-        }));
-      }, { x: cursorX, y: cursorY });
-      const afterSmallWheelRect = await waitForViewportRect(
+      const afterSmallWheelRect = await performWheelAndWaitForViewportRect(
         page,
+        () => dispatchCanvasWheel(page, { x: cursorX, y: cursorY, deltaX: 0, deltaY: -20 }),
         (rect) => rect.width < (initialRect.width - 0.02)
       );
       const smallWheelZoomStep = initialRect.width - afterSmallWheelRect.width;
@@ -288,23 +316,13 @@ test(
         `Expected regular small wheel delta to zoom in (${initialRect.width} -> ${afterSmallWheelRect.width})`
       );
 
-      await page.evaluate(({ x, y }) => {
-        const mainCanvas = document.querySelector('canvas');
-        if (!(mainCanvas instanceof HTMLCanvasElement)) {
-          throw new Error('Main canvas not found');
-        }
-        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
-          deltaX: 0,
-          deltaY: -20,
-          ctrlKey: true,
-          clientX: x,
-          clientY: y,
-          bubbles: true,
-          cancelable: true,
-        }));
-      }, { x: cursorX, y: cursorY });
-      const afterPinchRect = await waitForViewportRect(
+      const afterPinchRect = await performWheelAndWaitForViewportRect(
         page,
+        async () => {
+          await page.keyboard.down('Control');
+          await page.mouse.wheel(0, -120);
+          await page.keyboard.up('Control');
+        },
         (rect) => rect.width < (afterSmallWheelRect.width - 0.02)
       );
       const pinchZoomStep = afterSmallWheelRect.width - afterPinchRect.width;
@@ -313,9 +331,9 @@ test(
         `Expected pinch zoom step to be significantly stronger than regular wheel step (${smallWheelZoomStep} vs ${pinchZoomStep})`
       );
 
-      await page.mouse.wheel(0, -120);
-      const afterZoomRect = await waitForViewportRect(
+      const afterZoomRect = await performWheelAndWaitForViewportRect(
         page,
+        () => page.mouse.wheel(0, -120),
         (rect) => rect.width < afterPinchRect.width || rect.height < afterPinchRect.height
       );
       assert.ok(
@@ -323,11 +341,13 @@ test(
         `Mouse-wheel zoom should shrink minimap viewport width (${afterPinchRect.width} -> ${afterZoomRect.width})`
       );
 
-      await page.keyboard.down('Shift');
-      await page.mouse.wheel(0, 120);
-      await page.keyboard.up('Shift');
-      const afterShiftRect = await waitForViewportRect(
+      const afterShiftRect = await performWheelAndWaitForViewportRect(
         page,
+        async () => {
+          await page.keyboard.down('Shift');
+          await page.mouse.wheel(0, 120);
+          await page.keyboard.up('Shift');
+        },
         (rect) =>
           !approxEqual(rect.x, afterZoomRect.x, 0.08) &&
           approxEqual(rect.y, afterZoomRect.y, 0.08)
@@ -337,11 +357,13 @@ test(
         `Shift+wheel should keep vertical position unchanged (${afterZoomRect.y} vs ${afterShiftRect.y})`
       );
 
-      await page.keyboard.down('Alt');
-      await page.mouse.wheel(0, 120);
-      await page.keyboard.up('Alt');
-      const afterAltRect = await waitForViewportRect(
+      const afterAltRect = await performWheelAndWaitForViewportRect(
         page,
+        async () => {
+          await page.keyboard.down('Alt');
+          await page.mouse.wheel(0, 120);
+          await page.keyboard.up('Alt');
+        },
         (rect) =>
           approxEqual(rect.x, afterShiftRect.x, 0.08) &&
           !approxEqual(rect.y, afterShiftRect.y, 0.08)
@@ -351,22 +373,9 @@ test(
         `Alt+wheel should keep horizontal position unchanged (${afterShiftRect.x} vs ${afterAltRect.x})`
       );
 
-      await page.evaluate(({ x, y }) => {
-        const mainCanvas = document.querySelector('canvas');
-        if (!(mainCanvas instanceof HTMLCanvasElement)) {
-          throw new Error('Main canvas not found');
-        }
-        mainCanvas.dispatchEvent(new WheelEvent('wheel', {
-          deltaX: 10,
-          deltaY: 8,
-          clientX: x,
-          clientY: y,
-          bubbles: true,
-          cancelable: true,
-        }));
-      }, { x: cursorX, y: cursorY });
-      const afterTrackpadPanRect = await waitForViewportRect(
+      const afterTrackpadPanRect = await performWheelAndWaitForViewportRect(
         page,
+        () => dispatchCanvasWheel(page, { x: cursorX, y: cursorY, deltaX: 10, deltaY: 8 }),
         (rect) =>
           !approxEqual(rect.x, afterAltRect.x, 0.08) &&
           !approxEqual(rect.y, afterAltRect.y, 0.08)

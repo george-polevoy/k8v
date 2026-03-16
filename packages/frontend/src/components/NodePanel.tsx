@@ -465,7 +465,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     backgroundColor?: string;
     borderColor?: string;
     fontColor?: string;
-    fontSize?: number;
+    fontSize?: number | string;
   }) => {
     if (!selectedNode || selectedNode.config.type !== NodeType.ANNOTATION) {
       return;

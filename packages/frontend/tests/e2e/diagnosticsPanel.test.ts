@@ -26,11 +26,15 @@ test(
       });
       const page = await context.newPage();
 
-      let failedPut = false;
-      await page.route('**/api/graphs/*', async (route) => {
+      let failedGraphUpdate = false;
+      await page.route('**/api/graphs/**', async (route) => {
         const request = route.request();
-        if (!failedPut && request.method() === 'PUT') {
-          failedPut = true;
+        if (
+          !failedGraphUpdate &&
+          request.method() === 'POST' &&
+          request.url().includes('/commands')
+        ) {
+          failedGraphUpdate = true;
           await route.fulfill({
             status: 413,
             contentType: 'application/json',
@@ -77,4 +81,3 @@ test(
     }
   }
 );
-

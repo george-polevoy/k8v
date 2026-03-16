@@ -7,18 +7,19 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently --names backend,frontend --prefix \"[{name}]\" --restart-tries 10 --restart-after 1000 --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npm run build:domain && concurrently --names backend,frontend --prefix \"[{name}]\" --restart-tries 10 --restart-after 1000 --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd packages/backend && npm run dev",
     "dev:frontend": "cd packages/frontend && npm run dev",
     "dev:mcp": "cd packages/mcp-server && npm run dev",
-    "build": "npm run build:backend && npm run build:frontend && npm run build:mcp",
+    "build": "npm run build:domain && npm run build:backend && npm run build:frontend && npm run build:mcp",
+    "build:domain": "cd packages/domain && npm run build",
     "build:backend": "cd packages/backend && npm run build",
     "build:frontend": "cd packages/frontend && npm run build",
     "build:mcp": "cd packages/mcp-server && npm run build",
     "start:mcp": "cd packages/mcp-server && npm run start",
     "install:all": "npm install && cd packages/backend && npm install && cd ../frontend && npm install",
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts packages/mcp-server/tests/*.test.ts",
+    "test:unit": "npm run build:domain && tsx --test packages/backend/tests/*.test.ts packages/frontend/tests/*.test.ts packages/mcp-server/tests/*.test.ts",
     "lint": "eslint --max-warnings=0 \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\"",
     "lint:fix": "eslint --fix \"packages/backend/src/**/*.ts\" \"packages/backend/tests/**/*.ts\" \"packages/frontend/src/**/*.{ts,tsx}\" \"packages/frontend/tests/**/*.ts\"",
     "test:e2e": "npm --prefix packages/frontend run test:e2e"

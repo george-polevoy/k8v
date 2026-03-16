@@ -74,14 +74,11 @@ async function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
 async function startFrontendDevServer(): Promise<FrontendDevServer> {
   const port = await findFreePort();
   const frontendUrl = `http://127.0.0.1:${port}`;
+  const viteBin = path.resolve(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js');
   const child = spawn(
-    'npm',
+    process.execPath,
     [
-      '--prefix',
-      'packages/frontend',
-      'run',
-      'dev',
-      '--',
+      viteBin,
       '--host',
       '127.0.0.1',
       '--port',
@@ -89,7 +86,7 @@ async function startFrontendDevServer(): Promise<FrontendDevServer> {
       '--strictPort',
     ],
     {
-      cwd: process.cwd(),
+      cwd: path.resolve(process.cwd(), 'packages/frontend'),
       stdio: ['ignore', 'pipe', 'pipe'],
     }
   );
@@ -107,6 +104,9 @@ async function startFrontendDevServer(): Promise<FrontendDevServer> {
     await waitForHttp(frontendUrl, 40_000);
   } catch (error) {
     child.kill('SIGKILL');
+    await new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+    });
     throw new Error(
       `Failed to start frontend dev server.\nstdout:\n${stdout}\nstderr:\n${stderr}\n${String(error)}`
     );
@@ -135,6 +135,9 @@ async function stopChildProcess(child: ChildProcessWithoutNullStreams): Promise<
 
   if (child.exitCode === null) {
     child.kill('SIGKILL');
+    await new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+    });
   }
 }
 
@@ -166,7 +169,12 @@ async function startBackendStubServer(): Promise<BackendStubServer> {
         return;
       }
       writeJson(200, {
-        graphs: [{ id: activeGraph.id, name: activeGraph.name, updatedAt: activeGraph.updatedAt }],
+        graphs: [{
+          id: activeGraph.id,
+          name: activeGraph.name,
+          revision: activeGraph.revision ?? 0,
+          updatedAt: activeGraph.updatedAt,
+        }],
       });
       return;
     }
@@ -180,17 +188,25 @@ async function startBackendStubServer(): Promise<BackendStubServer> {
       return;
     }
 
-    if (method === 'GET' && /^\/api\/graphs\/[^/]+\/recompute-status$/.test(requestUrl.pathname)) {
+    if (method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
       writeJson(200, {
         graphId: activeGraph?.id ?? 'unknown',
+        revision: activeGraph?.revision ?? 0,
         statusVersion: activeGraph?.updatedAt ?? Date.now(),
+        queueLength: 0,
+        workerConcurrency: activeGraph?.recomputeConcurrency ?? 1,
         nodeStates: {},
+        results: {},
       });
       return;
     }
 
-    if (method === 'GET' && /^\/api\/nodes\/[^/]+\/result$/.test(requestUrl.pathname)) {
-      writeJson(404, { error: 'Not found' });
+    if (method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.end(': connected\n\n');
       return;
     }
 
@@ -226,6 +242,7 @@ function createBaseGraph() {
   return {
     id: 'graph-screenshot-parity',
     name: 'Parity Graph',
+    revision: 0,
     nodes: [] as Array<any>,
     connections: [] as Array<any>,
     canvasBackground: { mode: 'solid', baseColor: '#123456' },
@@ -311,10 +328,37 @@ async function captureDirectFrontendScreenshot(params: {
               {
                 id: params.graphOverride.id,
                 name: params.graphOverride.name,
+                revision: params.graphOverride.revision ?? 0,
                 updatedAt: params.graphOverride.updatedAt,
               },
             ],
           }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            graphId: params.graphOverride.id,
+            revision: params.graphOverride.revision ?? 0,
+            statusVersion: params.graphOverride.updatedAt,
+            queueLength: 0,
+            workerConcurrency: params.graphOverride.recomputeConcurrency ?? 1,
+            nodeStates: {},
+            results: {},
+          }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: ': connected\n\n',
         });
         return;
       }

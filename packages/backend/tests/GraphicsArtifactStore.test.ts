@@ -15,13 +15,11 @@ test('GraphicsArtifactStore persists PNG levels and serves the closest mip by ma
   try {
     const stored = await store.storeGraphicsArtifact(`data:image/png;base64,${PNG_4X4_BASE64}`);
     assert.ok(stored);
-    assert.equal(stored?.levels[0]?.width, 4);
-    assert.equal(stored?.levels[0]?.height, 4);
+    assert.equal(stored.levels[0]?.width, 4);
+    assert.equal(stored.levels[0]?.height, 4);
+    assert.equal(stored.mimeType, 'image/png');
 
-    const publicArtifact = await store.getGraphicsArtifact(stored!.id);
-    assert.equal(publicArtifact?.mimeType, 'image/png');
-
-    const binary = await store.getGraphicsBinary(stored!.id, 4);
+    const binary = await store.getGraphicsBinary(stored, 4);
     assert.ok(binary);
     assert.equal(binary?.selectedLevel.width, 2);
     assert.equal(binary?.selectedLevel.height, 2);
@@ -30,4 +28,3 @@ test('GraphicsArtifactStore persists PNG levels and serves the closest mip by ma
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
-

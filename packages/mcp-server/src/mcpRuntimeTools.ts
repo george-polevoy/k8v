@@ -37,16 +37,19 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
     },
     async ({ graphId, nodeId, backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const result = await requestJson<unknown>(
+      const result = await requestJson<{ graph: Graph; runtimeState: { results: Record<string, unknown> } }>(
         resolvedBackendUrl,
-        `/api/graphs/${encodeURIComponent(graphId)}/compute`,
+        `/api/graphs/${encodeURIComponent(graphId)}/commands`,
         {
           method: 'POST',
-          body: JSON.stringify(nodeId ? { nodeId } : {}),
+          body: JSON.stringify({
+            baseRevision: (await getGraph(resolvedBackendUrl, graphId)).revision ?? 0,
+            commands: [nodeId ? { kind: 'compute_node', nodeId } : { kind: 'compute_graph' }],
+          }),
         }
       );
 
-      return textResult(result);
+      return textResult(nodeId ? (result.runtimeState.results[nodeId] ?? null) : result.runtimeState);
     }
   );
 

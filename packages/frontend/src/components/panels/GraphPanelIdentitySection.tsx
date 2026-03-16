@@ -4,7 +4,7 @@ import GraphManagementControls from '../GraphManagementControls';
 interface GraphPanelIdentitySectionProps {
   graphId: string | null;
   graphName: string;
-  graphSummaries: Array<{ id: string; name: string; updatedAt: number }>;
+  graphSummaries: Array<{ id: string; name: string; revision: number; updatedAt: number }>;
   graphNameValue: string;
   newGraphName: string;
   isGraphActionInFlight: boolean;
@@ -61,4 +61,3 @@ function GraphPanelIdentitySection({
 }
 
 export default GraphPanelIdentitySection;
-

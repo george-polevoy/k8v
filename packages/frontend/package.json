@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npm --prefix ../domain run build && vite",
+    "build": "npm --prefix ../domain run build && tsc && vite build",
     "preview": "vite preview",
     "snapshot:canvas": "node scripts/captureCanvasSnapshot.mjs",
     "test:e2e": "sh -c 'find tests/e2e -name \"*.test.ts\" | LC_ALL=C sort | while IFS= read -r file; do tsx --test \"$file\" || exit $?; done'"

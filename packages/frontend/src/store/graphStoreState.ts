@@ -1,6 +1,8 @@
-import type {
-  Graph,
-  GraphicsArtifact,
+import {
+  ComputationResult as ComputationResultSchema,
+  type ComputationResult as ComputationResultType,
+  type Graph,
+  type GraphicsArtifact,
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import { normalizeGraphCameraState } from '../utils/cameras';
@@ -15,6 +17,7 @@ import type {
   GraphSummary,
   NodeExecutionState,
   NodeGraphicsOutputMap,
+  NodeResultMap,
 } from './graphStoreTypes';
 
 export const DEFAULT_DRAWING_COLOR = '#ffffff';
@@ -28,28 +31,6 @@ export const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
   errorMessage: null,
   lastRunAt: null,
 };
-
-export interface BackendNodeExecutionState {
-  isPending?: boolean;
-  isComputing?: boolean;
-  hasError?: boolean;
-  isStale?: boolean;
-  errorMessage?: string | null;
-  lastRunAt?: number | null;
-}
-
-export interface BackendRecomputeStatus {
-  graphId?: string;
-  statusVersion?: number;
-  graphUpdatedAt?: number;
-  queueLength?: number;
-  workerConcurrency?: number;
-  nodeStates?: Record<string, BackendNodeExecutionState>;
-}
-
-function isErrorTextOutput(textOutput: unknown): boolean {
-  return typeof textOutput === 'string' && /^\s*error:/i.test(textOutput.trim());
-}
 
 export function resolveErrorMessage(error: unknown, fallback: string): string {
   const axiosError = error as {
@@ -67,18 +48,6 @@ export function resolveErrorMessage(error: unknown, fallback: string): string {
     return axiosError.message;
   }
   return fallback;
-}
-
-export function getNodeExecutionStateFromResult(result: any): NodeExecutionState {
-  const hasError = isErrorTextOutput(result?.textOutput);
-  return {
-    isPending: false,
-    isComputing: false,
-    hasError,
-    isStale: false,
-    errorMessage: hasError ? result.textOutput : null,
-    lastRunAt: typeof result?.timestamp === 'number' ? result.timestamp : Date.now(),
-  };
 }
 
 function normalizeGraphExecutionTimeoutMs(value: unknown): number {
@@ -105,6 +74,10 @@ export function normalizeGraph(graph: Graph): Graph {
 
   return {
     ...graph,
+    revision:
+      typeof graph.revision === 'number' && Number.isFinite(graph.revision) && graph.revision >= 0
+        ? graph.revision
+        : 0,
     nodes: projectedNodes,
     connections,
     canvasBackground: normalizeCanvasBackground(
@@ -192,6 +165,22 @@ export function normalizeGraphicsOutput(graphics: unknown): GraphicsArtifact | n
   };
 }
 
+export function normalizeComputationResult(result: unknown): ComputationResultType | null {
+  const parsed = ComputationResultSchema.safeParse(result);
+  if (!parsed.success) {
+    return null;
+  }
+
+  const normalizedGraphics = parsed.data.graphics
+    ? normalizeGraphicsOutput(parsed.data.graphics)
+    : null;
+
+  return {
+    ...parsed.data,
+    ...(normalizedGraphics ? { graphics: normalizedGraphics } : {}),
+  };
+}
+
 export function buildNodeGraphicsOutputMapForGraph(
   graph: Graph,
   previous: NodeGraphicsOutputMap
@@ -203,8 +192,19 @@ export function buildNodeGraphicsOutputMapForGraph(
   return nextGraphicsOutputs;
 }
 
+export function buildNodeResultMapForGraph(
+  graph: Graph,
+  previous: NodeResultMap
+): NodeResultMap {
+  const nextResults: NodeResultMap = {};
+  for (const node of graph.nodes) {
+    nextResults[node.id] = previous[node.id] ?? null;
+  }
+  return nextResults;
+}
+
 export function normalizeBackendNodeExecutionState(
-  value: BackendNodeExecutionState | undefined,
+  value: Partial<NodeExecutionState> | undefined,
   fallback: NodeExecutionState
 ): NodeExecutionState {
   if (!value || typeof value !== 'object') {
@@ -233,6 +233,7 @@ export function parseGraphSummariesResponse(data: unknown): GraphSummary[] {
       typeof summary === 'object' &&
       typeof summary.id === 'string' &&
       typeof summary.name === 'string' &&
+      typeof summary.revision === 'number' &&
       typeof summary.updatedAt === 'number'
     )
     .sort((left, right) => right.updatedAt - left.updatedAt);

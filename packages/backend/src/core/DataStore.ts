@@ -1,42 +1,67 @@
 import Database from 'better-sqlite3';
-import { ComputationResult } from '../types/index.js';
-import { PublicGraphicsArtifact } from './graphicsArtifacts.js';
-import { initializeDataStoreDatabase } from './storage/DatabaseBootstrap.js';
+import path from 'node:path';
+import type { ComputationResult, Graph } from '../types/index.js';
+import { type PublicGraphicsArtifact, toPublicGraphicsArtifact } from './graphicsArtifacts.js';
+import { initializeDataStoreDatabase, prepareVersionedStorageLayout } from './storage/DatabaseBootstrap.js';
+import { ArtifactRepository } from './storage/ArtifactRepository.js';
 import { ComputationResultRepository } from './storage/ComputationResultRepository.js';
 import { GraphRepository } from './storage/GraphRepository.js';
 import { GraphicsArtifactStore } from './storage/GraphicsArtifactStore.js';
 
-/**
- * Data store facade for persisting computation results and graph metadata.
- */
 export class DataStore {
   private readonly db: Database.Database;
   private readonly graphRepository: GraphRepository;
   private readonly resultRepository: ComputationResultRepository;
+  private readonly artifactRepository: ArtifactRepository;
   private readonly graphicsStore: GraphicsArtifactStore;
 
-  constructor(dbPath: string = ':memory:', dataDir: string = './data') {
-    this.db = new Database(dbPath);
+  constructor(dbPath?: string, artifactsDir?: string) {
+    const resolvedDbPath = dbPath ?? prepareVersionedStorageLayout('./storage').dbPath;
+    const resolvedArtifactsDir = artifactsDir ?? prepareVersionedStorageLayout('./storage').artifactsDir;
+
+    if (resolvedDbPath !== ':memory:') {
+      this.graphicsStore = new GraphicsArtifactStore(resolvedArtifactsDir);
+      this.db = new Database(resolvedDbPath);
+    } else {
+      this.graphicsStore = new GraphicsArtifactStore(
+        artifactsDir ?? path.resolve('./tmp/k8v-memory-artifacts')
+      );
+      this.db = new Database(':memory:');
+    }
+
     initializeDataStoreDatabase(this.db);
-    this.graphicsStore = new GraphicsArtifactStore(dataDir);
+    this.artifactRepository = new ArtifactRepository(this.db);
     this.graphRepository = new GraphRepository(this.db);
     this.resultRepository = new ComputationResultRepository(
       this.db,
-      this.graphicsStore.getDataDir(),
+      this.artifactRepository,
       this.graphicsStore
     );
   }
 
-  async storeResult(nodeId: string, result: ComputationResult): Promise<void> {
-    await this.resultRepository.storeResult(nodeId, result);
+  async storeResult(graphId: string, nodeId: string, result: ComputationResult): Promise<void> {
+    await this.resultRepository.storeResult(graphId, nodeId, result);
   }
 
-  async getResult(nodeId: string, version?: string): Promise<ComputationResult | null> {
-    return await this.resultRepository.getResult(nodeId, version);
+  async getResult(
+    graphId: string,
+    nodeId: string,
+    version?: string
+  ): Promise<ComputationResult | null> {
+    return await this.resultRepository.getResult(graphId, nodeId, version);
+  }
+
+  async getLatestResultByNodeId(nodeId: string, version?: string): Promise<ComputationResult | null> {
+    return await this.resultRepository.getLatestResultByNodeId(nodeId, version);
+  }
+
+  async listLatestResultsForGraph(graphId: string): Promise<Record<string, ComputationResult | null>> {
+    return await this.resultRepository.listLatestResultsForGraph(graphId);
   }
 
   async getGraphicsArtifact(graphicsId: string): Promise<PublicGraphicsArtifact | null> {
-    return await this.graphicsStore.getGraphicsArtifact(graphicsId);
+    const artifact = this.artifactRepository.getArtifact(graphicsId);
+    return artifact ? toPublicGraphicsArtifact(artifact) : null;
   }
 
   async getGraphicsBinary(
@@ -47,14 +72,18 @@ export class DataStore {
     mimeType: string;
     selectedLevel: { level: number; width: number; height: number; pixelCount: number };
   } | null> {
-    return await this.graphicsStore.getGraphicsBinary(graphicsId, maxPixels);
+    const artifact = this.artifactRepository.getArtifact(graphicsId);
+    if (!artifact) {
+      return null;
+    }
+    return await this.graphicsStore.getGraphicsBinary(artifact, maxPixels);
   }
 
-  async storeGraph(graph: any): Promise<void> {
+  async storeGraph(graph: Graph): Promise<void> {
     await this.graphRepository.storeGraph(graph);
   }
 
-  async getGraph(graphId: string): Promise<any | null> {
+  async getGraph(graphId: string): Promise<Graph | null> {
     return await this.graphRepository.getGraph(graphId);
   }
 
@@ -62,11 +91,11 @@ export class DataStore {
     return await this.graphRepository.deleteGraph(graphId);
   }
 
-  async listGraphs(): Promise<Array<{ id: string; name: string; updatedAt: number }>> {
+  async listGraphs(): Promise<Array<{ id: string; name: string; revision: number; updatedAt: number }>> {
     return await this.graphRepository.listGraphs();
   }
 
-  async getLatestGraph(): Promise<any | null> {
+  async getLatestGraph(): Promise<Graph | null> {
     return await this.graphRepository.getLatestGraph();
   }
 

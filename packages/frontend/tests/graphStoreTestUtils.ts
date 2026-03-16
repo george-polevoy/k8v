@@ -1,5 +1,6 @@
 import { useGraphStore } from '../src/store/graphStore.ts';
 import type { Graph } from '../src/types.ts';
+import { normalizeGraph } from '../src/store/graphStoreState.ts';
 
 export class MemoryLocalStorage {
   private values = new Map<string, string>();
@@ -20,6 +21,7 @@ export class MemoryLocalStorage {
 export const makeGraph = (id: string): Graph => ({
   id,
   name: `Graph ${id}`,
+  revision: 0,
   nodes: [],
   connections: [],
   createdAt: Date.now(),
@@ -31,23 +33,31 @@ export function resetGraphStoreState(overrides: Partial<ReturnType<typeof useGra
     (globalThis as any).sessionStorage = new MemoryLocalStorage();
   }
 
+  const normalizedGraph = overrides.graph ? normalizeGraph(overrides.graph as Graph) : null;
+  const normalizedGraphSummaries = (overrides.graphSummaries ?? []).map((summary) => ({
+    revision: 0,
+    ...summary,
+  }));
+
   useGraphStore.setState({
-    graph: null,
-    graphSummaries: [],
+    graph: normalizedGraph,
+    graphSummaries: normalizedGraphSummaries,
     selectedCameraId: null,
     selectedNodeId: null,
     selectedNodeIds: [],
     selectedDrawingId: null,
     isLoading: false,
     error: null,
-    resultRefreshKey: 0,
     nodeExecutionStates: {},
     nodeGraphicsOutputs: {},
+    nodeResults: {},
     selectedNodeGraphicsDebug: null,
     drawingEnabled: false,
     drawingColor: '#ffffff',
     drawingThickness: 3,
     drawingCreateRequestId: 0,
     ...overrides,
+    graph: normalizedGraph,
+    graphSummaries: normalizedGraphSummaries,
   } as ReturnType<typeof useGraphStore.getState>);
 }

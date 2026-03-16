@@ -18,6 +18,7 @@ const MAX_LOG_LINES = 160;
 const POLL_INTERVAL_MS = 250;
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
 const E2E_DEBUG = process.env.K8V_E2E_DEBUG === '1';
+const CLEANUP_TIMEOUT_MS = 8_000;
 
 let initialized = false;
 let backendProcess: ManagedProcess | null = null;
@@ -97,6 +98,34 @@ async function isHttpReady(url: string): Promise<boolean> {
   }
 }
 
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  context: string
+): Promise<Response> {
+  const startedAt = Date.now();
+  let lastError: unknown = null;
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const remainingMs = Math.max(1_500, timeoutMs - (Date.now() - startedAt));
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(Math.min(4_000, remainingMs)),
+      });
+    } catch (error) {
+      lastError = error;
+    }
+
+    await delay(POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `${context} failed after ${timeoutMs}ms: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
+}
+
 async function waitForUrl(url: string, timeoutMs: number, processInfo: ManagedProcess | null): Promise<void> {
   debugLog(`Waiting for ${url} (timeout ${timeoutMs}ms)`);
   const startedAt = Date.now();
@@ -117,6 +146,42 @@ async function waitForUrl(url: string, timeoutMs: number, processInfo: ManagedPr
   }
 
   throw new Error(`Timed out waiting for ${url} (${timeoutMs}ms).${getRecentLogs(processInfo)}`);
+}
+
+async function waitForStableUrl(
+  url: string,
+  timeoutMs: number,
+  processInfo: ManagedProcess | null,
+  requiredSuccesses = 3
+): Promise<void> {
+  debugLog(`Waiting for stable readiness on ${url} (${requiredSuccesses} consecutive checks)`);
+  const startedAt = Date.now();
+  let consecutiveSuccesses = 0;
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (await isHttpReady(url)) {
+      consecutiveSuccesses += 1;
+      if (consecutiveSuccesses >= requiredSuccesses) {
+        debugLog(`Stable readiness confirmed for ${url}`);
+        return;
+      }
+    } else {
+      consecutiveSuccesses = 0;
+    }
+
+    if (processInfo && processInfo.child.exitCode !== null) {
+      throw new Error(
+        `Process "${processInfo.name}" exited before ${url} stayed ready. Exit code: ${processInfo.child.exitCode}.` +
+          getRecentLogs(processInfo)
+      );
+    }
+
+    await delay(POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `Timed out waiting for stable readiness on ${url} (${timeoutMs}ms).${getRecentLogs(processInfo)}`
+  );
 }
 
 function isDefaultLocalUrl(url: string, expectedPort: string): boolean {
@@ -168,9 +233,12 @@ async function stopProcess(processInfo: ManagedProcess | null): Promise<void> {
 
 async function cleanupAutotestGraphs(): Promise<void> {
   debugLog('cleanupAutotestGraphs: listing graphs');
-  const listResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
-    signal: AbortSignal.timeout(4_000),
-  });
+  const listResponse = await fetchWithRetry(
+    `${E2E_BACKEND_URL}/api/graphs`,
+    {},
+    CLEANUP_TIMEOUT_MS,
+    'Failed to list graphs for cleanup'
+  );
   if (!listResponse.ok) {
     throw new Error(`Failed to list graphs for cleanup (${listResponse.status})`);
   }
@@ -189,10 +257,12 @@ async function cleanupAutotestGraphs(): Promise<void> {
   debugLog(`cleanupAutotestGraphs: deleting ${targetGraphIds.length} graphs`);
 
   await Promise.all(targetGraphIds.map(async (graphId) => {
-    const deleteResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-      method: 'DELETE',
-      signal: AbortSignal.timeout(4_000),
-    });
+    const deleteResponse = await fetchWithRetry(
+      `${E2E_BACKEND_URL}/api/graphs/${graphId}`,
+      { method: 'DELETE' },
+      CLEANUP_TIMEOUT_MS,
+      `Failed to cleanup graph ${graphId}`
+    );
     if (deleteResponse.status !== 204 && deleteResponse.status !== 404) {
       throw new Error(`Failed to cleanup graph ${graphId} (${deleteResponse.status})`);
     }
@@ -242,6 +312,10 @@ export async function ensureE2EEnvironment(): Promise<void> {
     } else {
       debugLog('Frontend already reachable; reusing existing frontend');
     }
+
+    // Frontend startup rebuilds shared domain artifacts, which can briefly restart a managed
+    // backend that's watching those files. Reconfirm backend readiness before cleanup begins.
+    await waitForStableUrl(backendHealthUrl, E2E_START_TIMEOUT_MS, backendProcess);
 
     await cleanupAutotestGraphs();
     initialized = true;

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getNode } from './graphConnectionEdits.js';
 import {
+  NodeType,
   applyProjectionToNodes,
   type GraphNode,
   normalizeGraphProjectionState,
@@ -157,7 +158,7 @@ export const nodeBulkEditHandlers: Record<string, BulkEditOperationHandler> = {
 
     const node: GraphNode = {
       id: nodeId,
-      type: 'inline_code',
+      type: NodeType.INLINE_CODE,
       position: { x: operation.x, y: operation.y },
       metadata: {
         name: operation.name ?? 'Inline Code',
@@ -165,7 +166,7 @@ export const nodeBulkEditHandlers: Record<string, BulkEditOperationHandler> = {
         outputs,
       },
       config: {
-        type: 'inline_code',
+        type: NodeType.INLINE_CODE,
         runtime: operation.runtime ?? 'javascript_vm',
         ...(operation.pythonEnv ? { pythonEnv: operation.pythonEnv } : {}),
         code: inlineCode,
@@ -363,7 +364,7 @@ export const nodeBulkEditHandlers: Record<string, BulkEditOperationHandler> = {
                     ...candidate.metadata.inputs,
                     {
                       name: operation.inputName,
-                      schema: { type: 'object' },
+                      schema: { type: 'object' as const },
                     },
                   ],
                 },
@@ -489,4 +490,3 @@ export const nodeBulkEditHandlers: Record<string, BulkEditOperationHandler> = {
     },
   }),
 };
-

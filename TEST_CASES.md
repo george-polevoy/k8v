@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 14, 2026.
+Last reviewed: March 16, 2026.
 
 ## Coverage Legend
 
@@ -23,7 +23,7 @@ Last reviewed: March 14, 2026.
 - `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor, applies stronger pinch zoom response, supports deep zoom-in/out range, maps modifier pan (`Shift` horizontal, `Alt` vertical), and keeps trackpad-style small-delta pan.
 - `A-E2E-11` `packages/frontend/tests/e2e/graphRecomputeConcurrency.test.ts`: graph panel recompute worker setting persists graph-level concurrency and clamps values to the backend-supported max.
 - `A-E2E-12` `packages/frontend/tests/e2e/graphExecutionTimeout.test.ts`: graph panel script timeout setting persists graph-level execution timeout and accepts large values (no max clamp).
-- `A-E2E-13` `packages/frontend/tests/e2e/nodeDragReRenderStability.test.ts`: node drag remains visually stable while canvas rerenders during recompute-status polling, and dropped position persists.
+- `A-E2E-13` `packages/frontend/tests/e2e/nodeDragReRenderStability.test.ts`: node drag remains visually stable while canvas rerenders during runtime-state refreshes, and dropped position persists.
 - `A-E2E-14` `packages/frontend/tests/e2e/annotationCard.test.ts`: annotation card renders markdown + KaTeX math, persists left/top edge resize updates (size + position), stays selectable with fully transparent background fill, persists font-size updates in node panel, and preserves empty text state (no template fallback, no overlay render when cleared).
 - `A-E2E-15` `packages/frontend/tests/e2e/inlineCodeOutputPortSync.test.ts`: editing inline-code source in the node panel updates inferred output port metadata on blur.
 - `A-E2E-16` `packages/frontend/tests/e2e/connectionStroke.test.ts`: graph panel connection stroke controls persist foreground/background colors and preserve the required 2x background-to-foreground width ratio.
@@ -81,16 +81,16 @@ Last reviewed: March 14, 2026.
 - `A-FE-38` `packages/frontend/tests/cameras.test.ts`: camera helpers inject the default camera, round-trip floating-window edge-ratio layouts across viewport sizes, and persist current camera selection per graph/window.
 - `A-FE-39` `packages/frontend/tests/projections.test.ts`: `syncActiveProjectionLayout` rewrites only the active projection from current node coordinates/card sizes.
 - `A-FE-40` `packages/frontend/tests/graphStorePersistence.test.ts`: non-overlapping stale graph updates are rebased onto the latest graph state and retried after a `409` conflict.
-- `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: recompute-status polling refreshes the current graph when remote `graphUpdatedAt` advances.
-- `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: recompute-status polling backs off to a slower idle cadence when the backend reports no active queued or running work.
-- `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged recompute-status snapshots do not rewrite frontend node execution state.
+- `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
+- `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
+- `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
-- `A-BE-03` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects malformed runtime updates.
+- `A-BE-03` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects malformed runtime updates.
 - `A-BE-04` `packages/backend/tests/app.test.ts`: compute returns clear error for unknown runtime.
 - `A-BE-05` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects cyclic graphs.
-- `A-BE-06` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects cycle-introducing connection updates.
-- `A-BE-07` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates on legacy cyclic graphs (strict DAG enforcement).
+- `A-BE-06` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects cycle-introducing connection updates.
+- `A-BE-07` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects all updates on legacy cyclic graphs (strict DAG enforcement).
 - `A-BE-08` `packages/backend/tests/GraphEngine.test.ts`: downstream recompute after upstream result changes.
 - `A-BE-09` `packages/backend/tests/DataStore.test.ts`: versioned results are preserved for same node.
 - `A-BE-10` `packages/backend/tests/NodeExecutor.test.ts`: default runtime selection.
@@ -120,28 +120,28 @@ Last reviewed: March 14, 2026.
 - `A-BE-34` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor computes `numeric_input` outputs with normalized `min`/`max`/`step`/`value`.
 - `A-BE-35` `packages/backend/tests/app.test.ts`: graph API accepts `numeric_input` nodes and compute returns numeric output.
 - `A-BE-36` `packages/backend/tests/app.test.ts`: `DELETE /api/graphs/:id` deletes existing graphs and returns 404 for missing graphs.
-- `A-BE-37` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` accepts graph updates with payloads larger than 100KB (large drawings + node additions).
+- `A-BE-37` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts graph updates with payloads larger than 100KB (large drawings + node additions).
 - `A-BE-38` `packages/backend/tests/app.test.ts`: graph API applies default canvas background settings and persists canvas background updates.
 - `A-BE-39` `packages/backend/tests/app.test.ts`: graph API normalizes drawing path colors to hex format.
 - `A-BE-40` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default projection metadata when omitted.
-- `A-BE-41` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` switches active projection and applies that projection's node coordinates.
+- `A-BE-41` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` switches active projection and applies that projection's node coordinates.
 - `A-BE-42` `packages/backend/tests/app.test.ts`: switching `activeProjectionId` updates graph canvas background to the selected projection background.
-- `A-BE-43` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects updates that attempt to remove all projections.
-- `A-BE-44` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects stale `ifMatchUpdatedAt` writes with `409` conflict and current timestamp metadata.
+- `A-BE-43` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects updates that attempt to remove all projections.
+- `A-BE-44` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects stale `baseRevision` writes with `409` conflict and current revision metadata.
 - `A-BE-45` `packages/backend/tests/app.test.ts`: `POST /api/graphs` preserves oversized fallback node card dimensions (no fixed max cap).
-- `A-BE-46` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
-- `A-BE-47` `packages/backend/tests/app.test.ts`: recompute status endpoint reports graph-level worker concurrency, includes `graphUpdatedAt`, and reflects updates.
-- `A-BE-48` `packages/backend/tests/app.test.ts`: graph updates enqueue backend recompute for all impacted descendants and expose pending status through recompute-status polling.
+- `A-BE-46` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
+- `A-BE-47` `packages/backend/tests/app.test.ts`: runtime-state endpoint reports graph-level worker concurrency, includes graph revision, and reflects updates.
+- `A-BE-48` `packages/backend/tests/app.test.ts`: graph command updates enqueue backend recompute for all impacted descendants and expose pending status through runtime-state reads.
 - `A-BE-49` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph execution timeout (`executionTimeoutMs = 30000`).
-- `A-BE-50` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` persists graph execution timeout updates and accepts large values (no max cap).
+- `A-BE-50` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` persists graph execution timeout updates and accepts large values (no max cap).
 - `A-BE-51` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor forwards graph-level `executionTimeoutMs` to runtime requests and defaults to 30 seconds when absent.
 - `A-BE-52` `packages/backend/tests/app.test.ts`: annotation nodes are accepted by graph API and rejected as non-executable for node-targeted compute calls.
 - `A-BE-53` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor treats annotation nodes as non-computing no-op outputs and does not invoke runtimes.
 - `A-BE-54` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime retries once after timeout and only reports timeout after retry attempts are exhausted.
-- `A-BE-55` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id?noRecompute=true` applies connection updates without enqueueing backend recompute work.
-- `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `PUT /api/graphs/:id` updates preserve node positions/card sizes and projection metadata.
+- `A-BE-55` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands?noRecompute=true` applies connection updates without enqueueing backend recompute work.
+- `A-BE-56` `packages/backend/tests/app.test.ts`: connections-only `POST /api/graphs/:id/commands` updates preserve node positions/card sizes and projection metadata.
 - `A-BE-57` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph-level connection stroke settings.
-- `A-BE-58` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` persists graph-level connection stroke updates while normalizing 2x width ratio and brightness separation.
+- `A-BE-58` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` persists graph-level connection stroke updates while normalizing 2x width ratio and brightness separation.
 - `A-BE-59` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `overview` returns lightweight default field projections (`id`/`name` for nodes and mandatory `sourceNodeId`/`targetNodeId` plus port names for connections).
 - `A-BE-60` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_bfs` supports depth-limited downstream traversal and returns only requested fields.
 - `A-BE-61` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `traverse_dfs` enforces max-node-limited downstream traversal and returns only requested fields.
@@ -151,14 +151,14 @@ Last reviewed: March 14, 2026.
 - `A-BE-65` `packages/backend/tests/app.test.ts`: annotation-linked connections round-trip persisted edge anchors and are excluded from DAG validation.
 - `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
 - `A-BE-67` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` traverses annotation-linked nodes and can project annotation `sourceAnchor`/`targetAnchor` fields for those links.
-- `A-BE-68` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects connection updates that would leave multiple inbound edges on one target input slot.
+- `A-BE-68` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects connection updates that would leave multiple inbound edges on one target input slot.
 - `A-BE-69` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `library` node payloads.
 - `A-BE-70` `packages/backend/tests/app.test.ts`: `/api/library-nodes` is not exposed.
 - `A-BE-71` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects duplicate node ids.
-- `A-BE-72` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` rejects duplicate node ids.
-- `A-BE-73` `packages/backend/tests/app.test.ts`: nodes-only `PUT /api/graphs/:id` updates sync the active projection layout while preserving non-active projection metadata.
+- `A-BE-72` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects duplicate node ids.
+- `A-BE-73` `packages/backend/tests/app.test.ts`: nodes-only `POST /api/graphs/:id/commands` updates sync the active projection layout while preserving non-active projection metadata.
 - `A-BE-74` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default camera metadata when cameras are omitted.
-- `A-BE-75` `packages/backend/tests/app.test.ts`: `PUT /api/graphs/:id` preserves the default camera when a camera update would otherwise remove all cameras.
+- `A-BE-75` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` preserves the default camera when a camera update would otherwise remove all cameras.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP projection cloning (`graph_projection_add`) preserves oversized fallback node card dimensions (no fixed max cap).
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `connection_set` bulk operation atomically replaces inbound wiring for a target input and removes duplicates.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP connection filtering helper narrows connection lists by node + target port.
@@ -242,7 +242,7 @@ Last reviewed: March 14, 2026.
 - `M-COMPUTE-02`: Graph compute from toolbar updates all downstream outputs.
 - `M-COMPUTE-03`: Output panel refresh recovers from persistence lag without manual reload.
 - `M-VALID-01`: API rejects connection with missing source/target node references.
-- `M-VALID-02`: API rejects cycle on graph create/update and allows non-connection edits on legacy cyclic graph.
+- `M-VALID-02`: API rejects cycles on graph create and rejects all command updates on legacy cyclic graphs.
 - `M-MCP-01`: `graph_screenshot_region` captures the exact requested world rectangle into the requested fixed bitmap dimensions.
 - `M-MCP-02`: MCP screenshot renderer uses frontend `canvasOnly` mode and hides floating tool/sidebar windows.
 - `M-MCP-04`: MCP graph-edit tools (add/move/rename/code/input/connection/delete) persist through backend and are reflected by `graph_get`.
@@ -261,9 +261,9 @@ Last reviewed: March 14, 2026.
 | Load last opened graph from localStorage on startup | `A-FE-01` | Automated |
 | Fallback to latest stored graph when saved graph ID is stale | `A-FE-01` | Automated |
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
-| Persist graph edits through `PUT /api/graphs/:id` | `A-FE-02`, `A-BE-37` | Automated |
+| Persist graph edits through `POST /api/graphs/:id/commands` | `A-FE-02`, `A-BE-37` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
-| Graph update conflict detection/rebase/reload (`ifMatchUpdatedAt` + `409`) | `A-BE-44`, `A-FE-24`, `A-FE-40`, `A-E2E-08`, `A-E2E-28` | Automated |
+| Graph update conflict detection/rebase/reload (`baseRevision` + `409`) | `A-BE-44`, `A-FE-24`, `A-FE-40`, `A-E2E-08`, `A-E2E-28` | Automated |
 | Open sessions auto-refresh the current graph when remote updates are detected | `A-FE-41`, `A-E2E-28` | Automated |
 | Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery (connections always include source/target node ids) | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63`, `A-BE-64` | Automated |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
@@ -345,7 +345,7 @@ Last reviewed: March 14, 2026.
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
 | Per-node execution state in store | `A-FE-06`, `A-FE-07`, `A-BE-48`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
-| Frontend recompute-status polling slows to an idle cadence and ignores unchanged backend snapshots | `A-FE-42`, `A-FE-43` | Automated |
+| Frontend runtime-state polling slows to an idle cadence and ignores unchanged backend snapshots | `A-FE-42`, `A-FE-43` | Automated |
 | Card status light (red/amber/brown/green/gray) | `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Manual |
 | Node panel execution error text | `M-STATUS-02` | Manual |
 | Node panel graphics budget debug for selected projected-graphics node | `M-PANEL-14` | Manual |
@@ -360,7 +360,7 @@ Last reviewed: March 14, 2026.
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
 | Frontend graph updates do not run local auto-recompute chains | `A-FE-05` | Automated |
 | Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
-| Graph update API optional recompute suppression (`PUT /api/graphs/:id?noRecompute=true`) | `A-BE-55` | Automated |
+| Graph command API optional recompute suppression (`POST /api/graphs/:id/commands?noRecompute=true`) | `A-BE-55` | Automated |
 | Auto-recompute pending status includes impacted descendants | `A-BE-48`, `M-STATUS-01` | Automated + Manual |
 | Graph-level recompute worker concurrency is configurable | `A-BE-47`, `A-E2E-11` | Automated |
 | Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
@@ -391,5 +391,5 @@ Last reviewed: March 14, 2026.
 ## Open Gaps
 
 - Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`).
-- No committed automated frontend tests yet for node panel input editing and backend recompute-status polling UI workflows.
+- No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

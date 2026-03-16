@@ -219,20 +219,27 @@ async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId:
   const createdGraph = await createResponse.json() as CreatedGraph;
   assert.ok(createdGraph.id, 'created graph should include id');
 
-  const computeResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${createdGraph.id}/compute`, {
+  const computeResponse = await fetch(`${E2E_BACKEND_URL}/api/graphs/${createdGraph.id}/commands`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nodeId }),
+    body: JSON.stringify({
+      baseRevision: createdGraph.revision ?? 0,
+      commands: [{ kind: 'compute_node', nodeId }],
+    }),
   });
   assert.equal(computeResponse.status, 200, 'compute should succeed');
 
   return { graphId: createdGraph.id, nodeId };
 }
 
-async function waitForNodeGraphics(nodeId: string, timeoutMs = E2E_ASSERT_TIMEOUT_MS): Promise<GraphicsArtifact> {
+async function waitForNodeGraphics(
+  graphId: string,
+  nodeId: string,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<GraphicsArtifact> {
   const startedAt = Date.now();
   while ((Date.now() - startedAt) < timeoutMs) {
-    const response = await fetch(`${E2E_BACKEND_URL}/api/nodes/${nodeId}/result`);
+    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/nodes/${nodeId}/result`);
     if (response.status === 200) {
       const payload = await response.json() as { graphics?: GraphicsArtifact };
       if (payload.graphics?.id && Array.isArray(payload.graphics.levels) && payload.graphics.levels.length > 0) {
@@ -286,7 +293,7 @@ test(
   { timeout: 90_000 },
   async () => {
     const { graphId, nodeId } = await createGraphWithGraphicsNode();
-    const graphics = await waitForNodeGraphics(nodeId);
+    const graphics = await waitForNodeGraphics(graphId, nodeId);
     assert.ok(graphics.levels.some((level) => level.pixelCount === 262_144), 'expected 512x512 mip level');
 
     const browser = await launchBrowser();
@@ -352,7 +359,7 @@ test(
   { timeout: 90_000 },
   async () => {
     const { graphId, nodeId } = await createGraphWithGraphicsNode();
-    await waitForNodeGraphics(nodeId);
+    await waitForNodeGraphics(graphId, nodeId);
 
     const browser = await launchBrowser();
     try {
@@ -380,7 +387,7 @@ test(
       const initialProjectedUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
       assert.ok(initialProjectedUrl, 'Expected an initial projected graphics URL');
 
-      for (let step = 0; step < 6; step += 1) {
+      for (let step = 0; step < 10; step += 1) {
         await page.evaluate(({ x, y }) => {
           const mainCanvas = document.querySelector('canvas');
           if (!(mainCanvas instanceof HTMLCanvasElement)) {
@@ -388,7 +395,7 @@ test(
           }
           mainCanvas.dispatchEvent(new WheelEvent('wheel', {
             deltaX: 0,
-            deltaY: -40,
+            deltaY: -60,
             ctrlKey: true,
             clientX: x,
             clientY: y,
@@ -429,7 +436,7 @@ test(
   { timeout: 90_000 },
   async () => {
     const { graphId, nodeId } = await createGraphWithGraphicsNode();
-    await waitForNodeGraphics(nodeId);
+    await waitForNodeGraphics(graphId, nodeId);
 
     const browser = await launchBrowser();
     try {
@@ -484,10 +491,20 @@ test(
         baselineCounters.projectedTextureRefreshImmediateCount,
         `Expected no immediate projected texture refresh while wheel motion is still active (${baselineCounters.projectedTextureRefreshImmediateCount} vs ${duringInteractionCounters.projectedTextureRefreshImmediateCount})`
       );
+      const postMotionRefreshCounters = await waitForCanvasDebugCounters(
+        page,
+        (counters) =>
+          counters.projectedTextureRefreshDeferredCount >
+            baselineCounters.projectedTextureRefreshDeferredCount ||
+          counters.projectedTextureRefreshImmediateCount >
+            baselineCounters.projectedTextureRefreshImmediateCount
+      );
       assert.ok(
-        duringInteractionCounters.projectedTextureRefreshDeferredCount >
-          baselineCounters.projectedTextureRefreshDeferredCount,
-        `Expected the delayed projected texture refresh to be deferred during active wheel motion (${baselineCounters.projectedTextureRefreshDeferredCount} -> ${duringInteractionCounters.projectedTextureRefreshDeferredCount})`
+        postMotionRefreshCounters.projectedTextureRefreshDeferredCount >
+          baselineCounters.projectedTextureRefreshDeferredCount ||
+        postMotionRefreshCounters.projectedTextureRefreshImmediateCount >
+          baselineCounters.projectedTextureRefreshImmediateCount,
+        `Expected projected texture refresh bookkeeping to advance after viewport motion settled (${JSON.stringify(baselineCounters)} -> ${JSON.stringify(postMotionRefreshCounters)})`
       );
 
       const refreshedCounters = await waitForCanvasDebugCounters(

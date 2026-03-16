@@ -1,4 +1,5 @@
 import { requestJson } from './mcpHttp.js';
+import { buildGraphCommandsFromSnapshotChange } from '../../domain/dist/index.js';
 import {
   type Connection,
   type Graph,
@@ -40,7 +41,7 @@ function buildGraphUpdateEndpoint(graphId: string, options?: UpdateGraphRequestO
     params.set('noRecompute', 'true');
   }
   const query = params.toString();
-  return `/api/graphs/${encodeURIComponent(graphId)}${query ? `?${query}` : ''}`;
+  return `/api/graphs/${encodeURIComponent(graphId)}/commands${query ? `?${query}` : ''}`;
 }
 
 export const updateGraph: UpdateGraphFn = async (
@@ -53,22 +54,30 @@ export const updateGraph: UpdateGraphFn = async (
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const currentGraph = await getGraph(backendUrl, graphId);
     const nextGraph = normalizeGraph(mutate(structuredClone(currentGraph)));
-    const body = {
-      ...nextGraph,
-      id: graphId,
-      updatedAt: Date.now(),
-      ifMatchUpdatedAt: currentGraph.updatedAt,
-    };
+    const commands = buildGraphCommandsFromSnapshotChange(
+      currentGraph as Parameters<typeof buildGraphCommandsFromSnapshotChange>[0],
+      nextGraph as Parameters<typeof buildGraphCommandsFromSnapshotChange>[1]
+    );
+    if (commands.length === 0) {
+      return nextGraph;
+    }
 
     try {
-      const persisted = await requestJson<Graph>(backendUrl, buildGraphUpdateEndpoint(graphId), {
-        method: 'PUT',
-        body: JSON.stringify(body),
-      });
-      return normalizeGraph(persisted);
+      const response = await requestJson<{ graph: Graph }>(
+        backendUrl,
+        buildGraphUpdateEndpoint(graphId),
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            baseRevision: currentGraph.revision ?? 0,
+            commands,
+          }),
+        }
+      );
+      return normalizeGraph(response.graph);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (attempt < maxAttempts && /reload and retry/i.test(message)) {
+      if (attempt < maxAttempts && /conflict|reload and retry/i.test(message)) {
         continue;
       }
       throw error;
@@ -89,28 +98,40 @@ export const updateGraphConnectionsWithResult: UpdateGraphConnectionsWithResultF
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const currentGraph = await getGraph(backendUrl, graphId);
     const mutation = mutateConnections(structuredClone(currentGraph));
-
-    const body = {
+    const nextGraph = normalizeGraph({
+      ...currentGraph,
       connections: mutation.connections,
-      ifMatchUpdatedAt: currentGraph.updatedAt,
-    };
+    });
+    const commands = buildGraphCommandsFromSnapshotChange(
+      currentGraph as Parameters<typeof buildGraphCommandsFromSnapshotChange>[0],
+      nextGraph as Parameters<typeof buildGraphCommandsFromSnapshotChange>[1]
+    );
+    if (commands.length === 0) {
+      return {
+        graph: nextGraph,
+        result: mutation.result,
+      };
+    }
 
     try {
-      const persisted = await requestJson<Graph>(
+      const response = await requestJson<{ graph: Graph }>(
         backendUrl,
         buildGraphUpdateEndpoint(graphId, options),
         {
-          method: 'PUT',
-          body: JSON.stringify(body),
+          method: 'POST',
+          body: JSON.stringify({
+            baseRevision: currentGraph.revision ?? 0,
+            commands,
+          }),
         }
       );
       return {
-        graph: normalizeGraph(persisted),
+        graph: normalizeGraph(response.graph),
         result: mutation.result,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (attempt < maxAttempts && /reload and retry/i.test(message)) {
+      if (attempt < maxAttempts && /conflict|reload and retry/i.test(message)) {
         continue;
       }
       throw error;

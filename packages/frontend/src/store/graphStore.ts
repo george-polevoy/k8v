@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   Graph,
+  GraphRuntimeState,
   GraphDrawing,
   DrawingPath,
   GraphNode,
@@ -35,7 +36,6 @@ import {
   normalizeGraph,
   parseGraphSummariesResponse,
   resolveErrorMessage,
-  type BackendRecomputeStatus,
 } from './graphStoreState';
 import { createGraphStoreUiController } from './graphStoreUi';
 import { resolveSelectedGraphCameraId } from '../utils/cameras';
@@ -51,6 +51,7 @@ export type {
   NodeExecutionState,
   NodeGraphicsComputationDebug,
   NodeGraphicsOutputMap,
+  NodeResultMap,
   PencilColor,
   PencilThickness,
 } from './graphStoreTypes';
@@ -101,19 +102,20 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
 
 export const useGraphStore = create<GraphStore>((set, get) => {
   let remoteSyncInFlight = false;
-  const lastAppliedRecomputeStatusMeta = new Map<string, {
+  let graphEventsSource: EventSource | null = null;
+  const lastAppliedRuntimeStateMeta = new Map<string, {
+    revision: number;
     statusVersion: number;
-    graphUpdatedAt: number | null;
   }>();
-  const RECOMPUTE_POLL_IDLE_INTERVAL_MS = 1_500;
-  const RECOMPUTE_POLL_HIDDEN_INTERVAL_MS = 5_000;
+  const RUNTIME_STATE_POLL_IDLE_INTERVAL_MS = 1_500;
+  const RUNTIME_STATE_POLL_HIDDEN_INTERVAL_MS = 5_000;
 
-  const hasActiveBackendRecompute = (status: BackendRecomputeStatus): boolean => {
-    if (typeof status.queueLength === 'number' && status.queueLength > 0) {
+  const hasActiveBackendRecompute = (runtimeState: GraphRuntimeState): boolean => {
+    if (typeof runtimeState.queueLength === 'number' && runtimeState.queueLength > 0) {
       return true;
     }
 
-    for (const nodeState of Object.values(status.nodeStates ?? {})) {
+    for (const nodeState of Object.values(runtimeState.nodeStates ?? {})) {
       if (nodeState?.isPending || nodeState?.isComputing) {
         return true;
       }
@@ -126,57 +128,54 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     api: graphApi,
     getState: () => get(),
     setState: (partial) => set(partial as Parameters<typeof set>[0]),
-    startRecomputeStatusPolling: (graphId) => recomputeStatusPolling.start(graphId),
+    startRuntimeStatePolling: (graphId) => runtimeStatePolling.start(graphId),
   });
 
-  const recomputeStatusPolling = createRecomputeStatusPollController<BackendRecomputeStatus>({
-    fetchStatus: graphApi.fetchRecomputeStatus,
-    onStatus: (graphId, status) => {
+  const runtimeStatePolling = createRecomputeStatusPollController<GraphRuntimeState>({
+    fetchStatus: graphApi.fetchRuntimeState,
+    onStatus: (graphId, runtimeState) => {
       const currentGraph = get().graph;
       if (!currentGraph || currentGraph.id !== graphId) {
         return;
       }
 
-      const graphUpdatedAt = typeof status.graphUpdatedAt === 'number'
-        ? status.graphUpdatedAt
-        : null;
-      const statusVersion = typeof status.statusVersion === 'number'
-        ? status.statusVersion
+      const revision = typeof runtimeState.revision === 'number'
+        ? runtimeState.revision
+        : currentGraph.revision;
+      const statusVersion = typeof runtimeState.statusVersion === 'number'
+        ? runtimeState.statusVersion
         : null;
       const previousStatusMeta = statusVersion === null
         ? null
-        : lastAppliedRecomputeStatusMeta.get(graphId);
+        : lastAppliedRuntimeStateMeta.get(graphId);
       const isRepeatedStatus = Boolean(
         previousStatusMeta &&
         statusVersion !== null &&
         previousStatusMeta.statusVersion === statusVersion &&
-        previousStatusMeta.graphUpdatedAt === graphUpdatedAt
+        previousStatusMeta.revision === revision
       );
 
-      if (
-        graphUpdatedAt !== null &&
-        graphUpdatedAt > currentGraph.updatedAt &&
-        !graphPersistence.hasPendingUpdates()
-      ) {
+      if (revision > currentGraph.revision && !graphPersistence.hasPendingUpdates()) {
         void syncCurrentGraphFromRemote(graphId);
+        return;
       }
 
       if (isRepeatedStatus) {
         return;
       }
 
-      graphComputation.applyBackendRecomputeStatus(currentGraph, status);
+      graphComputation.applyRuntimeStateSnapshot(currentGraph, runtimeState);
 
       if (statusVersion !== null) {
-        lastAppliedRecomputeStatusMeta.set(graphId, {
+        lastAppliedRuntimeStateMeta.set(graphId, {
+          revision,
           statusVersion,
-          graphUpdatedAt,
         });
       }
     },
     shouldContinue: (graphId) => get().graph?.id === graphId,
-    resolveNextPollDelayMs: (status) => {
-      if (hasActiveBackendRecompute(status)) {
+    resolveNextPollDelayMs: (runtimeState) => {
+      if (hasActiveBackendRecompute(runtimeState)) {
         return 400;
       }
 
@@ -184,10 +183,10 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         typeof document !== 'undefined' &&
         document.visibilityState === 'hidden'
       ) {
-        return RECOMPUTE_POLL_HIDDEN_INTERVAL_MS;
+        return RUNTIME_STATE_POLL_HIDDEN_INTERVAL_MS;
       }
 
-      return RECOMPUTE_POLL_IDLE_INTERVAL_MS;
+      return RUNTIME_STATE_POLL_IDLE_INTERVAL_MS;
     },
   });
 
@@ -206,16 +205,52 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     }));
   };
 
+  const stopGraphRealtime = () => {
+    if (graphEventsSource) {
+      graphEventsSource.close();
+      graphEventsSource = null;
+    }
+  };
+
+  const startGraphRealtime = (graphId: string) => {
+    if (typeof EventSource === 'undefined') {
+      runtimeStatePolling.start(graphId);
+      return;
+    }
+
+    stopGraphRealtime();
+    graphEventsSource = graphApi.createEventsSource(graphId);
+
+    graphEventsSource.addEventListener('graph.revised', () => {
+      void syncCurrentGraphFromRemote(graphId);
+    });
+
+    const refreshRuntime = () => {
+      const currentGraph = get().graph;
+      if (currentGraph && currentGraph.id === graphId) {
+        void graphComputation.hydrateNodeExecutionStates(currentGraph);
+      }
+    };
+
+    graphEventsSource.addEventListener('runtime.node.updated', refreshRuntime);
+    graphEventsSource.addEventListener('runtime.task.completed', refreshRuntime);
+    graphEventsSource.onerror = () => {
+      stopGraphRealtime();
+      runtimeStatePolling.start(graphId);
+    };
+  };
+
   const syncPersistedGraph = (graph: Graph) => {
     upsertGraphSummary({
       id: graph.id,
       name: graph.name,
+      revision: graph.revision,
       updatedAt: graph.updatedAt,
     });
     saveCurrentGraphId(graph.id);
     const selectedCameraId = resolveSelectedGraphCameraId(graph.cameras, get().selectedCameraId);
     saveWindowCurrentCameraId(graph.id, selectedCameraId);
-    recomputeStatusPolling.start(graph.id);
+    startGraphRealtime(graph.id);
   };
 
   const graphPersistence = createGraphUpdatePersistenceController({
@@ -253,6 +288,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         selectedDrawingId: currentState.selectedDrawingId,
         nodeExecutionStates: currentState.nodeExecutionStates,
         nodeGraphicsOutputs: currentState.nodeGraphicsOutputs,
+        nodeResults: currentState.nodeResults,
         error: null,
         isLoading: false,
         selectionMode: 'reconcile',
@@ -291,9 +327,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     selectedDrawingId: null,
     isLoading: false,
     error: null,
-    resultRefreshKey: 0,
     nodeExecutionStates: {},
     nodeGraphicsOutputs: {},
+    nodeResults: {},
     selectedNodeGraphicsDebug: null,
     drawingEnabled: false,
     drawingColor: DEFAULT_DRAWING_COLOR,
@@ -309,6 +345,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedCameraId: readWindowCurrentCameraId(graph.id),
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
+          nodeResults: get().nodeResults,
           error: null,
           isLoading: false,
           selectionMode: 'reset',
@@ -336,6 +373,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedCameraId: readWindowCurrentCameraId(newGraph.id),
           nodeExecutionStates: {},
           nodeGraphicsOutputs: {},
+          nodeResults: {},
           error: null,
           isLoading: false,
           selectionMode: 'reset',
@@ -359,6 +397,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         removeGraphSummary(id);
         clearCurrentGraphIdIfMatches(id);
         clearWindowCurrentCameraId(id);
+        if (currentGraphId === id) {
+          stopGraphRealtime();
+        }
 
         if (deletingCurrentGraph) {
           await get().loadLatestGraph();
@@ -382,6 +423,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
           selectedCameraId: readWindowCurrentCameraId(graph.id),
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
+          nodeResults: get().nodeResults,
           error: null,
           isLoading: false,
           selectionMode: 'reset',

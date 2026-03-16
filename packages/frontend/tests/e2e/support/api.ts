@@ -74,6 +74,8 @@ interface ConnectionAnchorPayload {
 
 interface GraphResponse {
   id: string;
+  revision?: number;
+  name?: string;
   canvasBackground?: {
     mode?: unknown;
     baseColor?: unknown;
@@ -219,6 +221,41 @@ async function expectJsonResponse(response: Response, context: string): Promise<
   } catch (error) {
     throw new Error(`${context} returned non-JSON payload: ${String(error)}`);
   }
+}
+
+export async function fetchGraph(graphId: string): Promise<GraphResponse> {
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+    },
+  });
+  return expectJsonResponse(response, `Fetch graph ${graphId}`) as Promise<GraphResponse>;
+}
+
+export async function updateGraphName(graphId: string, name: string): Promise<void> {
+  const graph = await fetchGraph(graphId);
+  if (typeof graph.revision !== 'number') {
+    throw new Error(`Graph ${graphId} is missing revision metadata`);
+  }
+
+  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/commands`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      baseRevision: graph.revision,
+      commands: [
+        {
+          kind: 'set_graph_name',
+          name,
+        },
+      ],
+    }),
+  });
+
+  await expectJsonResponse(response, `Update graph ${graphId} name`);
 }
 
 export async function createNumericInputGraph(options?: {

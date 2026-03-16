@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 14, 2026.
+This file tracks what is currently implemented in the codebase as of March 16, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -8,16 +8,16 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Load last opened graph from localStorage on startup.
 - Fallback to latest stored graph when saved graph ID is stale.
 - Auto-create a new graph when no graph exists.
-- Persist graph edits through `PUT /api/graphs/:id`.
+- Persist graph edits through `POST /api/graphs/:id/commands`.
 - Optimistic graph updates in frontend store to avoid UI snap-back during save.
-- Graph update API supports optimistic concurrency via `ifMatchUpdatedAt`; stale clients receive conflict instead of silently overwriting newer graph edits.
-- Graph update API supports optional `?noRecompute=true` query flag to skip backend auto-recompute enqueue for that update.
-- Graph update API preserves existing node layout/projection metadata when updates only provide `connections`.
-- Nodes-only graph updates sync the active projection layout server-side, so node move/resize edits do not need to resend the full projection set.
+- Graph command API uses monotonic `baseRevision`; stale clients receive `409` conflict instead of silently overwriting newer graph edits.
+- Graph command API supports optional `?noRecompute=true` query flag to skip backend auto-recompute enqueue for that command batch.
+- Connections-only command updates preserve existing node layout/projection metadata.
+- Nodes-only command updates sync the active projection layout server-side, so node move/resize edits do not need to resend the full projection set.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - On graph update conflict (`409`), frontend rebases non-overlapping subset edits onto the latest graph state and retries automatically before falling back to conflict reload.
-- Open sessions detect remote current-graph updates through recompute-status polling and reload the latest graph state automatically when no local save is pending.
-- Frontend recompute-status polling backs off to a slower idle cadence when no backend work is active and ignores unchanged backend snapshots to avoid redundant UI churn.
+- Open sessions detect remote current-graph updates through graph events and runtime-state polling fallback, then reload the latest graph state automatically when no local save is pending.
+- Frontend runtime-state polling backs off to a slower idle cadence when no backend work is active and ignores unchanged backend snapshots to avoid redundant UI churn.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
@@ -28,8 +28,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
 - Graph stores shared camera objects with viewport pan/zoom and floating window layout state; default camera is always present.
 - Current camera selection is window-local per graph (scoped to the current browser tab/window rather than shared across all viewers).
-- Graph update API rejects projection updates that remove all projections (at least one projection must remain).
-- Graph update API normalizes camera updates so the default camera always remains present.
+- Graph command API rejects projection updates that remove all projections (at least one projection must remain).
+- Graph command API normalizes camera updates so the default camera always remains present.
 - Graph panel graph Python environment management: add/edit/delete/save named env definitions (`name`, `pythonPath`, `cwd`).
 - Graph panel projection background management: choose `solid` or `gradient` mode and set base color via reusable color-selection dialog for the active projection.
 - Graph panel connection stroke management: configure per-graph foreground/background connector colors and widths (background width auto-locked to 2x foreground).
@@ -122,7 +122,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Node Status and Indicators
 
-- Per-node execution state tracked in frontend store from backend result hydration + backend recompute-status polling.
+- Per-node execution state tracked in frontend store from graph-scoped runtime-state snapshots and persisted node results.
 - Card status light:
   - red: last compute errored
   - amber: pending recompute or computing now
@@ -137,7 +137,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Compute entire graph from toolbar.
 - Compute single selected node from node panel.
 - Deterministic recomputation in backend based on node version + dependency result timestamps.
-- Backend invalidates target-node compute cache on inbound connection topology changes by bumping affected node versions on graph updates.
+- Backend invalidates target-node compute cache on inbound connection topology changes by bumping affected node versions on graph command mutations.
 - Persist outputs, inferred schema, text output, and graphics output.
 - Output panel shows text and graphics result for selected node.
 - Canvas renders `python_process` node image outputs as raw projections below the card (no in-card frame/padding).
@@ -151,7 +151,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Backend recompute queue processes nodes in upstream-to-downstream order.
 - Backend recompute queue uses graph-level configurable worker concurrency (`recomputeConcurrency`).
 - Backend recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
-- Frontend does not run recompute chains locally; it sends explicit recompute requests from buttons and polls `/api/graphs/:id/recompute-status` for updates.
+- Frontend does not run recompute chains locally; it sends explicit compute commands and refreshes from `/api/graphs/:id/runtime-state` plus SSE events.
 
 ## Validation and Safety
 
@@ -161,13 +161,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph validation enforces unique graph-level Python environment names.
 - Graph validation enforces that node `pythonEnv` references exist and are only used with `python_process` runtime.
 - Graph cycle rejection for new graphs (`POST`).
-- Graph cycle rejection for all graph updates (`PUT`), including non-connection edits.
+- Graph cycle rejection for all graph command updates, including non-connection edits.
 
 ## Runtime and Execution Engine
 
 - NodeExecutor supports inline code, numeric input, and annotation node types.
 - `annotation` nodes are presentation-only and excluded from backend recompute execution.
-- Default inline runtime: JavaScript VM runtime (`javascript_vm`).
+- Default inline runtime: JavaScript VM runtime (`javascript_vm`) retained as an interim runtime, not a production isolation boundary.
 - Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
 - Graph-level script execution timeout (`executionTimeoutMs`) defaults to 30 seconds and is editable in graph settings.
 - Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.

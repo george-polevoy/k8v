@@ -15,6 +15,32 @@ test.beforeEach(() => {
   resetGraphStoreState();
 });
 
+function buildRuntimeState(graph: Graph) {
+  return {
+    graphId: graph.id,
+    revision: graph.revision,
+    statusVersion: 0,
+    queueLength: 0,
+    workerConcurrency: graph.recomputeConcurrency ?? 1,
+    nodeStates: {},
+    results: {},
+  };
+}
+
+function buildCommandResponse(graph: Graph) {
+  const persistedGraph: Graph = {
+    ...graph,
+    revision: graph.revision ?? 1,
+  };
+
+  return {
+    data: {
+      graph: persistedGraph,
+      runtimeState: buildRuntimeState(persistedGraph),
+    },
+  };
+}
+
 test('initializeGraph recovers from stale saved graph id by loading latest graph', async () => {
   const localStorage = new MemoryLocalStorage();
   localStorage.setItem('k8v-current-graph-id', 'stale-id');
@@ -176,7 +202,7 @@ test('loadGraph deduplicates multiple inbound connections for the same input slo
   }
 });
 
-test('recompute status polling backs off after repeated network failures', async () => {
+test('runtime state polling backs off after repeated network failures', async () => {
   (globalThis as any).localStorage = new MemoryLocalStorage();
 
   const originalWindow = (globalThis as any).window;
@@ -201,7 +227,7 @@ test('recompute status polling backs off after repeated network failures', async
     if (url === '/api/graphs/g-poll-backoff') {
       return { data: graph };
     }
-    if (url === '/api/graphs/g-poll-backoff/recompute-status') {
+    if (url === '/api/graphs/g-poll-backoff/runtime-state') {
       throw new Error('Backend unavailable');
     }
     throw new Error(`Unexpected GET: ${url}`);
@@ -226,7 +252,7 @@ test('recompute status polling backs off after repeated network failures', async
   }
 });
 
-test('recompute status polling slows down when the backend reports an idle graph', async () => {
+test('runtime state polling slows down when the backend reports an idle graph', async () => {
   (globalThis as any).localStorage = new MemoryLocalStorage();
 
   const originalWindow = (globalThis as any).window;
@@ -251,14 +277,11 @@ test('recompute status polling slows down when the backend reports an idle graph
     if (url === '/api/graphs/g-poll-idle') {
       return { data: graph };
     }
-    if (url === '/api/graphs/g-poll-idle/recompute-status') {
+    if (url === '/api/graphs/g-poll-idle/runtime-state') {
       return {
         data: {
-          graphId: graph.id,
+          ...buildRuntimeState(graph),
           statusVersion: 1,
-          graphUpdatedAt: graph.updatedAt,
-          queueLength: 0,
-          nodeStates: {},
         },
       };
     }
@@ -279,7 +302,7 @@ test('recompute status polling slows down when the backend reports an idle graph
   }
 });
 
-test('unchanged recompute status does not rewrite node execution state', async () => {
+test('unchanged runtime state does not rewrite node execution state', async () => {
   (globalThis as any).localStorage = new MemoryLocalStorage();
 
   const originalWindow = (globalThis as any).window;
@@ -328,24 +351,11 @@ test('unchanged recompute status does not rewrite node execution state', async (
     if (url === '/api/graphs/g-poll-noop') {
       return { data: graph };
     }
-    if (url === '/api/nodes/node-a/result') {
+    if (url === '/api/graphs/g-poll-noop/runtime-state') {
       return {
         data: {
-          nodeId: 'node-a',
-          outputs: { value: 1 },
-          schema: { value: { type: 'number' } },
-          timestamp: 10,
-          version: 'node-a-v1',
-        },
-      };
-    }
-    if (url === '/api/graphs/g-poll-noop/recompute-status') {
-      return {
-        data: {
-          graphId: graph.id,
+          ...buildRuntimeState(graph),
           statusVersion: 5,
-          graphUpdatedAt: graph.updatedAt,
-          queueLength: 0,
           nodeStates: {
             'node-a': {
               isPending: false,
@@ -354,6 +364,15 @@ test('unchanged recompute status does not rewrite node execution state', async (
               isStale: false,
               errorMessage: null,
               lastRunAt: 10,
+            },
+          },
+          results: {
+            'node-a': {
+              nodeId: 'node-a',
+              outputs: { value: 1 },
+              schema: { value: { type: 'number' } },
+              timestamp: 10,
+              version: 'node-a-v1',
             },
           },
         },
@@ -412,7 +431,14 @@ test('deleteGraph replaces current graph with latest remaining graph', async () 
     if (url === '/api/graphs') {
       return {
         data: {
-          graphs: [{ id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt }],
+          graphs: [
+            {
+              id: fallbackGraph.id,
+              name: fallbackGraph.name,
+              revision: fallbackGraph.revision,
+              updatedAt: fallbackGraph.updatedAt,
+            },
+          ],
         },
       };
     }
@@ -422,8 +448,18 @@ test('deleteGraph replaces current graph with latest remaining graph', async () 
   resetGraphStoreState({
     graph: currentGraph,
     graphSummaries: [
-      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
-      { id: fallbackGraph.id, name: fallbackGraph.name, updatedAt: fallbackGraph.updatedAt },
+      {
+        id: currentGraph.id,
+        name: currentGraph.name,
+        revision: currentGraph.revision,
+        updatedAt: currentGraph.updatedAt,
+      },
+      {
+        id: fallbackGraph.id,
+        name: fallbackGraph.name,
+        revision: fallbackGraph.revision,
+        updatedAt: fallbackGraph.updatedAt,
+      },
     ],
   });
 
@@ -459,7 +495,14 @@ test('deleteGraph removes non-selected graph without switching current graph', a
     if (url === '/api/graphs') {
       return {
         data: {
-          graphs: [{ id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt }],
+          graphs: [
+            {
+              id: currentGraph.id,
+              name: currentGraph.name,
+              revision: currentGraph.revision,
+              updatedAt: currentGraph.updatedAt,
+            },
+          ],
         },
       };
     }
@@ -469,8 +512,18 @@ test('deleteGraph removes non-selected graph without switching current graph', a
   resetGraphStoreState({
     graph: currentGraph,
     graphSummaries: [
-      { id: currentGraph.id, name: currentGraph.name, updatedAt: currentGraph.updatedAt },
-      { id: deletedGraph.id, name: deletedGraph.name, updatedAt: deletedGraph.updatedAt },
+      {
+        id: currentGraph.id,
+        name: currentGraph.name,
+        revision: currentGraph.revision,
+        updatedAt: currentGraph.updatedAt,
+      },
+      {
+        id: deletedGraph.id,
+        name: deletedGraph.name,
+        revision: deletedGraph.revision,
+        updatedAt: deletedGraph.updatedAt,
+      },
     ],
   });
 
@@ -489,11 +542,12 @@ test('deleteGraph removes non-selected graph without switching current graph', a
 
 test('updateGraph reloads latest graph when backend reports conflict', async () => {
   const originalGet = axios.get;
-  const originalPut = axios.put;
+  const originalPost = axios.post;
 
   const initialGraph: Graph = {
     id: 'g-conflict',
     name: 'Graph conflict local',
+    revision: 0,
     nodes: [],
     connections: [],
     createdAt: 1,
@@ -502,15 +556,16 @@ test('updateGraph reloads latest graph when backend reports conflict', async () 
   const latestGraph: Graph = {
     id: 'g-conflict',
     name: 'Graph conflict remote',
+    revision: 1,
     nodes: [],
     connections: [],
     createdAt: 1,
     updatedAt: 200,
   };
 
-  let putPayload: any = null;
-  (axios as any).put = async (_url: string, body: unknown) => {
-    putPayload = body;
+  let commandRequest: any = null;
+  (axios as any).post = async (_url: string, body: unknown) => {
+    commandRequest = body;
     const error: any = new Error('Graph has changed since it was loaded. Reload and retry your update.');
     error.response = { status: 409 };
     throw error;
@@ -530,24 +585,31 @@ test('updateGraph reloads latest graph when backend reports conflict', async () 
     await useGraphStore.getState().updateGraph({ name: 'Graph conflict attempted update' });
 
     const state = useGraphStore.getState();
-    assert.ok(putPayload, 'expected PUT payload to be sent');
-    assert.equal(putPayload.ifMatchUpdatedAt, 100);
+    assert.ok(commandRequest, 'expected command payload to be sent');
+    assert.equal(commandRequest.baseRevision, 0);
+    assert.deepEqual(commandRequest.commands, [
+      {
+        kind: 'set_graph_name',
+        name: 'Graph conflict attempted update',
+      },
+    ]);
     assert.equal(state.graph?.name, 'Graph conflict remote');
     assert.equal(state.graph?.updatedAt, 200);
     assert.match(state.error ?? '', /changed remotely/i);
   } finally {
     (axios as any).get = originalGet;
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('updateGraph rebases non-overlapping node edits after backend conflict', async () => {
   const originalGet = axios.get;
-  const originalPut = axios.put;
+  const originalPost = axios.post;
 
   const initialGraph: Graph = {
     id: 'g-rebase',
     name: 'Graph rebase local',
+    revision: 0,
     nodes: [
       {
         id: 'node-a',
@@ -606,6 +668,7 @@ test('updateGraph rebases non-overlapping node edits after backend conflict', as
   const latestGraph: Graph = {
     ...initialGraph,
     name: 'Graph rebase remote',
+    revision: 1,
     nodes: initialGraph.nodes.map((node) =>
       node.id === 'node-b'
         ? {
@@ -627,6 +690,7 @@ test('updateGraph rebases non-overlapping node edits after backend conflict', as
   };
   const persistedGraph: Graph = {
     ...latestGraph,
+    revision: 2,
     nodes: latestGraph.nodes.map((node) =>
       node.id === 'node-a'
         ? {
@@ -647,18 +711,16 @@ test('updateGraph rebases non-overlapping node edits after backend conflict', as
     updatedAt: 300,
   };
 
-  const putPayloads: any[] = [];
-  let putCallCount = 0;
-  (axios as any).put = async (_url: string, body: any) => {
-    putPayloads.push(body);
-    putCallCount += 1;
-    if (putCallCount === 1) {
+  const commandRequests: any[] = [];
+  (axios as any).post = async (_url: string, body: any) => {
+    commandRequests.push(body);
+    if (commandRequests.length === 1) {
       const error: any = new Error('Graph has changed since it was loaded. Reload and retry your update.');
       error.response = { status: 409 };
       throw error;
     }
 
-    return { data: persistedGraph };
+    return buildCommandResponse(persistedGraph);
   };
   (axios as any).get = async (url: string) => {
     if (url === '/api/graphs/g-rebase') {
@@ -684,15 +746,17 @@ test('updateGraph rebases non-overlapping node edits after backend conflict', as
     });
 
     const state = useGraphStore.getState();
-    assert.equal(putPayloads.length, 2);
-    assert.equal(putPayloads[0].ifMatchUpdatedAt, 100);
-    assert.equal(putPayloads[1].ifMatchUpdatedAt, 200);
+    assert.equal(commandRequests.length, 2);
+    assert.equal(commandRequests[0].baseRevision, 0);
+    assert.equal(commandRequests[1].baseRevision, 1);
     assert.equal(
-      putPayloads[1].nodes.find((node: any) => node.id === 'node-a')?.position.x,
+      commandRequests[1].commands.find((command: any) => command.kind === 'replace_nodes')?.nodes
+        .find((node: any) => node.id === 'node-a')?.position.x,
       160
     );
     assert.equal(
-      putPayloads[1].nodes.find((node: any) => node.id === 'node-b')?.position.x,
+      commandRequests[1].commands.find((command: any) => command.kind === 'replace_nodes')?.nodes
+        .find((node: any) => node.id === 'node-b')?.position.x,
       480
     );
     assert.equal(state.graph?.name, 'Graph rebase remote');
@@ -702,11 +766,11 @@ test('updateGraph rebases non-overlapping node edits after backend conflict', as
     assert.equal(state.error, null);
   } finally {
     (axios as any).get = originalGet;
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
-test('recompute status polling refreshes the current graph when a remote update is detected', async () => {
+test('runtime state polling refreshes the current graph when a remote update is detected', async () => {
   const originalWindow = (globalThis as any).window;
   const originalGet = axios.get;
 
@@ -716,6 +780,7 @@ test('recompute status polling refreshes the current graph when a remote update 
   const latestGraph: Graph = {
     ...initialGraph,
     name: 'Graph remote synced',
+    revision: (initialGraph.revision ?? 0) + 1,
     updatedAt: initialGraph.updatedAt + 100,
   };
 
@@ -725,11 +790,12 @@ test('recompute status polling refreshes the current graph when a remote update 
       graphFetchCount += 1;
       return { data: graphFetchCount === 1 ? initialGraph : latestGraph };
     }
-    if (url === '/api/graphs/g-remote-sync/recompute-status') {
+    if (url === '/api/graphs/g-remote-sync/runtime-state') {
       return {
         data: {
-          graphUpdatedAt: latestGraph.updatedAt,
-          nodeStates: {},
+          ...buildRuntimeState(latestGraph),
+          revision: latestGraph.revision,
+          statusVersion: 1,
         },
       };
     }
@@ -759,23 +825,24 @@ test('recompute status polling refreshes the current graph when a remote update 
 });
 
 test('updateGraph keeps the latest persisted graph when responses resolve out of order', async () => {
-  const originalPut = axios.put;
+  const originalPost = axios.post;
 
   const initialGraph: Graph = {
     id: 'g-latest-wins',
     name: 'Graph baseline',
+    revision: 0,
     nodes: [],
     connections: [],
     createdAt: 1,
     updatedAt: 100,
   };
 
-  const pendingResponses: Array<{ resolve: (value: { data: Graph }) => void }> = [];
-  const putPayloads: any[] = [];
+  const pendingResponses: Array<{ resolve: (value: ReturnType<typeof buildCommandResponse>) => void }> = [];
+  const commandRequests: any[] = [];
 
-  (axios as any).put = async (_url: string, body: any) => {
-    putPayloads.push(body);
-    return await new Promise<{ data: Graph }>((resolve) => {
+  (axios as any).post = async (_url: string, body: any) => {
+    commandRequests.push(body);
+    return await new Promise<ReturnType<typeof buildCommandResponse>>((resolve) => {
       pendingResponses.push({ resolve });
     });
   };
@@ -791,43 +858,41 @@ test('updateGraph keeps the latest persisted graph when responses resolve out of
     assert.equal(pendingResponses.length, 2);
     assert.equal(useGraphStore.getState().graph?.name, 'Graph second optimistic');
 
-    pendingResponses[1].resolve({
-      data: {
-        ...initialGraph,
-        name: 'Graph second persisted',
-        updatedAt: 202,
-      },
-    });
-    pendingResponses[0].resolve({
-      data: {
-        ...initialGraph,
-        name: 'Graph first persisted',
-        updatedAt: 201,
-      },
-    });
+    pendingResponses[1].resolve(buildCommandResponse({
+      ...initialGraph,
+      revision: 2,
+      name: 'Graph second persisted',
+      updatedAt: 202,
+    }));
+    pendingResponses[0].resolve(buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      name: 'Graph first persisted',
+      updatedAt: 201,
+    }));
 
     await Promise.all([firstUpdate, secondUpdate]);
 
     const state = useGraphStore.getState();
-    assert.equal(putPayloads.length, 2);
-    assert.equal(putPayloads[0].ifMatchUpdatedAt, 100);
-    assert.equal(putPayloads[1].ifMatchUpdatedAt, 100);
+    assert.equal(commandRequests.length, 2);
+    assert.equal(commandRequests[0].baseRevision, 0);
+    assert.equal(commandRequests[1].baseRevision, 0);
     assert.equal(state.graph?.name, 'Graph second persisted');
     assert.equal(state.graph?.updatedAt, 202);
     assert.equal(state.error, null);
   } finally {
-    (axios as any).put = originalPut;
+    (axios as any).post = originalPost;
   }
 });
 
 test('graph updates do not trigger frontend auto recompute requests', async () => {
-  const originalPut = axios.put;
   const originalPost = axios.post;
 
   let computeCalls = 0;
   const initialGraph: Graph = {
     id: 'g-auto',
     name: 'Auto Graph',
+    revision: 0,
     nodes: [
       {
         id: 'upstream',
@@ -876,10 +941,19 @@ test('graph updates do not trigger frontend auto recompute requests', async () =
     updatedAt: 1,
   };
 
-  (axios as any).put = async (_url: string, body: unknown) => ({ data: body });
   (axios as any).post = async (_url: string, body: any) => {
-    computeCalls += 1;
-    throw new Error(`Unexpected compute request: ${JSON.stringify(body)}`);
+    if ((body?.commands ?? []).some((command: any) => command.kind === 'compute_node' || command.kind === 'compute_graph')) {
+      computeCalls += 1;
+      throw new Error(`Unexpected compute request: ${JSON.stringify(body)}`);
+    }
+
+    const commandNodes = body?.commands?.find((command: any) => command.kind === 'replace_nodes')?.nodes;
+    return buildCommandResponse({
+      ...initialGraph,
+      revision: (body?.baseRevision ?? 0) + 1,
+      nodes: commandNodes ?? initialGraph.nodes,
+      updatedAt: Date.now(),
+    });
   };
 
   const patchUpstreamVersion = (version: string): Graph => ({
@@ -904,7 +978,6 @@ test('graph updates do not trigger frontend auto recompute requests', async () =
     await delay(0);
     assert.equal(computeCalls, 0);
   } finally {
-    (axios as any).put = originalPut;
     (axios as any).post = originalPost;
   }
 });

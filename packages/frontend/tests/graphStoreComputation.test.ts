@@ -13,6 +13,57 @@ test.beforeEach(() => {
   resetGraphStoreState();
 });
 
+function buildRuntimeState(
+  graph: Graph,
+  params: {
+    statusVersion?: number;
+    results?: Record<string, any>;
+    nodeStates?: Record<string, any>;
+  } = {}
+) {
+  const nodeStates = Object.fromEntries(
+    graph.nodes.map((node) => [
+      node.id,
+      {
+        isPending: false,
+        isComputing: false,
+        hasError: false,
+        isStale: false,
+        errorMessage: null,
+        lastRunAt: null,
+        ...(params.nodeStates?.[node.id] ?? {}),
+      },
+    ])
+  );
+
+  return {
+    graphId: graph.id,
+    revision: graph.revision ?? 0,
+    statusVersion: params.statusVersion ?? 1,
+    queueLength: 0,
+    workerConcurrency: graph.recomputeConcurrency ?? 1,
+    nodeStates,
+    results: params.results ?? {},
+  };
+}
+
+function buildCommandResponse(
+  graph: Graph,
+  params: Parameters<typeof buildRuntimeState>[1] = {}
+) {
+  const persistedGraph: Graph = {
+    ...graph,
+    revision: graph.revision ?? 0,
+  };
+
+  return {
+    data: {
+      graph: persistedGraph,
+      runtimeState: buildRuntimeState(persistedGraph, params),
+    },
+  };
+}
+
 test('computeNode sends a backend recompute request for only the selected node', async () => {
   const originalPost = axios.post;
 
@@ -20,6 +71,7 @@ test('computeNode sends a backend recompute request for only the selected node',
   const graph: Graph = {
     id: 'g-order',
     name: 'Order Graph',
+    revision: 0,
     nodes: [
       {
         id: 'node-c',
@@ -94,17 +146,19 @@ test('computeNode sends a backend recompute request for only the selected node',
   };
 
   (axios as any).post = async (_url: string, body: any) => {
-    if (typeof body?.nodeId === 'string') {
-      computeOrder.push(body.nodeId);
-      return {
-        data: {
-          nodeId: body.nodeId,
-          outputs: { output: 1 },
-          schema: { output: { type: 'number' } },
-          timestamp: Date.now(),
-          version: `v-${body.nodeId}`,
+    if (Array.isArray(body?.commands) && body.commands[0]?.kind === 'compute_node') {
+      computeOrder.push(body.commands[0].nodeId);
+      return buildCommandResponse(graph, {
+        results: {
+          [body.commands[0].nodeId]: {
+            nodeId: body.commands[0].nodeId,
+            outputs: { output: 1 },
+            schema: { output: { type: 'number' } },
+            timestamp: Date.now(),
+            version: `v-${body.commands[0].nodeId}`,
+          },
         },
-      };
+      });
     }
     throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
   };
@@ -120,18 +174,18 @@ test('computeNode sends a backend recompute request for only the selected node',
     assert.equal(state.nodeExecutionStates['node-a']?.hasError, false);
     assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-a']?.isComputing, false);
-    assert.equal(state.resultRefreshKey, 0);
+    assert.equal(state.nodeResults['node-a']?.outputs.output, 1);
   } finally {
     (axios as any).post = originalPost;
   }
 });
 
-test('computeNode refresh key updates only when the computed node is selected', async () => {
+test('computeNode stores the returned runtime result for the computed node', async () => {
   const originalPost = axios.post;
-  const baselineRefreshKey = 111;
   const graph: Graph = {
     id: 'g-selected-node-refresh',
     name: 'Selected Node Refresh Graph',
+    revision: 0,
     nodes: [
       {
         id: 'node-a',
@@ -157,31 +211,33 @@ test('computeNode refresh key updates only when the computed node is selected', 
   };
 
   (axios as any).post = async (_url: string, body: any) => {
-    if (body?.nodeId !== 'node-a') {
+    if (body?.commands?.[0]?.kind !== 'compute_node' || body.commands[0].nodeId !== 'node-a') {
       throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
     }
-    return {
-      data: {
-        nodeId: 'node-a',
-        outputs: { output: 1 },
-        schema: { output: { type: 'number' } },
-        timestamp: Date.now(),
-        version: 'v-node-a',
+    return buildCommandResponse(graph, {
+      results: {
+        'node-a': {
+          nodeId: 'node-a',
+          outputs: { output: 1 },
+          schema: { output: { type: 'number' } },
+          timestamp: Date.now(),
+          version: 'v-node-a',
+        },
       },
-    };
+    });
   };
 
   resetGraphStoreState({
     graph,
     selectedNodeId: 'node-a',
     selectedNodeIds: ['node-a'],
-    resultRefreshKey: baselineRefreshKey,
   });
 
   try {
     await useGraphStore.getState().computeNode('node-a');
     const state = useGraphStore.getState();
-    assert.notEqual(state.resultRefreshKey, baselineRefreshKey);
+    assert.equal(state.nodeResults['node-a']?.version, 'v-node-a');
+    assert.equal(state.nodeResults['node-a']?.outputs.output, 1);
   } finally {
     (axios as any).post = originalPost;
   }
@@ -195,6 +251,7 @@ test('computeGraph sends a single backend recompute request', async () => {
   const graph: Graph = {
     id: 'g-stale',
     name: 'Stale Graph',
+    revision: 0,
     nodes: [
       {
         id: 'node-a',
@@ -270,19 +327,24 @@ test('computeGraph sends a single backend recompute request', async () => {
 
   (axios as any).post = async (_url: string, body: any) => {
     computeBodies.push(body);
-    if (typeof body?.nodeId !== 'undefined') {
+    if (body?.commands?.[0]?.kind !== 'compute_graph') {
       throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
     }
 
-    return {
-      data: ['node-a', 'node-b', 'node-c'].map((nodeId) => ({
-        nodeId,
-        outputs: { output: 1 },
-        schema: { output: { type: 'number' } },
-        timestamp: Date.now(),
-        version: `v-${nodeId}-${Date.now()}`,
-      })),
-    };
+    return buildCommandResponse(graph, {
+      results: Object.fromEntries(
+        ['node-a', 'node-b', 'node-c'].map((nodeId) => [
+          nodeId,
+          {
+            nodeId,
+            outputs: { output: 1 },
+            schema: { output: { type: 'number' } },
+            timestamp: Date.now(),
+            version: `v-${nodeId}-${Date.now()}`,
+          },
+        ])
+      ),
+    });
   };
 
   resetGraphStoreState({
@@ -292,23 +354,25 @@ test('computeGraph sends a single backend recompute request', async () => {
   try {
     await useGraphStore.getState().computeGraph();
     const state = useGraphStore.getState();
-    assert.deepEqual(computeBodies, [{}]);
+    assert.deepEqual(computeBodies, [{ baseRevision: 0, commands: [{ kind: 'compute_graph' }] }]);
     assert.equal(state.nodeExecutionStates['node-a']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-b']?.isPending, false);
     assert.equal(state.nodeExecutionStates['node-c']?.isPending, false);
-    assert.equal(state.resultRefreshKey, 0);
+    assert.equal(state.nodeResults['node-a']?.outputs.output, 1);
+    assert.equal(state.nodeResults['node-b']?.outputs.output, 1);
+    assert.equal(state.nodeResults['node-c']?.outputs.output, 1);
   } finally {
     (axios as any).post = originalPost;
   }
 });
 
-test('computeGraph refresh key updates only when selected node is in returned results', async () => {
+test('computeGraph stores runtime results for returned nodes', async () => {
   const originalPost = axios.post;
-  const baselineRefreshKey = 222;
 
   const graph: Graph = {
     id: 'g-selected-graph-refresh',
     name: 'Selected Graph Refresh Graph',
+    revision: 0,
     nodes: [
       {
         id: 'node-a',
@@ -359,40 +423,40 @@ test('computeGraph refresh key updates only when selected node is in returned re
   };
 
   (axios as any).post = async (_url: string, body: any) => {
-    if (Object.keys(body ?? {}).length > 0) {
+    if (body?.commands?.[0]?.kind !== 'compute_graph') {
       throw new Error(`Unexpected POST payload: ${JSON.stringify(body)}`);
     }
-    return {
-      data: [
-        {
+    return buildCommandResponse(graph, {
+      results: {
+        'node-a': {
           nodeId: 'node-a',
           outputs: { output: 1 },
           schema: { output: { type: 'number' } },
           timestamp: Date.now(),
           version: 'v-node-a',
         },
-        {
+        'node-b': {
           nodeId: 'node-b',
           outputs: { output: 1 },
           schema: { output: { type: 'number' } },
           timestamp: Date.now(),
           version: 'v-node-b',
         },
-      ],
-    };
+      },
+    });
   };
 
   resetGraphStoreState({
     graph,
     selectedNodeId: 'node-b',
     selectedNodeIds: ['node-b'],
-    resultRefreshKey: baselineRefreshKey,
   });
 
   try {
     await useGraphStore.getState().computeGraph();
     const state = useGraphStore.getState();
-    assert.notEqual(state.resultRefreshKey, baselineRefreshKey);
+    assert.equal(state.nodeResults['node-a']?.version, 'v-node-a');
+    assert.equal(state.nodeResults['node-b']?.version, 'v-node-b');
   } finally {
     (axios as any).post = originalPost;
   }
@@ -405,6 +469,7 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
   const graph: Graph = {
     id: 'g-graphics-hydrate',
     name: 'Graphics Hydrate',
+    revision: 0,
     nodes: [
       {
         id: 'node-python',
@@ -432,27 +497,31 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
     if (url === '/api/graphs/g-graphics-hydrate') {
       return { data: graph };
     }
-    if (url === '/api/nodes/node-python/result') {
+    if (url === '/api/graphs/g-graphics-hydrate/runtime-state') {
       return {
-        data: {
-          nodeId: 'node-python',
-          outputs: {},
-          schema: {},
-          timestamp: Date.now(),
-          version: 'r1',
-          graphics: {
-            id: 'gfx-hydrated',
-            mimeType: 'image/png',
-            levels: [
-              {
-                level: 0,
-                width: 64,
-                height: 32,
-                pixelCount: 2048,
+        data: buildRuntimeState(graph, {
+          results: {
+            'node-python': {
+              nodeId: 'node-python',
+              outputs: {},
+              schema: {},
+              timestamp: Date.now(),
+              version: 'r1',
+              graphics: {
+                id: 'gfx-hydrated',
+                mimeType: 'image/png',
+                levels: [
+                  {
+                    level: 0,
+                    width: 64,
+                    height: 32,
+                    pixelCount: 2048,
+                  },
+                ],
               },
-            ],
+            },
           },
-        },
+        }),
       };
     }
     throw new Error(`Unexpected GET: ${url}`);
@@ -474,6 +543,7 @@ test('computeNode updates graphics output cache for the computed node', async ()
   const graph: Graph = {
     id: 'g-node-compute',
     name: 'Node Compute',
+    revision: 0,
     nodes: [
       {
         id: 'node-python',
@@ -498,29 +568,34 @@ test('computeNode updates graphics output cache for the computed node', async ()
   };
 
   (axios as any).post = async (url: string, body: any) => {
-    assert.equal(url, '/api/graphs/g-node-compute/compute');
-    assert.equal(body.nodeId, 'node-python');
-    return {
-      data: {
-        nodeId: 'node-python',
-        outputs: {},
-        schema: {},
-        timestamp: Date.now(),
-        version: 'r1',
-        graphics: {
-          id: 'gfx-compute-node',
-          mimeType: 'image/png',
-          levels: [
-            {
-              level: 0,
-              width: 80,
-              height: 40,
-              pixelCount: 3200,
-            },
-          ],
+    assert.equal(url, '/api/graphs/g-node-compute/commands');
+    assert.deepEqual(body, {
+      baseRevision: 0,
+      commands: [{ kind: 'compute_node', nodeId: 'node-python' }],
+    });
+    return buildCommandResponse(graph, {
+      results: {
+        'node-python': {
+          nodeId: 'node-python',
+          outputs: {},
+          schema: {},
+          timestamp: Date.now(),
+          version: 'r1',
+          graphics: {
+            id: 'gfx-compute-node',
+            mimeType: 'image/png',
+            levels: [
+              {
+                level: 0,
+                width: 80,
+                height: 40,
+                pixelCount: 3200,
+              },
+            ],
+          },
         },
       },
-    };
+    });
   };
 
   resetGraphStoreState({
@@ -545,6 +620,7 @@ test('computeGraph clears cached graphics output when latest result has no graph
   const graph: Graph = {
     id: 'g-graph-compute',
     name: 'Graph Compute',
+    revision: 0,
     nodes: [
       {
         id: 'node-python',
@@ -569,19 +645,22 @@ test('computeGraph clears cached graphics output when latest result has no graph
   };
 
   (axios as any).post = async (url: string, body: any) => {
-    assert.equal(url, '/api/graphs/g-graph-compute/compute');
-    assert.deepEqual(body, {});
-    return {
-      data: [
-        {
+    assert.equal(url, '/api/graphs/g-graph-compute/commands');
+    assert.deepEqual(body, {
+      baseRevision: 0,
+      commands: [{ kind: 'compute_graph' }],
+    });
+    return buildCommandResponse(graph, {
+      results: {
+        'node-python': {
           nodeId: 'node-python',
           outputs: {},
           schema: {},
           timestamp: Date.now(),
           version: 'r2',
         },
-      ],
-    };
+      },
+    });
   };
 
   resetGraphStoreState({

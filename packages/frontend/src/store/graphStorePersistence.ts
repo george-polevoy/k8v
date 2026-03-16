@@ -1,7 +1,8 @@
-import type { Graph } from '../types';
+import { buildGraphCommandsFromSnapshotChange, type Graph } from '../types';
 import { resolveSelectedGraphCameraId } from '../utils/cameras';
 import {
   buildNodeGraphicsOutputMapForGraph,
+  buildNodeResultMapForGraph,
   buildNodeStateMapForGraph,
   normalizeGraph,
   resolveErrorMessage,
@@ -15,6 +16,7 @@ import {
 import type {
   NodeExecutionState,
   NodeGraphicsOutputMap,
+  NodeResultMap,
 } from './graphStoreTypes';
 
 export interface GraphStorePersistenceState {
@@ -27,6 +29,7 @@ export interface GraphStorePersistenceState {
   error: string | null;
   nodeExecutionStates: Record<string, NodeExecutionState>;
   nodeGraphicsOutputs: NodeGraphicsOutputMap;
+  nodeResults: NodeResultMap;
 }
 
 export type GraphStorePersistenceStateUpdate = Partial<GraphStorePersistenceState>;
@@ -45,6 +48,7 @@ interface GraphStateUpdateParams {
   graph: Graph;
   nodeExecutionStates: Record<string, NodeExecutionState>;
   nodeGraphicsOutputs: NodeGraphicsOutputMap;
+  nodeResults: NodeResultMap;
   isLoading?: boolean;
   error?: string | null;
   selectionMode?: GraphSelectionMode;
@@ -56,7 +60,11 @@ interface GraphStateUpdateParams {
 
 interface GraphPersistenceApi {
   fetchGraph(graphId: string): Promise<Graph>;
-  updateGraph(graphId: string, graph: GraphUpdatePayload & { ifMatchUpdatedAt: number }): Promise<Graph>;
+  submitCommands(
+    graphId: string,
+    baseRevision: number,
+    commands: ReturnType<typeof buildGraphCommandsFromSnapshotChange>
+  ): Promise<{ graph: Graph }>;
 }
 
 interface CreateGraphUpdatePersistenceControllerParams {
@@ -70,6 +78,7 @@ export function buildGraphStateUpdate({
   graph,
   nodeExecutionStates,
   nodeGraphicsOutputs,
+  nodeResults,
   isLoading = false,
   error = null,
   selectionMode = 'preserve',
@@ -89,6 +98,7 @@ export function buildGraphStateUpdate({
     error,
     nodeExecutionStates: buildNodeStateMapForGraph(graph, nodeExecutionStates),
     nodeGraphicsOutputs: buildNodeGraphicsOutputMapForGraph(graph, nodeGraphicsOutputs),
+    nodeResults: buildNodeResultMapForGraph(graph, nodeResults),
   };
 
   if (selectionMode === 'reset') {
@@ -136,11 +146,13 @@ export function createGraphUpdatePersistenceController({
     baseGraph: Graph,
     updates: GraphUpdatePayload
   ): Promise<Graph> => {
-    const payload = {
-      ...updates,
-      ifMatchUpdatedAt: baseGraph.updatedAt,
-    };
-    return normalizeGraph(await api.updateGraph(graphId, payload));
+    const nextGraph = normalizeGraph(applyGraphUpdatePayload(baseGraph, updates));
+    const commands = buildGraphCommandsFromSnapshotChange(baseGraph, nextGraph);
+    if (commands.length === 0) {
+      return nextGraph;
+    }
+    const response = await api.submitCommands(graphId, baseGraph.revision, commands);
+    return normalizeGraph(response.graph);
   };
 
   return {
@@ -149,7 +161,7 @@ export function createGraphUpdatePersistenceController({
     },
 
     async updateGraph(updates: Partial<Graph>): Promise<void> {
-      const { graph, nodeExecutionStates, nodeGraphicsOutputs, selectedCameraId } = getState();
+      const { graph, nodeExecutionStates, nodeGraphicsOutputs, nodeResults, selectedCameraId } = getState();
       if (!graph) {
         return;
       }
@@ -169,6 +181,7 @@ export function createGraphUpdatePersistenceController({
         selectedCameraId,
         nodeExecutionStates,
         nodeGraphicsOutputs,
+        nodeResults,
         error: null,
         isLoading: false,
       }));
@@ -189,6 +202,7 @@ export function createGraphUpdatePersistenceController({
             selectedDrawingId: state.selectedDrawingId,
             nodeExecutionStates: state.nodeExecutionStates,
             nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+            nodeResults: state.nodeResults,
             error: null,
             isLoading: false,
             selectionMode: 'reconcile',
@@ -219,6 +233,7 @@ export function createGraphUpdatePersistenceController({
                   selectedDrawingId: state.selectedDrawingId,
                   nodeExecutionStates: state.nodeExecutionStates,
                   nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                  nodeResults: state.nodeResults,
                   error: null,
                   isLoading: false,
                   selectionMode: 'reconcile',
@@ -239,6 +254,7 @@ export function createGraphUpdatePersistenceController({
                   selectedDrawingId: state.selectedDrawingId,
                   nodeExecutionStates: state.nodeExecutionStates,
                   nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                  nodeResults: state.nodeResults,
                   error: null,
                   isLoading: false,
                   selectionMode: 'reconcile',
@@ -257,6 +273,7 @@ export function createGraphUpdatePersistenceController({
                 selectedDrawingId: state.selectedDrawingId,
                 nodeExecutionStates: state.nodeExecutionStates,
                 nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                nodeResults: state.nodeResults,
                 error: 'Graph changed remotely. Reloaded latest graph state.',
                 isLoading: false,
                 selectionMode: 'reconcile',
@@ -274,6 +291,7 @@ export function createGraphUpdatePersistenceController({
               selectedCameraId,
               nodeExecutionStates,
               nodeGraphicsOutputs,
+              nodeResults,
               error: resolveErrorMessage(
                 reloadError,
                 'Graph changed remotely and latest graph could not be reloaded'
@@ -289,6 +307,7 @@ export function createGraphUpdatePersistenceController({
           selectedCameraId,
           nodeExecutionStates,
           nodeGraphicsOutputs,
+          nodeResults,
           error: resolveErrorMessage(error, 'Failed to update graph'),
           isLoading: false,
         }));

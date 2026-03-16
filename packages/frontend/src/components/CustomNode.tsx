@@ -1,8 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
 import { Handle, Position } from 'reactflow';
 import { GraphNode, NodeType } from '../types';
 import { useGraphStore } from '../store/graphStore';
-import axios from 'axios';
 
 interface CustomNodeProps {
   data: {
@@ -13,48 +11,9 @@ interface CustomNodeProps {
 function CustomNode({ data }: CustomNodeProps) {
   const { node } = data;
   const isInlineCode = node.type === NodeType.INLINE_CODE;
-  const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
-
-  // State for inline result display
-  const [textOutput, setTextOutput] = useState<string | null>(null);
-  const [outputs, setOutputs] = useState<Record<string, any> | null>(null);
-  const hasResultRef = useRef(false);
-
-  useEffect(() => {
-    hasResultRef.current = outputs !== null || textOutput !== null;
-  }, [outputs, textOutput]);
-
-  // Fetch computation result on mount and after compute actions
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchResult = async () => {
-      const hadResultBeforeFetch = hasResultRef.current;
-      try {
-        const response = await axios.get(`/api/nodes/${node.id}/result`);
-        if (cancelled) return;
-        if (response.data) {
-          setTextOutput(response.data.textOutput || null);
-          setOutputs(response.data.outputs || null);
-        } else if (!hadResultBeforeFetch) {
-          setTextOutput(null);
-          setOutputs(null);
-        }
-      } catch {
-        if (!cancelled && !hadResultBeforeFetch) {
-          // No result yet or error - silently ignore on first load.
-          setTextOutput(null);
-          setOutputs(null);
-        }
-      }
-    };
-
-    // Fetch initially and when a compute action completes
-    fetchResult();
-    return () => {
-      cancelled = true;
-    };
-  }, [node.id, resultRefreshKey]);
+  const nodeResult = useGraphStore((state) => state.nodeResults[node.id] ?? null);
+  const textOutput = nodeResult?.textOutput ?? null;
+  const outputs = nodeResult?.outputs ?? null;
 
   const handleDeleteInput = (inputName: string) => {
     const graph = useGraphStore.getState().graph;
@@ -111,7 +70,7 @@ function CustomNode({ data }: CustomNodeProps) {
   };
 
   // Format output value for display
-  const formatOutputValue = (value: any): string => {
+  const formatOutputValue = (value: unknown): string => {
     if (value === undefined || value === null) return 'null';
     if (typeof value === 'string') {
       return value.length > 25 ? value.substring(0, 25) + '...' : value;

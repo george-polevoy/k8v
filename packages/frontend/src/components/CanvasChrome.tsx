@@ -1,6 +1,7 @@
-import type { PointerEventHandler, ReactNode, RefObject } from 'react';
-import AnnotationMarkdown from './AnnotationMarkdown';
+import { Suspense, lazy, type PointerEventHandler, type ReactNode, type RefObject } from 'react';
 import type { AnnotationOverlayEntry } from './canvasTypes';
+
+const AnnotationMarkdown = lazy(() => import('./AnnotationMarkdown'));
 
 interface CanvasChromeProps {
   canvasHostRef: RefObject<HTMLDivElement>;
@@ -68,11 +69,22 @@ export function CanvasChrome({
                 color: overlayEntry.fontColor,
               }}
             >
-              <AnnotationMarkdown
-                markdown={overlayEntry.text}
-                color={overlayEntry.fontColor}
-                fontSize={overlayEntry.fontSize}
-              />
+              <Suspense
+                fallback={
+                  <div
+                    className="annotation-markdown"
+                    style={{ color: overlayEntry.fontColor, fontSize: `${overlayEntry.fontSize}px` }}
+                  >
+                    {overlayEntry.text}
+                  </div>
+                }
+              >
+                <AnnotationMarkdown
+                  markdown={overlayEntry.text}
+                  color={overlayEntry.fontColor}
+                  fontSize={overlayEntry.fontSize}
+                />
+              </Suspense>
             </div>
           ))}
         </div>

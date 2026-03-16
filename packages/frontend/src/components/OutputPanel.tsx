@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import axios from 'axios';
 import { GraphicsArtifact } from '../types';
 import { buildGraphicsImageUrl, resolveStableGraphicsRequestMaxPixels } from '../utils/graphics';
 
@@ -20,16 +19,20 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
     }
     return state.nodeExecutionStates[state.selectedNodeId] ?? null;
   });
-  const resultRefreshKey = useGraphStore((state) => state.resultRefreshKey);
-  const [textOutput, setTextOutput] = useState<string>('');
-  const [graphicsOutput, setGraphicsOutput] = useState<GraphicsArtifact | null>(null);
+  const selectedNodeResult = useGraphStore((state) => {
+    if (!state.selectedNodeId) {
+      return null;
+    }
+    return state.nodeResults[state.selectedNodeId] ?? null;
+  });
   const [graphicsMaxPixels, setGraphicsMaxPixels] = useState(1_000_000);
-  const [isLoading, setIsLoading] = useState(false);
   const [textExpanded, setTextExpanded] = useState(true);
   const [graphicsExpanded, setGraphicsExpanded] = useState(true);
   const isNodeRefreshing = Boolean(selectedNodeExecutionState?.isPending || selectedNodeExecutionState?.isComputing);
+  const textOutput = selectedNodeResult?.textOutput ?? '';
+  const graphicsOutput = (selectedNodeResult?.graphics ?? null) as GraphicsArtifact | null;
   const hasAnyOutput = Boolean(textOutput) || Boolean(graphicsOutput);
-  const hasAnyOutputRef = useRef(false);
+  const isLoading = Boolean(selectedNodeId) && !selectedNodeResult && isNodeRefreshing;
   const graphicsViewportRef = useRef<HTMLDivElement | null>(null);
   const panelContainerStyle = embedded
     ? {
@@ -51,10 +54,6 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
       };
 
   useEffect(() => {
-    hasAnyOutputRef.current = hasAnyOutput;
-  }, [hasAnyOutput]);
-
-  useEffect(() => {
     if (!graphicsViewportRef.current || typeof ResizeObserver === 'undefined') {
       return;
     }
@@ -72,85 +71,6 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchResult = async () => {
-      if (!selectedNodeId) {
-        setTextOutput('');
-        setGraphicsOutput(null);
-        return;
-      }
-
-      setIsLoading(true);
-      try {
-        const response = await axios.get(`/api/nodes/${selectedNodeId}/result`);
-        if (cancelled) return;
-        if (response.data) {
-          setTextOutput(response.data.textOutput || '');
-          setGraphicsOutput(response.data.graphics || null);
-        } else {
-          setTextOutput('');
-          setGraphicsOutput(null);
-        }
-      } catch (error: any) {
-        if (cancelled) return;
-        if (error.response?.status === 404) {
-          // No result yet
-          setTextOutput('No output yet. Run the graph to see results.');
-          setGraphicsOutput(null);
-        } else {
-          setTextOutput(`Error loading result: ${error.message}`);
-          setGraphicsOutput(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchResult();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedNodeId]);
-
-  // Refresh after compute while keeping currently displayed output in place.
-  useEffect(() => {
-    if (selectedNodeId) {
-      let cancelled = false;
-
-      const fetchResult = async () => {
-        try {
-          const response = await axios.get(`/api/nodes/${selectedNodeId}/result`);
-          if (cancelled) return;
-          if (response.data) {
-            setTextOutput(response.data.textOutput || '');
-            setGraphicsOutput(response.data.graphics || null);
-          }
-        } catch (error: any) {
-          if (cancelled) return;
-          // During refresh retries, keep previous output mounted on transient misses.
-          if (error.response?.status !== 404 && !hasAnyOutputRef.current) {
-            setTextOutput(`Error loading result: ${error.message}`);
-            setGraphicsOutput(null);
-          }
-        }
-      };
-      // Delay to allow backend to save result, with retries
-      const timeout1 = setTimeout(fetchResult, 500);
-      const timeout2 = setTimeout(fetchResult, 1500);
-      const timeout3 = setTimeout(fetchResult, 3000);
-      return () => {
-        cancelled = true;
-        clearTimeout(timeout1);
-        clearTimeout(timeout2);
-        clearTimeout(timeout3);
-      };
-    }
-  }, [resultRefreshKey, selectedNodeId]);
 
   const graphicsImageSrc = useMemo(() => {
     if (!graphicsOutput) {
@@ -228,7 +148,7 @@ function OutputPanel({ embedded = false }: OutputPanelProps) {
               textOutput
             ) : (
               <div style={{ color: '#888', fontStyle: 'italic' }}>
-                No text output
+                {isNodeRefreshing ? 'Refreshing output...' : 'No text output'}
               </div>
             )}
           </div>

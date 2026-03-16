@@ -15,7 +15,7 @@ async function openCanvasForGraphWithTimeout(
   }, graphId);
 
   await page.goto(E2E_FRONTEND_URL, {
-    // Recompute polling keeps network active; avoid networkidle startup flakiness.
+    // Realtime graph/runtime sync keeps network active; avoid networkidle startup flakiness.
     waitUntil: 'domcontentloaded',
     timeout: 60_000,
   });
@@ -113,35 +113,28 @@ test(
         viewport: { width: 1440, height: 900 },
       });
       const page = await context.newPage();
-      let recomputeStatusCalls = 0;
+      let runtimeStateCalls = 0;
 
-      await page.route('**/api/nodes/*/result', async (route) => {
-        const requestUrl = new URL(route.request().url());
-        const segments = requestUrl.pathname.split('/').filter(Boolean);
-        const nodeId = segments[segments.length - 2] ?? selectedNodeId;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            nodeId,
-            outputs: { value: 10 },
-            schema: { value: { type: 'number' } },
-            timestamp: Date.now(),
-            version: `v-${nodeId}`,
-            textOutput: 'stable output',
-          }),
+      await page.addInitScript(() => {
+        Object.defineProperty(window, 'EventSource', {
+          configurable: true,
+          writable: true,
+          value: undefined,
         });
       });
 
-      await page.route(`**/api/graphs/${graphId}/recompute-status`, async (route) => {
-        recomputeStatusCalls += 1;
-        const otherNodePending = recomputeStatusCalls % 2 === 1;
+      await page.route(`**/api/graphs/${graphId}/runtime-state`, async (route) => {
+        runtimeStateCalls += 1;
+        const otherNodePending = runtimeStateCalls % 2 === 1;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             graphId,
-            statusVersion: recomputeStatusCalls,
+            revision: 0,
+            statusVersion: runtimeStateCalls,
+            queueLength: otherNodePending ? 1 : 0,
+            workerConcurrency: 1,
             nodeStates: {
               [selectedNodeId]: {
                 isPending: false,
@@ -150,6 +143,16 @@ test(
               [otherNodeId]: {
                 isPending: otherNodePending,
                 isComputing: false,
+              },
+            },
+            results: {
+              [selectedNodeId]: {
+                nodeId: selectedNodeId,
+                outputs: { value: 10 },
+                schema: { value: { type: 'number' } },
+                timestamp: Date.now(),
+                version: `v-${selectedNodeId}`,
+                textOutput: 'stable output',
               },
             },
           }),
@@ -202,7 +205,7 @@ test(
         await page.waitForTimeout(sampleIntervalMs);
       }
 
-      assert.ok(recomputeStatusCalls >= 4, 'Expected multiple recompute status polls during sampling');
+      assert.ok(runtimeStateCalls >= 4, 'Expected multiple runtime-state polls during sampling');
       assert.equal(sawRefreshing, false);
 
       await context.close();

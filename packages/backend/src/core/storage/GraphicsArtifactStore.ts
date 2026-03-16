@@ -1,41 +1,27 @@
-import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   buildStoredGraphicsLevels,
   chooseGraphicsLevel,
   parseGraphicsPayload,
-  PublicGraphicsArtifact,
-  StoredGraphicsArtifact,
-  toPublicGraphicsArtifact,
+  type StoredGraphicsArtifact,
 } from '../graphicsArtifacts.js';
 
 const GRAPHICS_ID_PREFIX = 'gfx_';
 
 export class GraphicsArtifactStore {
-  private readonly graphicsDir: string;
-
-  constructor(private readonly dataDir: string) {
-    this.graphicsDir = path.join(this.dataDir, 'graphics');
-    this.ensureDataDirectorySync();
+  constructor(private readonly artifactsDir: string) {
+    this.ensureArtifactsDirectorySync();
   }
 
-  getDataDir(): string {
-    return this.dataDir;
+  getArtifactsDir(): string {
+    return this.artifactsDir;
   }
 
-  getGraphicsDir(): string {
-    return this.graphicsDir;
-  }
-
-  ensureDataDirectorySync(): void {
-    try {
-      fsSync.mkdirSync(this.dataDir, { recursive: true });
-      fsSync.mkdirSync(this.graphicsDir, { recursive: true });
-    } catch (error) {
-      console.error('Failed to create data directory:', error);
-    }
+  ensureArtifactsDirectorySync(): void {
+    fsSync.mkdirSync(this.artifactsDir, { recursive: true });
   }
 
   async storeGraphicsArtifact(raw: string): Promise<StoredGraphicsArtifact | null> {
@@ -45,51 +31,6 @@ export class GraphicsArtifactStore {
     }
 
     return this.persistGraphicsArtifactBuffer(parsed.mimeType, parsed.buffer);
-  }
-
-  async getGraphicsArtifact(graphicsId: string): Promise<PublicGraphicsArtifact | null> {
-    if (!this.isGraphicsArtifactId(graphicsId)) {
-      return null;
-    }
-
-    const metadata = await this.readStoredGraphicsArtifact(graphicsId);
-    if (!metadata) {
-      return null;
-    }
-
-    return toPublicGraphicsArtifact(metadata);
-  }
-
-  async getGraphicsBinary(
-    graphicsId: string,
-    maxPixels?: number
-  ): Promise<{
-    buffer: Buffer;
-    mimeType: string;
-    selectedLevel: { level: number; width: number; height: number; pixelCount: number };
-  } | null> {
-    if (!this.isGraphicsArtifactId(graphicsId)) {
-      return null;
-    }
-
-    const metadata = await this.readStoredGraphicsArtifact(graphicsId);
-    if (!metadata) {
-      return null;
-    }
-
-    const selectedLevel = chooseGraphicsLevel(metadata.levels, maxPixels);
-    const levelPath = path.join(this.getGraphicsArtifactDir(graphicsId), selectedLevel.fileName);
-    const buffer = await fs.readFile(levelPath);
-    return {
-      buffer,
-      mimeType: metadata.mimeType,
-      selectedLevel: {
-        level: selectedLevel.level,
-        width: selectedLevel.width,
-        height: selectedLevel.height,
-        pixelCount: selectedLevel.pixelCount,
-      },
-    };
   }
 
   async persistGraphicsArtifactBuffer(
@@ -113,7 +54,7 @@ export class GraphicsArtifactStore {
       storedLevels.map((level) => fs.writeFile(path.join(artifactDir, level.fileName), level.buffer))
     );
 
-    const metadata: StoredGraphicsArtifact = {
+    return {
       id: graphicsId,
       mimeType,
       createdAt: Date.now(),
@@ -125,71 +66,31 @@ export class GraphicsArtifactStore {
         fileName: level.fileName,
       })),
     };
-
-    await fs.writeFile(this.getGraphicsMetadataPath(graphicsId), JSON.stringify(metadata, null, 2));
-    return metadata;
   }
 
-  async readStoredGraphicsArtifact(graphicsId: string): Promise<StoredGraphicsArtifact | null> {
-    try {
-      const metadataRaw = await fs.readFile(this.getGraphicsMetadataPath(graphicsId), 'utf-8');
-      const parsed = JSON.parse(metadataRaw) as StoredGraphicsArtifact;
-      if (!parsed?.id || !Array.isArray(parsed.levels) || parsed.levels.length === 0) {
-        return null;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
+  async getGraphicsBinary(
+    metadata: StoredGraphicsArtifact,
+    maxPixels?: number
+  ): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    selectedLevel: { level: number; width: number; height: number; pixelCount: number };
+  }> {
+    const selectedLevel = chooseGraphicsLevel(metadata.levels, maxPixels);
+    const buffer = await fs.readFile(
+      path.join(this.getGraphicsArtifactDir(metadata.id), selectedLevel.fileName)
+    );
 
-  async resolveLegacyGraphicsPath(basePath: string): Promise<string | null> {
-    const trimmed = basePath.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    if (path.extname(trimmed)) {
-      try {
-        await fs.access(trimmed);
-        return trimmed;
-      } catch {
-        return null;
-      }
-    }
-
-    const possibleExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'dat'];
-    for (const extension of possibleExtensions) {
-      const candidate = `${trimmed}.${extension}`;
-      try {
-        await fs.access(candidate);
-        return candidate;
-      } catch {
-        // Continue probing.
-      }
-    }
-
-    return null;
-  }
-
-  mimeTypeFromExtension(extension: string): string {
-    switch (extension) {
-      case 'png':
-        return 'image/png';
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'gif':
-        return 'image/gif';
-      case 'svg':
-        return 'image/svg+xml';
-      default:
-        return 'application/octet-stream';
-    }
-  }
-
-  isGraphicsArtifactId(value: string): boolean {
-    return value.startsWith(GRAPHICS_ID_PREFIX);
+    return {
+      buffer,
+      mimeType: metadata.mimeType,
+      selectedLevel: {
+        level: selectedLevel.level,
+        width: selectedLevel.width,
+        height: selectedLevel.height,
+        pixelCount: selectedLevel.pixelCount,
+      },
+    };
   }
 
   private createGraphicsArtifactId(): string {
@@ -197,11 +98,6 @@ export class GraphicsArtifactStore {
   }
 
   private getGraphicsArtifactDir(graphicsId: string): string {
-    return path.join(this.graphicsDir, graphicsId);
-  }
-
-  private getGraphicsMetadataPath(graphicsId: string): string {
-    return path.join(this.getGraphicsArtifactDir(graphicsId), 'metadata.json');
+    return path.join(this.artifactsDir, graphicsId);
   }
 }
-

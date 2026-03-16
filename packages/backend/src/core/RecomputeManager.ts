@@ -1,5 +1,6 @@
 import { ComputationResult, Graph } from '../types/index.js';
 import { DataStore } from './DataStore.js';
+import { GraphEventBroker } from './GraphEventBroker.js';
 import { GraphEngine } from './GraphEngine.js';
 import {
   buildGraphNodeMap,
@@ -30,7 +31,8 @@ export class RecomputeManager {
 
   constructor(
     private readonly dataStore: DataStore,
-    private readonly graphEngine: GraphEngine
+    private readonly graphEngine: GraphEngine,
+    private readonly eventBroker?: GraphEventBroker
   ) {}
 
   queueGraphUpdateRecompute(previousGraph: Graph, nextGraph: Graph): void {
@@ -60,7 +62,7 @@ export class RecomputeManager {
       rootNodeIds: [nodeId],
     });
 
-    const result = await this.dataStore.getResult(nodeId, node.version);
+    const result = await this.dataStore.getResult(graph.id, nodeId, node.version);
     if (!result) {
       const graphState = this.stateStore.getOrCreateGraphState(graphId);
       const nodeState = graphState.nodeStates[nodeId];
@@ -86,7 +88,7 @@ export class RecomputeManager {
     const results = new Map<string, ComputationResult>();
     const graphState = this.stateStore.getOrCreateGraphState(graphId);
     for (const node of graph.nodes) {
-      const result = await this.dataStore.getResult(node.id, node.version);
+      const result = await this.dataStore.getResult(graph.id, node.id, node.version);
       if (result) {
         results.set(node.id, result);
         continue;
@@ -132,6 +134,7 @@ export class RecomputeManager {
       const previewNodeIds = selectNodeIdsForTask(previewGraph, taskInput.type, taskInput.rootNodeIds);
       this.stateStore.markNodesPending(state, previewNodeIds);
       this.applyDerivedStaleStates(previewGraph, state);
+      this.publishNodeUpdates(previewGraph, previewNodeIds);
     }
 
     return await new Promise<RecomputeTaskSummary>((resolve, reject) => {
@@ -189,6 +192,7 @@ export class RecomputeManager {
 
         const scheduledNodeIds = selectNodeIdsForTask(graph, task.type, task.rootNodeIds);
         this.stateStore.markNodesPending(state, scheduledNodeIds);
+        this.publishNodeUpdates(graph, scheduledNodeIds);
 
         const completedNodeIds = await this.executeTaskNodes(
           graph,
@@ -198,6 +202,7 @@ export class RecomputeManager {
         );
 
         this.applyDerivedStaleStates(graph, state);
+        this.publishTaskCompleted(graph, scheduledNodeIds, completedNodeIds);
 
         task.resolve({
           scheduledNodeIds,
@@ -297,6 +302,7 @@ export class RecomputeManager {
         isStale: true,
         errorMessage: null,
       });
+      this.publishNodeUpdates(graph, [nodeId]);
       propagateCompletion(nodeId, false);
     };
 
@@ -342,6 +348,7 @@ export class RecomputeManager {
           isStale: true,
           errorMessage: null,
         });
+        this.publishNodeUpdates(graph, [nodeId]);
         completedNodeSet.add(nodeId);
         completedNodeIds.push(nodeId);
       }
@@ -363,6 +370,7 @@ export class RecomputeManager {
       isStale: false,
       errorMessage: null,
     });
+    this.publishNodeUpdates(graph, [nodeId]);
 
     try {
       const result = await this.graphEngine.computeNode(graph, nodeId, { recomputeVersion });
@@ -376,6 +384,7 @@ export class RecomputeManager {
         errorMessage: hasError ? result.textOutput ?? 'Execution error' : null,
         lastRunAt: result.timestamp,
       });
+      this.publishNodeUpdates(graph, [nodeId]);
 
       return {
         nodeId,
@@ -390,6 +399,7 @@ export class RecomputeManager {
         errorMessage: toErrorMessage(error),
         lastRunAt: Date.now(),
       });
+      this.publishNodeUpdates(graph, [nodeId]);
 
       return {
         nodeId,
@@ -423,5 +433,38 @@ export class RecomputeManager {
       throw new Error('Graph not found');
     }
     return graph;
+  }
+
+  private publishNodeUpdates(graph: Graph, nodeIds: string[]): void {
+    if (!this.eventBroker) {
+      return;
+    }
+
+    for (const nodeId of [...new Set(nodeIds)]) {
+      this.eventBroker.publish({
+        type: 'runtime.node.updated',
+        graphId: graph.id,
+        revision: graph.revision,
+        nodeId,
+      });
+    }
+  }
+
+  private publishTaskCompleted(
+    graph: Graph,
+    scheduledNodeIds: string[],
+    completedNodeIds: string[]
+  ): void {
+    if (!this.eventBroker) {
+      return;
+    }
+
+    this.eventBroker.publish({
+      type: 'runtime.task.completed',
+      graphId: graph.id,
+      revision: graph.revision,
+      scheduledNodeIds,
+      completedNodeIds,
+    });
   }
 }

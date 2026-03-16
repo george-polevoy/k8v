@@ -1,25 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createEmptyGraph } from './support/api.ts';
+import { createEmptyGraph, fetchGraph, updateGraphName } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 async function fetchGraphName(graphId: string): Promise<string> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`);
-  assert.equal(response.status, 200, `Expected graph ${graphId} to exist`);
-  const graph = await response.json();
+  const graph = await fetchGraph(graphId);
   return graph.name as string;
-}
-
-async function updateGraphName(graphId: string, name: string): Promise<void> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-
-  assert.equal(response.status, 200, `Expected graph ${graphId} name update to succeed`);
 }
 
 test.before(async () => {
@@ -45,14 +33,43 @@ test(
       });
       const page = await context.newPage();
 
+      await page.addInitScript(() => {
+        Object.defineProperty(window, 'EventSource', {
+          configurable: true,
+          writable: true,
+          value: undefined,
+        });
+      });
+
       await openCanvasForGraph(page, graphId);
 
       const graphNameInput = page.locator('[data-testid="graph-name-input"]');
       await graphNameInput.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
-      await updateGraphName(graphId, remoteName);
-
       await graphNameInput.fill(localAttemptedName);
+      assert.equal(await graphNameInput.inputValue(), localAttemptedName);
+
+      await updateGraphName(graphId, remoteName);
+      const remoteGraph = await fetchGraph(graphId);
+      let conflictInjected = false;
+
+      await page.route(`**/api/graphs/${graphId}/commands`, async (route) => {
+        if (!conflictInjected && route.request().method() === 'POST') {
+          conflictInjected = true;
+          await route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: 'Graph revision conflict. Reload the latest graph and retry.',
+              currentRevision: remoteGraph.revision ?? 1,
+            }),
+          });
+          return;
+        }
+
+        await route.continue();
+      });
+
       await graphNameInput.blur();
 
       await page.waitForFunction(

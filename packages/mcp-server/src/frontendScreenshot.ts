@@ -73,10 +73,37 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
               {
                 id: graphData.id,
                 name: graphData.name,
+                revision: graphData.revision ?? 0,
                 updatedAt: graphData.updatedAt,
               },
             ],
           }),
+        });
+        return;
+      }
+
+      if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            graphId: graphData.id,
+            revision: graphData.revision ?? 0,
+            statusVersion: graphData.updatedAt,
+            queueLength: 0,
+            workerConcurrency: graphData.recomputeConcurrency ?? 1,
+            nodeStates: {},
+            results: {},
+          }),
+        });
+        return;
+      }
+
+      if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: ': connected\n\n',
         });
         return;
       }
