@@ -15,7 +15,6 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Connections-only command updates preserve existing node layout/projection metadata.
 - Nodes-only command updates sync the active projection layout server-side, so node move/resize edits do not need to resend the full projection set.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
-- On graph update conflict (`409`), frontend rebases non-overlapping subset edits onto the latest graph state and retries automatically before falling back to conflict reload.
 - Open sessions detect remote current-graph updates through graph events and runtime-state polling fallback, then reload the latest graph state automatically when no local save is pending.
 - Frontend runtime-state polling backs off to a slower idle cadence when no backend work is active and ignores unchanged backend snapshots to avoid redundant UI churn.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.

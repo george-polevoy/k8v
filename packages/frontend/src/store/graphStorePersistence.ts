@@ -10,9 +10,8 @@ import {
 import {
   applyGraphUpdatePayload,
   deriveGraphUpdatePayload,
-  rebaseGraphUpdate,
   type GraphUpdatePayload,
-} from './graphUpdateRebase';
+} from './graphSnapshotUpdate';
 import type {
   NodeExecutionState,
   NodeGraphicsOutputMap,
@@ -218,49 +217,6 @@ export function createGraphUpdatePersistenceController({
           try {
             const latestGraph = normalizeGraph(await api.fetchGraph(graph.id));
             if (!isLatestRequest(requestId)) {
-              return;
-            }
-
-            const rebased = rebaseGraphUpdate(graph, updatePayload, latestGraph);
-            if (rebased.ok) {
-              const rebasedGraph = applyGraphUpdatePayload(latestGraph, rebased.updates);
-              setState((state) =>
-                buildGraphStateUpdate({
-                  graph: rebasedGraph,
-                  selectedCameraId: state.selectedCameraId,
-                  selectedNodeId: state.selectedNodeId,
-                  selectedNodeIds: state.selectedNodeIds,
-                  selectedDrawingId: state.selectedDrawingId,
-                  nodeExecutionStates: state.nodeExecutionStates,
-                  nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-                  nodeResults: state.nodeResults,
-                  error: null,
-                  isLoading: false,
-                  selectionMode: 'reconcile',
-                })
-              );
-
-              const persistedGraph = await sendGraphUpdate(graph.id, latestGraph, rebased.updates);
-              if (!isLatestRequest(requestId)) {
-                return;
-              }
-
-              setState((state) =>
-                buildGraphStateUpdate({
-                  graph: persistedGraph,
-                  selectedCameraId: state.selectedCameraId,
-                  selectedNodeId: state.selectedNodeId,
-                  selectedNodeIds: state.selectedNodeIds,
-                  selectedDrawingId: state.selectedDrawingId,
-                  nodeExecutionStates: state.nodeExecutionStates,
-                  nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-                  nodeResults: state.nodeResults,
-                  error: null,
-                  isLoading: false,
-                  selectionMode: 'reconcile',
-                })
-              );
-              syncPersistedGraph(persistedGraph);
               return;
             }
 

@@ -80,7 +80,6 @@ Last reviewed: March 16, 2026.
 - `A-FE-37` `packages/frontend/tests/graphStoreEditing.test.ts`: `addConnection` rewires an occupied target input instead of appending a second inbound edge.
 - `A-FE-38` `packages/frontend/tests/cameras.test.ts`: camera helpers inject the default camera, round-trip floating-window edge-ratio layouts across viewport sizes, and persist current camera selection per graph/window.
 - `A-FE-39` `packages/frontend/tests/projections.test.ts`: `syncActiveProjectionLayout` rewrites only the active projection from current node coordinates/card sizes.
-- `A-FE-40` `packages/frontend/tests/graphStorePersistence.test.ts`: non-overlapping stale graph updates are rebased onto the latest graph state and retried after a `409` conflict.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
 - `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
 - `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
@@ -263,7 +262,7 @@ Last reviewed: March 16, 2026.
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
 | Persist graph edits through `POST /api/graphs/:id/commands` | `A-FE-02`, `A-BE-37` | Automated |
 | Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
-| Graph update conflict detection/rebase/reload (`baseRevision` + `409`) | `A-BE-44`, `A-FE-24`, `A-FE-40`, `A-E2E-08`, `A-E2E-28` | Automated |
+| Graph update conflict detection and reload (`baseRevision` + `409`) | `A-BE-44`, `A-FE-24`, `A-E2E-08` | Automated |
 | Open sessions auto-refresh the current graph when remote updates are detected | `A-FE-41`, `A-E2E-28` | Automated |
 | Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery (connections always include source/target node ids) | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63`, `A-BE-64` | Automated |
 | Graph panel graph selection | `M-GRAPH-03` | Manual |
