@@ -4,7 +4,7 @@ import {
   NodeType,
   ComputationResult,
   DataSchema,
-  DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
+  normalizeGraphExecutionTimeoutMs,
   normalizeNumericInputConfig,
 } from '../types/index.js';
 import { DataStore } from './DataStore.js';
@@ -212,11 +212,7 @@ export class NodeExecutor {
   }
 
   private resolveTimeoutMs(graph?: Graph): number {
-    const timeoutCandidate = graph?.executionTimeoutMs;
-    if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate > 0) {
-      return timeoutCandidate;
-    }
-    return DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
+    return normalizeGraphExecutionTimeoutMs(graph?.executionTimeoutMs);
   }
 
   private initializeRuntimes(

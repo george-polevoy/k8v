@@ -275,6 +275,53 @@ export function applyProjectionToNodes(
   });
 }
 
+export function materializeGraphProjectionState(
+  nodes: GraphNode[],
+  projections: GraphProjection[] | null | undefined,
+  activeProjectionId: string | null | undefined,
+  fallbackCanvasBackground?: CanvasBackground | null,
+  activeCanvasBackgroundOverride?: CanvasBackground | null
+): {
+  projections: GraphProjection[];
+  activeProjectionId: string;
+  nodes: GraphNode[];
+  canvasBackground: CanvasBackground;
+} {
+  const projectionState = normalizeGraphProjectionState(
+    nodes,
+    projections,
+    activeProjectionId,
+    fallbackCanvasBackground
+  );
+
+  const normalizedProjections = activeCanvasBackgroundOverride
+    ? projectionState.projections.map((projection) => (
+        projection.id === projectionState.activeProjectionId
+          ? {
+              ...projection,
+              canvasBackground: normalizeCanvasBackgroundValue(
+                activeCanvasBackgroundOverride,
+                projection.canvasBackground
+              ),
+            }
+          : projection
+      ))
+    : projectionState.projections;
+  const activeProjection = normalizedProjections.find(
+    (projection) => projection.id === projectionState.activeProjectionId
+  ) ?? normalizedProjections[0];
+
+  return {
+    projections: normalizedProjections,
+    activeProjectionId: projectionState.activeProjectionId,
+    nodes: activeProjection ? applyProjectionToNodes(nodes, activeProjection) : nodes,
+    canvasBackground: normalizeCanvasBackgroundValue(
+      activeProjection?.canvasBackground ?? fallbackCanvasBackground,
+      DEFAULT_CANVAS_BACKGROUND
+    ),
+  };
+}
+
 export function syncActiveProjectionLayout(
   projections: GraphProjection[] | null | undefined,
   nodes: GraphNode[],

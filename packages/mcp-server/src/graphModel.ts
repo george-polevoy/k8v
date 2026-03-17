@@ -5,14 +5,8 @@ import {
   normalizeGraphConnectionStroke,
 } from '../../shared/src/connectionStroke.js';
 import {
-  applyProjectionToNodes,
-  cloneProjectionNodeCardSizes,
-  cloneProjectionNodePositions,
-  DEFAULT_GRAPH_PROJECTION_ID,
-  DEFAULT_GRAPH_PROJECTION_NAME,
-  NodeType,
+  materializeGraphProjectionState,
   normalizeDrawingColor,
-  normalizeGraphProjectionState,
   type CanvasBackground,
   type Connection,
   type ConnectionAnchor,
@@ -36,9 +30,9 @@ export {
   cloneProjectionNodePositions,
   DEFAULT_GRAPH_PROJECTION_ID,
   DEFAULT_GRAPH_PROJECTION_NAME,
+  materializeGraphProjectionState,
   NodeType,
   normalizeDrawingColor,
-  normalizeGraphProjectionState,
 } from '../../domain/dist/index.js';
 
 export type GraphConnectionStrokeSettings = GraphConnectionStroke;
@@ -76,22 +70,12 @@ export function normalizeCanvasBackground(background: CanvasBackground | undefin
 }
 
 export function normalizeGraph(graph: Graph): Graph {
-  const canvasBackground = normalizeCanvasBackground(graph.canvasBackground);
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
-  const projectionState = normalizeGraphProjectionState(
+  const projectionState = materializeGraphProjectionState(
     graph.nodes,
     graph.projections,
     graph.activeProjectionId,
-    canvasBackground
-  );
-  const activeProjection = projectionState.projections.find(
-    (projection) => projection.id === projectionState.activeProjectionId
-  ) ?? projectionState.projections[0];
-  const projectedNodes = activeProjection
-    ? applyProjectionToNodes(graph.nodes, activeProjection)
-    : graph.nodes;
-  const activeProjectionBackground = normalizeCanvasBackground(
-    activeProjection?.canvasBackground ?? canvasBackground
+    graph.canvasBackground
   );
 
   return {
@@ -100,8 +84,8 @@ export function normalizeGraph(graph: Graph): Graph {
       typeof graph.revision === 'number' && Number.isFinite(graph.revision)
         ? Math.max(0, Math.trunc(graph.revision))
         : 0,
-    nodes: projectedNodes,
-    canvasBackground: activeProjectionBackground,
+    nodes: projectionState.nodes,
+    canvasBackground: projectionState.canvasBackground,
     connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,

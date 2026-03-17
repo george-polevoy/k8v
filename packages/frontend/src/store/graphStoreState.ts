@@ -1,18 +1,15 @@
 import {
   ComputationResult as ComputationResultSchema,
+  materializeGraphProjectionState,
+  normalizeGraphExecutionTimeoutMs,
   type ComputationResult as ComputationResultType,
   dedupeConnectionsByTargetSlot,
   type Graph,
   type GraphicsArtifact,
 } from '../types';
-import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import { normalizeGraphCameraState } from '../utils/cameras';
 import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
 import { normalizeHexColor } from '../utils/color';
-import {
-  applyProjectionToNodes,
-  normalizeGraphProjectionState,
-} from '../utils/projections';
 import type {
   GraphSummary,
   NodeExecutionState,
@@ -21,7 +18,6 @@ import type {
 } from './graphStoreTypes';
 
 export const DEFAULT_DRAWING_COLOR = '#ffffff';
-const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 
 export const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
   isPending: false,
@@ -50,27 +46,17 @@ export function resolveErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function normalizeGraphExecutionTimeoutMs(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
-}
-
 export function normalizeGraph(graph: Graph): Graph {
   const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   const connections = Array.isArray(graph.connections)
     ? dedupeConnectionsByTargetSlot(graph.nodes, graph.connections)
     : [];
-  const projectionState = normalizeGraphProjectionState(
+  const projectionState = materializeGraphProjectionState(
     graph.nodes,
     graph.projections,
     graph.activeProjectionId,
     graph.canvasBackground
   );
-  const activeProjection = projectionState.projections.find(
-    (projection) => projection.id === projectionState.activeProjectionId
-  ) ?? projectionState.projections[0];
-  const projectedNodes = activeProjection ? applyProjectionToNodes(graph.nodes, activeProjection) : graph.nodes;
 
   return {
     ...graph,
@@ -78,11 +64,9 @@ export function normalizeGraph(graph: Graph): Graph {
       typeof graph.revision === 'number' && Number.isFinite(graph.revision) && graph.revision >= 0
         ? graph.revision
         : 0,
-    nodes: projectedNodes,
+    nodes: projectionState.nodes,
     connections,
-    canvasBackground: normalizeCanvasBackground(
-      activeProjection?.canvasBackground ?? graph.canvasBackground
-    ),
+    canvasBackground: projectionState.canvasBackground,
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     executionTimeoutMs: normalizeGraphExecutionTimeoutMs(graph.executionTimeoutMs),

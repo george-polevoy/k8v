@@ -19,6 +19,7 @@ import {
   cloneProjectionNodePositions,
   syncActiveProjectionLayout,
 } from './graphProjection.js';
+import { getNextProjectionName } from './graphState.js';
 import {
   assertValidPortName,
   createAnnotationNode,
@@ -36,17 +37,6 @@ const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 function createGeneratedId(prefix: string): string {
   const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   return cryptoLike?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function getNextProjectionName(existingProjections: GraphProjection[]): string {
-  const existingNames = new Set(existingProjections.map((projection) => projection.name));
-  let index = 1;
-  let candidate = `Projection ${index}`;
-  while (existingNames.has(candidate)) {
-    index += 1;
-    candidate = `Projection ${index}`;
-  }
-  return candidate;
 }
 
 export function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
@@ -198,7 +188,7 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
 
       const newProjection: GraphProjection = {
         id: nextProjectionId,
-        name: command.name?.trim() || getNextProjectionName(projections),
+        name: command.name?.trim() || getNextProjectionName(projections.map((projection) => projection.name)),
         nodePositions: cloneProjectionNodePositions(graph.nodes, sourceProjection),
         nodeCardSizes: cloneProjectionNodeCardSizes(graph.nodes, sourceProjection),
         canvasBackground: sourceProjection.canvasBackground ?? graph.canvasBackground,

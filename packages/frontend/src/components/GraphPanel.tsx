@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
 import {
   CanvasBackgroundSettings,
+  DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   GraphConnectionStrokeSettings,
+  getNextProjectionName,
+  normalizeGraphExecutionTimeoutMs,
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import {
@@ -36,7 +39,6 @@ import { v4 as uuidv4 } from 'uuid';
 
 const MIN_RECOMPUTE_CONCURRENCY = 1;
 const MAX_RECOMPUTE_CONCURRENCY = 32;
-const DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS = DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS / 1000;
 
 function formatProjectionOptionLabel(name: string, id: string): string {
@@ -51,17 +53,6 @@ function formatCameraOptionLabel(name: string, id: string): string {
     return `${name} (${id})`;
   }
   return `${name} (${id.slice(0, 8)})`;
-}
-
-function getNextProjectionName(existingNames: string[]): string {
-  const existing = new Set(existingNames);
-  let index = 1;
-  let candidate = `Projection ${index}`;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `Projection ${index}`;
-  }
-  return candidate;
 }
 
 function normalizeRecomputeConcurrency(
@@ -83,15 +74,6 @@ function normalizeRecomputeConcurrency(
     MAX_RECOMPUTE_CONCURRENCY,
     Math.max(MIN_RECOMPUTE_CONCURRENCY, rounded)
   );
-}
-
-function normalizeGraphExecutionTimeoutMs(
-  value: unknown,
-  fallback = DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS
-): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : fallback;
 }
 
 function normalizeExecutionTimeoutSeconds(
