@@ -157,7 +157,7 @@ test('graph_query tool forwards validated query payload to backend', async () =>
       operation: 'traverse_bfs',
       startNodeIds: ['node-a'],
       depth: 1,
-      nodeFields: ['id'],
+      nodeFields: ['id', 'annotationText', 'position'],
       connectionFields: ['id', 'sourceNodeId', 'targetNodeId'],
     });
     const result = await handler({

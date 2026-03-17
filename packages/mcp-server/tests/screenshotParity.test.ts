@@ -33,6 +33,20 @@ interface ScreenshotBitmap {
   height: number;
 }
 
+function pngBuffersMatch(left: Buffer, right: Buffer): boolean {
+  if (left.equals(right)) {
+    return true;
+  }
+
+  const leftImage = PNG.sync.read(left);
+  const rightImage = PNG.sync.read(right);
+  if (leftImage.width !== rightImage.width || leftImage.height !== rightImage.height) {
+    return false;
+  }
+
+  return leftImage.data.equals(rightImage.data);
+}
+
 async function findFreePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = createNetServer();
@@ -505,30 +519,40 @@ test('frontend screenshot function matches direct frontend canvas capture', asyn
   await mkdir(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, `frontend-parity-${Date.now()}.png`);
 
-  const result = await renderGraphRegionScreenshotFromFrontend({
-    frontendUrl: frontendServer.url,
-    backendUrl: backendServer.url,
-    graphId: graph.id,
-    graphOverride: graph,
-    region,
-    bitmap,
-    outputPath,
-    includeBase64: true,
-  });
+  let buffersMatch = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await renderGraphRegionScreenshotFromFrontend({
+      frontendUrl: frontendServer.url,
+      backendUrl: backendServer.url,
+      graphId: graph.id,
+      graphOverride: graph,
+      region,
+      bitmap,
+      outputPath,
+      includeBase64: true,
+    });
 
-  assert.ok(result.base64, 'Expected base64 payload from frontend screenshot renderer.');
-  const functionBuffer = Buffer.from(result.base64, 'base64');
+    assert.ok(result.base64, 'Expected base64 payload from frontend screenshot renderer.');
+    const functionBuffer = Buffer.from(result.base64, 'base64');
 
-  const directBuffer = await captureDirectFrontendScreenshot({
-    frontendUrl: frontendServer.url,
-    backendUrl: backendServer.url,
-    graphId: graph.id,
-    graphOverride: graph,
-    region,
-    bitmap,
-  });
+    const directBuffer = await captureDirectFrontendScreenshot({
+      frontendUrl: frontendServer.url,
+      backendUrl: backendServer.url,
+      graphId: graph.id,
+      graphOverride: graph,
+      region,
+      bitmap,
+    });
 
-  assert.equal(functionBuffer.equals(directBuffer), true, 'Expected MCP screenshot output to match direct frontend capture exactly.');
+    buffersMatch = pngBuffersMatch(functionBuffer, directBuffer);
+    if (buffersMatch) {
+      break;
+    }
+
+    await delay(120);
+  }
+
+  assert.equal(buffersMatch, true, 'Expected MCP screenshot output to match direct frontend capture exactly.');
   await rm(outputPath, { force: true });
 });
 

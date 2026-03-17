@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNumericInputGraph } from './support/api.ts';
+import { createNumericInputGraph, fetchGraph as fetchPersistedGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 interface GraphSnapshot {
@@ -17,9 +17,7 @@ interface GraphSnapshot {
 }
 
 async function fetchGraph(graphId: string): Promise<GraphSnapshot> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`);
-  assert.equal(response.status, 200, `Expected graph ${graphId} to exist`);
-  return await response.json() as GraphSnapshot;
+  return await fetchPersistedGraph(graphId) as GraphSnapshot;
 }
 
 async function waitForGraphState(

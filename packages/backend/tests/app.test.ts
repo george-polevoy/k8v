@@ -713,6 +713,53 @@ test('POST /api/graphs/:id/query always includes connection source/target node i
   }
 });
 
+test('POST /api/graphs/:id/query can project annotation text, position, card size, and config', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const annotationNode = createAnnotationNode('annotation-query');
+    annotationNode.position = { x: 320, y: 180 };
+    annotationNode.config.config = {
+      ...annotationNode.config.config,
+      text: '## Query me',
+      cardWidth: 360,
+      cardHeight: 220,
+      borderColor: '#334155',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [annotationNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const queryResponse = await fetch(`${ctx.baseUrl}/api/graphs/${createdGraph.id}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'overview',
+        nodeFields: ['id', 'type', 'position', 'annotationText', 'cardSize', 'config'],
+      }),
+    });
+    assert.equal(queryResponse.status, 200);
+    const query = await queryResponse.json();
+
+    assert.deepEqual(query.nodeFields, ['id', 'type', 'position', 'annotationText', 'cardSize', 'config']);
+    assert.deepEqual(query.nodes, [
+      {
+        id: 'annotation-query',
+        type: 'annotation',
+        position: { x: 320, y: 180 },
+        annotationText: '## Query me',
+        cardSize: { width: 360, height: 220 },
+        config: annotationNode.config,
+      },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs/:id/query supports BFS traversal with optional depth', async () => {
   const ctx = await setupTestServer();
 

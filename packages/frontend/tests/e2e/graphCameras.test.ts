@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Page } from 'playwright';
-import { createEmptyGraph } from './support/api.ts';
+import { createEmptyGraph, fetchGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const DEFAULT_CAMERA_ID = 'default-camera';
@@ -166,14 +166,7 @@ async function readCameraSelectOptions(page: Page): Promise<string[]> {
 }
 
 async function fetchGraphCameras(graphId: string): Promise<GraphCameraResponse[]> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await response.json() as { cameras?: GraphCameraResponse[] };
-  assert.ok(response.ok, `Fetch graph failed (${response.status})`);
+  const graph = await fetchGraph(graphId) as { cameras?: GraphCameraResponse[] };
   return Array.isArray(graph.cameras) ? graph.cameras : [];
 }
 
@@ -276,6 +269,11 @@ test(
         Math.abs(transform.x - zoomedDefaultViewport.x) > 3 ||
         Math.abs(transform.y - zoomedDefaultViewport.y) > 3
       );
+      await firstPage.evaluate(() => {
+        (window as Window & {
+          __k8vFlushViewportCameraState?: () => void;
+        }).__k8vFlushViewportCameraState?.();
+      });
 
       await waitForGraphCamera(
         graphId,
@@ -327,6 +325,11 @@ test(
         Math.abs(transform.x - customViewportBeforePan.x) > 3 ||
         Math.abs(transform.y - customViewportBeforePan.y) > 3
       );
+      await firstPage.evaluate(() => {
+        (window as Window & {
+          __k8vFlushViewportCameraState?: () => void;
+        }).__k8vFlushViewportCameraState?.();
+      });
 
       await waitForGraphCamera(
         graphId,

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   GraphCommand,
+  GRAPH_QUERY_CONNECTION_FIELDS,
+  GRAPH_QUERY_NODE_FIELDS,
   GraphQueryRequestSchema,
   type GraphQueryRequest,
 } from '../../domain/dist/index.js';
@@ -62,23 +64,16 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     'graph_query',
     {
       description:
-        'Run lightweight graph queries (overview, BFS/DFS traversal, starting vertices) and return only requested fields.',
+        'Run lightweight graph queries (overview, BFS/DFS traversal, starting vertices) and return only requested fields. ' +
+        'For schema details and examples, read k8v://docs/mcp-overview.md and k8v://docs/annotation-workflows.md.',
       inputSchema: {
         graphId: z.string(),
         operation: z.enum(['overview', 'starting_vertices', 'traverse_bfs', 'traverse_dfs']),
         startNodeIds: z.array(z.string()).optional(),
         depth: z.number().int().nonnegative().optional(),
         maxNodes: z.number().int().positive().optional(),
-        nodeFields: z.array(z.enum(['id', 'name', 'type', 'version', 'inputNames', 'outputNames'])).optional(),
-        connectionFields: z.array(z.enum([
-          'id',
-          'sourceNodeId',
-          'sourcePort',
-          'sourceAnchor',
-          'targetNodeId',
-          'targetPort',
-          'targetAnchor',
-        ])).optional(),
+        nodeFields: z.array(z.enum(GRAPH_QUERY_NODE_FIELDS)).optional(),
+        connectionFields: z.array(z.enum(GRAPH_QUERY_CONNECTION_FIELDS)).optional(),
         backendUrl: z.string().optional(),
       },
     },
@@ -139,7 +134,8 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     'bulk_edit',
     {
       description:
-        'Apply an ordered graph command batch to one graph. This is the only MCP graph mutation tool.',
+        'Apply an ordered GraphCommand[] batch to one graph. This is the only MCP graph mutation tool. ' +
+        'See k8v://docs/graph-command-schema.json and k8v://docs/annotation-workflows.md for command shapes and examples.',
       inputSchema: {
         graphId: z.string(),
         baseRevision: z.number().int().nonnegative().optional(),

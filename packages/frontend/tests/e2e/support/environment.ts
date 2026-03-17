@@ -333,17 +333,8 @@ export async function ensureE2EEnvironment(): Promise<void> {
 
 export async function shutdownE2EEnvironment(): Promise<void> {
   debugLog('shutdownE2EEnvironment start');
-  try {
-    if (await isHttpReady(`${E2E_BACKEND_URL}/api/graphs`)) {
-      debugLog('shutdownE2EEnvironment backend reachable; cleaning autotest graphs');
-      await cleanupAutotestGraphs();
-    } else {
-      debugLog('shutdownE2EEnvironment backend not reachable; skipping graph cleanup');
-    }
-  } catch {
-    debugLog('shutdownE2EEnvironment graph cleanup failed (best effort)');
-    // Best-effort cleanup only.
-  }
+  // File startup already performs a full autotest-graph cleanup. Skipping deletion on shutdown
+  // avoids cross-file teardown races when the next e2e process is already creating graphs.
   await stopProcess(frontendProcess);
   await stopProcess(backendProcess);
   frontendProcess = null;

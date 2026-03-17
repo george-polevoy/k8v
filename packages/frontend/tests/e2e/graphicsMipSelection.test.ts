@@ -31,6 +31,7 @@ interface CanvasDebugCounters {
   viewportDeferredRenderCount: number;
   projectedTextureRefreshDeferredCount: number;
   projectedTextureRefreshImmediateCount: number;
+  viewportScale: number;
 }
 
 async function installCanvasDebugCounters(page: import('playwright').Page): Promise<void> {
@@ -70,6 +71,7 @@ async function readCanvasDebugCounters(page: import('playwright').Page): Promise
       viewportDeferredRenderCount: counters?.viewportDeferredRenderCount ?? 0,
       projectedTextureRefreshDeferredCount: counters?.projectedTextureRefreshDeferredCount ?? 0,
       projectedTextureRefreshImmediateCount: counters?.projectedTextureRefreshImmediateCount ?? 0,
+      viewportScale: counters?.viewportScale ?? 1,
     };
   });
 }
@@ -353,6 +355,7 @@ test(
         deviceScaleFactor: 1,
       });
       const page = await context.newPage();
+      await installCanvasDebugCounters(page);
       const projectedGraphicsUrls = await installProjectedGraphicsRequestCapture(page);
 
       await openCanvasForGraph(page, graphId);
@@ -371,8 +374,11 @@ test(
 
       const initialProjectedUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
       assert.ok(initialProjectedUrl, 'Expected an initial projected graphics URL');
+      const baselineCounters = await waitForCanvasDebugCountersToSettle(page);
+      const baselineViewportScale = baselineCounters.viewportScale;
+      let zoomedViewportScale = baselineViewportScale;
 
-      for (let step = 0; step < 10; step += 1) {
+      for (let step = 0; step < 16; step += 1) {
         await page.evaluate(({ x, y }) => {
           const mainCanvas = document.querySelector('canvas');
           if (!(mainCanvas instanceof HTMLCanvasElement)) {
@@ -389,7 +395,15 @@ test(
           }));
         }, { x: centerX, y: centerY });
         await delay(30);
+        zoomedViewportScale = (await readCanvasDebugCounters(page)).viewportScale;
+        if (zoomedViewportScale >= (baselineViewportScale * 1.8)) {
+          break;
+        }
       }
+      assert.ok(
+        zoomedViewportScale >= (baselineViewportScale * 1.8),
+        `Expected the zoom burst to materially increase viewport scale (${baselineViewportScale} -> ${zoomedViewportScale})`
+      );
 
       await delay(140);
       const duringZoomUrl = projectedGraphicsUrls[projectedGraphicsUrls.length - 1] ?? '';
@@ -431,11 +445,22 @@ test(
       });
       const page = await context.newPage();
       let delayedProjectedRequestCount = 0;
+      let releaseDelayedProjectedRequest: (() => void) | null = null;
+      let delayedProjectedRequestReleased = false;
+      const waitForDelayedProjectedRequestRelease = new Promise<void>((resolveRelease) => {
+        releaseDelayedProjectedRequest = () => {
+          if (delayedProjectedRequestReleased) {
+            return;
+          }
+          delayedProjectedRequestReleased = true;
+          resolveRelease();
+        };
+      });
 
       await page.route('**/api/graphics/*/image*', async (route) => {
         delayedProjectedRequestCount += 1;
         if (delayedProjectedRequestCount === 1) {
-          await delay(1_000);
+          await waitForDelayedProjectedRequestRelease;
         }
         await route.continue();
       });
@@ -450,9 +475,17 @@ test(
       const centerX = canvasBox.x + (canvasBox.width / 2);
       const centerY = canvasBox.y + (canvasBox.height / 2);
 
+      const requestSeenStartedAt = Date.now();
+      while (delayedProjectedRequestCount < 1 && (Date.now() - requestSeenStartedAt) < E2E_ASSERT_TIMEOUT_MS) {
+        await page.waitForTimeout(40);
+      }
+      assert.ok(delayedProjectedRequestCount >= 1, 'Expected the initial projected graphics request to start');
       const baselineCounters = await waitForCanvasDebugCountersToSettle(page);
 
       for (let step = 0; step < 18; step += 1) {
+        if (step === 2) {
+          releaseDelayedProjectedRequest?.();
+        }
         await page.evaluate(({ x, y }) => {
           const mainCanvas = document.querySelector('canvas');
           if (!(mainCanvas instanceof HTMLCanvasElement)) {
@@ -469,6 +502,8 @@ test(
         }, { x: centerX, y: centerY });
         await page.waitForTimeout(50);
       }
+
+      releaseDelayedProjectedRequest?.();
 
       const duringInteractionCounters = await readCanvasDebugCounters(page);
       assert.equal(

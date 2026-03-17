@@ -158,12 +158,14 @@ Last reviewed: March 16, 2026.
 - `A-BE-73` `packages/backend/tests/app.test.ts`: nodes-only `POST /api/graphs/:id/commands` updates sync the active projection layout while preserving non-active projection metadata.
 - `A-BE-74` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default camera metadata when cameras are omitted.
 - `A-BE-75` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` preserves the default camera when a camera update would otherwise remove all cameras.
+- `A-BE-76` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` can project annotation-oriented node fields including `position`, `cardSize`, `annotationText`, and `config`.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
 - `A-MCP-04` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `connections_list` and `filterConnections` narrow graph connections by `nodeId` and `targetPort`.
 - `A-MCP-05` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `graph_query` validates requests with the shared `GraphQueryRequestSchema` and forwards the normalized payload to backend.
 - `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP `graph_screenshot_region` matches direct frontend canvas capture, respects requested bitmap dimensions, and works when loading the graph from backend.
+- `A-MCP-07` `packages/mcp-server/tests/mcpDocumentationResources.test.ts`: MCP publishes documentation resources/templates for command schema, query schema, and annotation workflow examples.
 ## MCP Coverage Notes
 - Backend/MCP tests cover `graph_create` producing an empty graph and `bulk_edit` forwarding ordered `GraphCommand[]` batches (including compute commands) to the backend command service.
 - `packages/mcp-server/tests/screenshotParity.test.ts` ensures `graph_screenshot_region` matches direct frontend canvas captures and respects requested bitmap dimensions.
@@ -313,6 +315,7 @@ Last reviewed: March 16, 2026.
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
 | Graph traversal/query includes annotation nodes and annotation-linked anchors | `A-BE-67`, `A-MCP-05` | Automated |
+| Graph query can project annotation text/config/position/card size without full graph fetch | `A-BE-76`, `A-MCP-05` | Automated |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
 | Minimap/navigation assistant click-to-center | `M-CANVAS-10` | Manual |
 | Node selection keeps viewport stable (no jump/reset) | `M-CANVAS-12` | Manual |
@@ -375,6 +378,7 @@ Last reviewed: March 16, 2026.
 | MCP graph-create contract coverage | `A-MCP-01` | Automated |
 | MCP bulk-edit contract coverage | `A-MCP-02`, `A-MCP-03` | Automated |
 | MCP read/query helper coverage (`connections_list`, `graph_query`) | `A-MCP-04`, `A-MCP-05` | Automated |
+| MCP documentation resource/template coverage | `A-MCP-07` | Automated |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 
 ## Open Gaps

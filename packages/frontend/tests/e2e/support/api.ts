@@ -138,13 +138,7 @@ export async function getGraphConnectionStroke(
   foregroundWidth: number;
   backgroundWidth: number;
 }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
 
   const foregroundColor = graph.connectionStroke?.foregroundColor;
   const backgroundColor = graph.connectionStroke?.backgroundColor;
@@ -266,7 +260,17 @@ async function waitForGraphAvailability(
   );
 }
 
-async function createEmptyGraphDocument(name: string, context: string): Promise<GraphResponse> {
+async function readGraphSnapshot(
+  graphId: string,
+  timeoutMs = Math.min(E2E_ASSERT_TIMEOUT_MS, 8_000)
+): Promise<GraphResponse> {
+  return waitForGraphAvailability(graphId, {
+    minRevision: 0,
+    timeoutMs,
+  });
+}
+
+async function createEmptyGraphDocumentOnce(name: string, context: string): Promise<GraphResponse> {
   const response = await fetch(`${E2E_BACKEND_URL}/api/graphs`, {
     method: 'POST',
     headers: {
@@ -282,6 +286,27 @@ async function createEmptyGraphDocument(name: string, context: string): Promise<
   return waitForGraphAvailability(graph.id, {
     minRevision: graph.revision ?? 0,
   });
+}
+
+async function createEmptyGraphDocument(name: string, context: string): Promise<GraphResponse> {
+  const attempts = 3;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await createEmptyGraphDocumentOnce(name, context);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) {
+        break;
+      }
+      await delay(250);
+    }
+  }
+
+  throw new Error(
+    `${context} failed after ${attempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
 }
 
 export async function submitGraphCommands(
@@ -326,7 +351,7 @@ export async function submitGraphCommands(
   });
 }
 
-export async function createSeededGraph(options: {
+async function createSeededGraphOnce(options: {
   name: string;
   nodes?: unknown[];
   connections?: unknown[];
@@ -369,14 +394,35 @@ export async function createSeededGraph(options: {
   );
 }
 
+export async function createSeededGraph(options: {
+  name: string;
+  nodes?: unknown[];
+  connections?: unknown[];
+  drawings?: unknown[];
+  context: string;
+}): Promise<GraphResponse> {
+  const attempts = 3;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await createSeededGraphOnce(options);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) {
+        break;
+      }
+      await delay(250);
+    }
+  }
+
+  throw new Error(
+    `${options.context} failed after ${attempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
+}
+
 export async function fetchGraph(graphId: string): Promise<GraphResponse> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  return expectJsonResponse(response, `Fetch graph ${graphId}`) as Promise<GraphResponse>;
+  return readGraphSnapshot(graphId, E2E_ASSERT_TIMEOUT_MS);
 }
 
 export async function updateGraphName(graphId: string, name: string): Promise<void> {
@@ -694,13 +740,7 @@ function normalizeConnectionAnchor(
 }
 
 export async function getGraphConnections(graphId: string): Promise<GraphConnectionSnapshot[]> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const connections = Array.isArray(graph.connections) ? graph.connections : [];
 
   return connections.map((connection) => {
@@ -748,13 +788,7 @@ export async function waitForGraphConnections(
 }
 
 export async function getNumericNodeValue(graphId: string, nodeId: string): Promise<number> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
 
@@ -789,13 +823,7 @@ export async function getNodeCardSize(
   graphId: string,
   nodeId: string
 ): Promise<{ width: number | null; height: number | null }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
 
@@ -810,13 +838,7 @@ export async function getNodePosition(
   graphId: string,
   nodeId: string
 ): Promise<{ x: number; y: number }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
   assert.ok(
@@ -835,13 +857,7 @@ export async function getAnnotationNodeText(
   graphId: string,
   nodeId: string
 ): Promise<string> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
   const text = node.config?.config?.text;
@@ -853,13 +869,7 @@ export async function getAnnotationNodeFontSize(
   graphId: string,
   nodeId: string
 ): Promise<number> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
   const fontSize = node.config?.config?.fontSize;
@@ -963,13 +973,7 @@ export async function waitForGraphNodeByName(
   const startedAt = Date.now();
 
   while ((Date.now() - startedAt) < timeoutMs) {
-    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-      },
-    });
-    const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+    const graph = await readGraphSnapshot(graphId);
     const node = graph.nodes.find((candidate) => candidate.metadata?.name === nodeName);
     if (node) {
       return node;
@@ -986,13 +990,7 @@ export async function waitForGraphNodeByName(
 export async function getGraphCanvasBackground(
   graphId: string
 ): Promise<{ mode: string; baseColor: string }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await expectJsonResponse(response, `Fetch graph ${graphId}`) as GraphResponse;
+  const graph = await readGraphSnapshot(graphId);
 
   const mode = graph.canvasBackground?.mode;
   const baseColor = graph.canvasBackground?.baseColor;

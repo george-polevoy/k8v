@@ -89,6 +89,7 @@ The MCP server exposes:
 - `graph_create` for empty graph creation (name optional, no seeded nodes/connections)
 - `bulk_edit`, which sends ordered backend `GraphCommand[]` batches and is the sole graph mutation surface (compute now flows through command variants instead of a dedicated `graph_compute`)
 - read/query helpers: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`
+- discoverability resources/templates for MCP schema/docs, including command/query schema JSON and annotation workflow examples
 - internal screenshot tool `graph_screenshot_region`:
   - renders the preview frontend in `canvasOnly` mode
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)

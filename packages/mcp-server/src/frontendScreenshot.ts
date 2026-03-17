@@ -33,6 +33,7 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
   bitmap: RenderBitmap;
   outputPath?: string;
   includeBase64?: boolean;
+  allowBackendUrlFallback?: boolean;
 }): Promise<{ outputPath: string; bytes: number; base64?: string }> {
   const graphData = params.graphOverride ? normalizeGraph(params.graphOverride) : null;
   const browser = await chromium.launch({
@@ -41,170 +42,219 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
   });
 
   try {
-    const context = await browser.newContext({
-      viewport: {
-        width: Math.max(1, Math.round(params.bitmap.width)),
-        height: Math.max(1, Math.round(params.bitmap.height)),
-      },
-      deviceScaleFactor: 1,
-    });
+    const candidateFrontendUrls = [
+      params.frontendUrl,
+      ...(params.allowBackendUrlFallback &&
+      params.backendUrl !== params.frontendUrl
+        ? [params.backendUrl]
+        : []),
+    ];
+    const attemptErrors: string[] = [];
 
-    await context.route(/\/api\/.*/, async (route) => {
-      const request = route.request();
-      const requestUrl = new URL(request.url());
-      const method = request.method().toUpperCase();
-      const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
+    for (const candidateFrontendUrl of candidateFrontendUrls) {
+      const context = await browser.newContext({
+        viewport: {
+          width: Math.max(1, Math.round(params.bitmap.width)),
+          height: Math.max(1, Math.round(params.bitmap.height)),
+        },
+        deviceScaleFactor: 1,
+      });
 
-      if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(graphData),
-        });
-        return;
-      }
+      try {
+        await context.route(/\/api\/.*/, async (route) => {
+          const request = route.request();
+          const requestUrl = new URL(request.url());
+          const method = request.method().toUpperCase();
+          const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
 
-      if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphs: [
-              {
-                id: graphData.id,
-                name: graphData.name,
+          if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(graphData),
+            });
+            return;
+          }
+
+          if (graphData && method === 'GET' && requestUrl.pathname === '/api/graphs') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                graphs: [
+                  {
+                    id: graphData.id,
+                    name: graphData.name,
+                    revision: graphData.revision ?? 0,
+                    updatedAt: graphData.updatedAt,
+                  },
+                ],
+              }),
+            });
+            return;
+          }
+
+          if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                graphId: graphData.id,
                 revision: graphData.revision ?? 0,
-                updatedAt: graphData.updatedAt,
-              },
-            ],
-          }),
+                statusVersion: graphData.updatedAt,
+                queueLength: 0,
+                workerConcurrency: graphData.recomputeConcurrency ?? 1,
+                nodeStates: {},
+                results: {},
+              }),
+            });
+            return;
+          }
+
+          if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
+            await route.fulfill({
+              status: 200,
+              contentType: 'text/event-stream',
+              body: ': connected\n\n',
+            });
+            return;
+          }
+
+          if (graphData && method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(graphData),
+            });
+            return;
+          }
+
+          const requestHeaders = request.headers();
+          const proxyHeaders = Object.fromEntries(
+            Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
+          );
+          const requestBody = method === 'GET' || method === 'HEAD'
+            ? undefined
+            : request.postData() ?? undefined;
+          const proxyResponse = await fetch(proxyUrl, {
+            method,
+            headers: proxyHeaders,
+            body: requestBody,
+          });
+          const buffer = Buffer.from(await proxyResponse.arrayBuffer());
+          const responseHeaders: Record<string, string> = {};
+          proxyResponse.headers.forEach((value, key) => {
+            responseHeaders[key] = value;
+          });
+          await route.fulfill({
+            status: proxyResponse.status,
+            headers: responseHeaders,
+            body: buffer,
+          });
         });
-        return;
-      }
 
-      if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphId: graphData.id,
-            revision: graphData.revision ?? 0,
-            statusVersion: graphData.updatedAt,
-            queueLength: 0,
-            workerConcurrency: graphData.recomputeConcurrency ?? 1,
-            nodeStates: {},
-            results: {},
-          }),
+        const page = await context.newPage();
+        await page.addInitScript((targetGraphId: string) => {
+          window.localStorage.setItem('k8v-current-graph-id', targetGraphId);
+        }, params.graphId);
+        const targetUrl = new URL(candidateFrontendUrl);
+        targetUrl.searchParams.set('canvasOnly', '1');
+        targetUrl.searchParams.set('mcpScreenshot', '1');
+        await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded' });
+
+        try {
+          await page.waitForFunction(() => {
+            const bridge = (window as any).__k8vMcpScreenshotBridge;
+            return Boolean(
+              bridge &&
+                typeof bridge.isCanvasReady === 'function' &&
+                typeof bridge.isGraphReady === 'function' &&
+                typeof bridge.setViewportRegion === 'function' &&
+                bridge.isCanvasReady() &&
+                bridge.isGraphReady()
+            );
+          }, undefined, {
+            timeout: 30_000,
+          });
+        } catch (error) {
+          const diagnostics = await page.evaluate(() => {
+            const bridge = (window as any).__k8vMcpScreenshotBridge;
+            return {
+              location: window.location.href,
+              readyState: document.readyState,
+              title: document.title,
+              hasCanvas: Boolean(document.querySelector('canvas')),
+              hasBridge: Boolean(bridge),
+              bridgeCanvasReady: typeof bridge?.isCanvasReady === 'function' ? bridge.isCanvasReady() : null,
+              bridgeGraphReady: typeof bridge?.isGraphReady === 'function' ? bridge.isGraphReady() : null,
+              bodyTextPreview: document.body?.textContent?.slice(0, 240) ?? '',
+            };
+          }).catch(() => null);
+
+          throw new Error(
+            `Screenshot bridge was not ready at ${targetUrl.toString()}.\n` +
+            `Diagnostics: ${JSON.stringify(diagnostics)}\n` +
+            `Cause: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+
+        const applied = await page.evaluate((payload) => {
+          const bridge = (window as any).__k8vMcpScreenshotBridge;
+          if (!bridge || typeof bridge.setViewportRegion !== 'function') {
+            return false;
+          }
+          return Boolean(bridge.setViewportRegion(payload.region, payload.bitmap));
+        }, {
+          region: params.region,
+          bitmap: params.bitmap,
         });
-        return;
-      }
 
-      if (graphData && method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: ': connected\n\n',
+        if (!applied) {
+          throw new Error('Frontend canvas screenshot bridge could not apply requested region.');
+        }
+
+        await page.evaluate(async () => {
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => resolve());
+            });
+          });
         });
-        return;
-      }
 
-      if (graphData && method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(graphData),
+        const outputPath = resolveOutputPath(params.outputPath);
+        await mkdir(path.dirname(outputPath), { recursive: true });
+
+        const canvasRoot = page.locator('[data-testid="canvas-root"]');
+        const imageBuffer = await canvasRoot.screenshot({
+          path: outputPath,
+          type: 'png',
         });
-        return;
+
+        await context.close();
+
+        return {
+          outputPath,
+          bytes: imageBuffer.byteLength,
+          ...(params.includeBase64
+            ? {
+                base64: imageBuffer.toString('base64'),
+              }
+            : {}),
+        };
+      } catch (error) {
+        attemptErrors.push(
+          `[${candidateFrontendUrl}] ${error instanceof Error ? error.message : String(error)}`
+        );
+        await context.close().catch(() => undefined);
       }
-
-      const requestHeaders = request.headers();
-      const proxyHeaders = Object.fromEntries(
-        Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
-      );
-      const requestBody = method === 'GET' || method === 'HEAD'
-        ? undefined
-        : request.postData() ?? undefined;
-      const proxyResponse = await fetch(proxyUrl, {
-        method,
-        headers: proxyHeaders,
-        body: requestBody,
-      });
-      const buffer = Buffer.from(await proxyResponse.arrayBuffer());
-      const responseHeaders: Record<string, string> = {};
-      proxyResponse.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
-      await route.fulfill({
-        status: proxyResponse.status,
-        headers: responseHeaders,
-        body: buffer,
-      });
-    });
-
-    const page = await context.newPage();
-    await page.addInitScript((targetGraphId: string) => {
-      window.localStorage.setItem('k8v-current-graph-id', targetGraphId);
-    }, params.graphId);
-    const targetUrl = new URL(params.frontendUrl);
-    targetUrl.searchParams.set('canvasOnly', '1');
-    targetUrl.searchParams.set('mcpScreenshot', '1');
-    await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded' });
-
-    await page.waitForFunction(() => {
-      const bridge = (window as any).__k8vMcpScreenshotBridge;
-      return Boolean(
-        bridge &&
-          typeof bridge.isCanvasReady === 'function' &&
-          typeof bridge.isGraphReady === 'function' &&
-          typeof bridge.setViewportRegion === 'function' &&
-          bridge.isCanvasReady() &&
-          bridge.isGraphReady()
-      );
-    });
-
-    const applied = await page.evaluate((payload) => {
-      const bridge = (window as any).__k8vMcpScreenshotBridge;
-      if (!bridge || typeof bridge.setViewportRegion !== 'function') {
-        return false;
-      }
-      return Boolean(bridge.setViewportRegion(payload.region, payload.bitmap));
-    }, {
-      region: params.region,
-      bitmap: params.bitmap,
-    });
-
-    if (!applied) {
-      throw new Error('Frontend canvas screenshot bridge could not apply requested region.');
     }
 
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve());
-        });
-      });
-    });
-
-    const outputPath = resolveOutputPath(params.outputPath);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-
-    const canvasRoot = page.locator('[data-testid="canvas-root"]');
-    const imageBuffer = await canvasRoot.screenshot({
-      path: outputPath,
-      type: 'png',
-    });
-
-    await context.close();
-
-    return {
-      outputPath,
-      bytes: imageBuffer.byteLength,
-      ...(params.includeBase64
-        ? {
-            base64: imageBuffer.toString('base64'),
-          }
-        : {}),
-    };
+    throw new Error(
+      `Failed to render screenshot for graph ${params.graphId}. ` +
+      `Tried frontend URLs: ${candidateFrontendUrls.join(', ')}. ` +
+      `Backend URL: ${params.backendUrl}. ` +
+      `Errors: ${attemptErrors.join(' | ')}`
+    );
   } finally {
     await browser.close();
   }

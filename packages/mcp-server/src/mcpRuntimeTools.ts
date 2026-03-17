@@ -150,6 +150,7 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
         },
         outputPath,
         includeBase64,
+        allowBackendUrlFallback: !frontendUrl,
       });
 
       const content: Array<{

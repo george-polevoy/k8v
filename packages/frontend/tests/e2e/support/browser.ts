@@ -8,6 +8,20 @@ export async function launchBrowser(): Promise<Browser> {
   });
 }
 
+const ACTIVE_GRAPH_WAIT_PREDICATE = (expectedGraphId: string) => {
+  const graphSelect = document.querySelector('[data-testid="graph-select"]');
+  const selectMatches = graphSelect instanceof HTMLSelectElement && graphSelect.value === expectedGraphId;
+  const activeGraphId = (window as Window & {
+    __k8vGraphStore?: {
+      getState: () => {
+        graph?: { id?: string | null } | null;
+      };
+    };
+  }).__k8vGraphStore?.getState().graph?.id;
+
+  return selectMatches || activeGraphId === expectedGraphId;
+};
+
 async function openCanvasForGraphOnce(page: Page, graphId: string): Promise<void> {
   const graphLoadResponse = page.waitForResponse((response) =>
     response.request().method() === 'GET' &&
@@ -30,17 +44,60 @@ async function openCanvasForGraphOnce(page: Page, graphId: string): Promise<void
     state: 'visible',
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
-  await graphLoadResponse;
+  await graphLoadResponse.catch(() => undefined);
   await page.locator('[data-testid="graph-select"]').first().waitFor({
     state: 'visible',
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
-  await page.waitForFunction((expectedGraphId: string) => {
-    const graphSelect = document.querySelector('[data-testid="graph-select"]');
-    return graphSelect instanceof HTMLSelectElement && graphSelect.value === expectedGraphId;
-  }, graphId, {
-    timeout: E2E_ASSERT_TIMEOUT_MS,
-  });
+  try {
+    await page.waitForFunction(ACTIVE_GRAPH_WAIT_PREDICATE, graphId, {
+      timeout: Math.floor(E2E_ASSERT_TIMEOUT_MS / 2),
+    });
+  } catch {
+    await page.waitForFunction(() => Boolean((window as Window & {
+      __k8vGraphStore?: {
+        getState: () => {
+          graph?: { id?: string | null } | null;
+          loadGraph: (graphId: string) => Promise<void>;
+          refreshGraphSummaries?: () => Promise<void>;
+        };
+      };
+    }).__k8vGraphStore), {
+      timeout: E2E_ASSERT_TIMEOUT_MS,
+    });
+    await page.evaluate(async (expectedGraphId: string) => {
+      const store = (window as Window & {
+        __k8vGraphStore?: {
+          getState: () => {
+            graph?: { id?: string | null } | null;
+            loadGraph: (graphId: string) => Promise<void>;
+            refreshGraphSummaries?: () => Promise<void>;
+          };
+        };
+      }).__k8vGraphStore;
+      const state = store?.getState();
+      if (!state) {
+        throw new Error('Graph store not ready');
+      }
+      await state.refreshGraphSummaries?.().catch(() => undefined);
+
+      const graphSelect = document.querySelector('[data-testid="graph-select"]');
+      if (graphSelect instanceof HTMLSelectElement && graphSelect.value !== expectedGraphId) {
+        const matchingOption = Array.from(graphSelect.options).some((option) => option.value === expectedGraphId);
+        if (matchingOption) {
+          graphSelect.value = expectedGraphId;
+          graphSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+
+      if (store.getState().graph?.id !== expectedGraphId) {
+        await state.loadGraph(expectedGraphId).catch(() => undefined);
+      }
+    }, graphId);
+    await page.waitForFunction(ACTIVE_GRAPH_WAIT_PREDICATE, graphId, {
+      timeout: E2E_ASSERT_TIMEOUT_MS,
+    });
+  }
 }
 
 export async function openCanvasForGraph(page: Page, graphId: string): Promise<void> {

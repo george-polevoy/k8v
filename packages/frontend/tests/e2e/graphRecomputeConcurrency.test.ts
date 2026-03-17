@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createEmptyGraph } from './support/api.ts';
+import { createEmptyGraph, fetchGraph } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 interface GraphResponse {
@@ -11,9 +11,7 @@ interface GraphResponse {
 }
 
 async function fetchGraphRecomputeConcurrency(graphId: string): Promise<number> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`);
-  assert.equal(response.status, 200, `Expected graph ${graphId} to exist`);
-  const graph = await response.json() as GraphResponse;
+  const graph = await fetchGraph(graphId) as GraphResponse;
   assert.equal(
     typeof graph.recomputeConcurrency,
     'number',

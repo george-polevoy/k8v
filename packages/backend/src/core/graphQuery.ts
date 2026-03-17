@@ -77,6 +77,33 @@ function projectGraphNode(
       case 'version':
         projected.version = node.version;
         break;
+      case 'position':
+        projected.position = node.position;
+        break;
+      case 'cardSize': {
+        const rawConfig = node.config.config;
+        const width = typeof rawConfig?.cardWidth === 'number' ? rawConfig.cardWidth : undefined;
+        const height = typeof rawConfig?.cardHeight === 'number' ? rawConfig.cardHeight : undefined;
+        if (typeof width === 'number' || typeof height === 'number') {
+          projected.cardSize = {
+            ...(typeof width === 'number' ? { width } : {}),
+            ...(typeof height === 'number' ? { height } : {}),
+          };
+        }
+        break;
+      }
+      case 'annotationText': {
+        const text = node.type === 'annotation' && typeof node.config.config?.text === 'string'
+          ? node.config.config.text
+          : undefined;
+        if (typeof text === 'string') {
+          projected.annotationText = text;
+        }
+        break;
+      }
+      case 'config':
+        projected.config = node.config;
+        break;
       case 'inputNames':
         projected.inputNames = node.metadata.inputs.map((input) => input.name);
         break;

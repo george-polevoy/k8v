@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createSeededGraph,
+  fetchGraph,
   getNodeCardSize,
   getNodePosition,
   waitForNodeCardSize,
   waitForNodePosition,
 } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph, waitForCursorAtPoint } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
+import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const DEFAULT_NUMERIC_NODE_WIDTH = 220;
@@ -105,14 +106,7 @@ async function createMultiNodeGraph(options?: {
 }
 
 async function getGraphNodeIds(graphId: string): Promise<string[]> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await response.json() as { nodes?: Array<{ id?: string }> };
-  assert.ok(response.ok, `Fetch graph failed (${response.status})`);
+  const graph = await fetchGraph(graphId) as { nodes?: Array<{ id?: string }> };
   return Array.isArray(graph.nodes)
     ? graph.nodes.flatMap((node) => (typeof node.id === 'string' ? [node.id] : []))
     : [];
@@ -133,13 +127,7 @@ async function getGraphSnapshot(graphId: string): Promise<{
     targetNodeId: string;
   }>;
 }> {
-  const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  const graph = await response.json() as {
+  const graph = await fetchGraph(graphId) as {
     nodes?: Array<{
       id?: string;
       position?: {
@@ -156,7 +144,6 @@ async function getGraphSnapshot(graphId: string): Promise<{
       targetNodeId?: string;
     }>;
   };
-  assert.ok(response.ok, `Fetch graph failed (${response.status})`);
 
   return {
     nodes: Array.isArray(graph.nodes)

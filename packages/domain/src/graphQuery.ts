@@ -5,6 +5,10 @@ export const GRAPH_QUERY_NODE_FIELDS = [
   'name',
   'type',
   'version',
+  'position',
+  'cardSize',
+  'annotationText',
+  'config',
   'inputNames',
   'outputNames',
 ] as const;

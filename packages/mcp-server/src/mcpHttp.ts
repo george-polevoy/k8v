@@ -3,6 +3,18 @@ import process from 'node:process';
 const DEFAULT_BACKEND_URL = process.env.K8V_BACKEND_URL ?? 'http://127.0.0.1:3000';
 const DEFAULT_FRONTEND_URL = process.env.K8V_FRONTEND_URL ?? 'http://127.0.0.1:5173';
 
+export class JsonRequestError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = 'JsonRequestError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 export function textResult(payload: unknown) {
   return {
     content: [
@@ -47,7 +59,11 @@ export async function requestJson<T>(
       typeof (parsed as { error?: unknown }).error === 'string'
         ? (parsed as { error: string }).error
         : `Request failed (${response.status} ${response.statusText})`;
-    throw new Error(message);
+    const currentRevision = (parsed as { currentRevision?: unknown }).currentRevision;
+    const enrichedMessage = response.status === 409 && typeof currentRevision === 'number'
+      ? `${message} Current revision: ${currentRevision}. Retry with baseRevision=${currentRevision}.`
+      : message;
+    throw new JsonRequestError(enrichedMessage, response.status, parsed);
   }
 
   return parsed as T;

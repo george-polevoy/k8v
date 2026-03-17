@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerConnectionTools } from './mcpConnectionTools.js';
+import { registerDocumentationResources } from './mcpDocumentationResources.js';
 import { registerGraphTools } from './mcpGraphTools.js';
 import {
   getGraph,
@@ -25,6 +26,8 @@ const server: any = new McpServer({
   name: 'k8v-mcp-server',
   version: '0.1.0',
 });
+
+registerDocumentationResources(server);
 
 registerConnectionTools(server, {
   resolveBackendUrl,

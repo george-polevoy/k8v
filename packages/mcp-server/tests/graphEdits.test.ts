@@ -224,7 +224,7 @@ test('graph_query uses shared GraphQueryRequestSchema contract', async () => {
     operation: 'traverse_bfs',
     startNodeIds: ['source'],
     depth: 2,
-    nodeFields: ['id', 'name'],
+    nodeFields: ['id', 'name', 'config', 'cardSize'],
     connectionFields: ['sourcePort', 'targetPort'],
   });
 

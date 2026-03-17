@@ -60,6 +60,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Allows agents to create empty graphs via `graph_create` and to mutate any existing graph through `bulk_edit`, which forwards ordered backend `GraphCommand[]`
 - Removes MCP-local mutation registries/operation schemas so agents share the backend/domain `GraphCommand` language
 - Keeps only read/query/runtime helpers: `graph_list`, `graph_get`, `graph_query`, `connections_list`, `graphics_get`, and `graph_screenshot_region`
+- Publishes MCP resources/templates for command/query schema discovery and annotation workflow examples
 - Renders internal screenshots by driving the frontend in `canvasOnly` mode so MCP matches production rendering
 - Screenshot API captures explicit world rectangles into fixed bitmap dimensions, reusing the frontend canvas path
 

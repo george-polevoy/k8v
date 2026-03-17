@@ -6,6 +6,8 @@ import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
+const DEFAULT_NUMERIC_NODE_WIDTH = 220;
+
 interface ScreenshotDiffStats {
   changedPixels: number;
   totalPixels: number;
@@ -55,11 +57,14 @@ function measureScreenshotDifference(
   };
 }
 
-async function fetchNodePosition(graphId: string, nodeId: string): Promise<{ x: number; y: number }> {
+async function fetchNodePosition(graphId: string, nodeId: string): Promise<{ x: number; y: number } | null> {
   const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`, {
     method: 'GET',
     headers: { accept: 'application/json' },
   });
+  if (response.status === 404) {
+    return null;
+  }
   assert.equal(response.status, 200, `Expected graph ${graphId} to be readable`);
   const graph = await response.json() as {
     nodes?: Array<{ id?: string; position?: { x?: unknown; y?: unknown } }>;
@@ -74,6 +79,34 @@ async function fetchNodePosition(graphId: string, nodeId: string): Promise<{ x: 
     x,
     y,
   };
+}
+
+async function findCenteredNodeDragPoint(
+  page: import('playwright').Page,
+  canvasBox: { x: number; y: number; width: number; height: number }
+): Promise<{ x: number; y: number }> {
+  const centerX = canvasBox.x + (canvasBox.width / 2);
+  const centerY = canvasBox.y + (canvasBox.height / 2);
+  const nodeLeft = centerX - (DEFAULT_NUMERIC_NODE_WIDTH / 2);
+  const candidatePoints: Array<{ x: number; y: number }> = [
+    { x: nodeLeft + 28, y: centerY - 24 },
+    { x: centerX - 18, y: centerY - 18 },
+    { x: centerX, y: centerY },
+    { x: centerX + 28, y: centerY + 12 },
+  ];
+  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
+
+  for (const point of candidatePoints) {
+    await page.mouse.click(point.x, point.y);
+    try {
+      await nodeNameInput.waitFor({ state: 'visible', timeout: 1_500 });
+      return point;
+    } catch {
+      // Try the next likely point inside the centered node card.
+    }
+  }
+
+  throw new Error('Expected to locate the centered numeric node before dragging');
 }
 
 test.before(async () => {
@@ -108,13 +141,12 @@ test(
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas should provide a bounding box');
 
-      const startX = canvasBox.x + (canvasBox.width / 2);
-      const startY = canvasBox.y + (canvasBox.height / 2);
+      const dragStartPoint = await findCenteredNodeDragPoint(page, canvasBox);
       const baselineScreenshot = await canvas.screenshot();
 
-      await page.mouse.move(startX, startY);
+      await page.mouse.move(dragStartPoint.x, dragStartPoint.y);
       await page.mouse.down();
-      await page.mouse.move(startX + 250, startY + 30, { steps: 18 });
+      await page.mouse.move(dragStartPoint.x + 250, dragStartPoint.y + 30, { steps: 18 });
       await page.waitForTimeout(120);
 
       const movedScreenshot = await canvas.screenshot();
@@ -144,6 +176,10 @@ test(
       let persistedPosition: { x: number; y: number } | null = null;
       while ((Date.now() - startedAt) < E2E_ASSERT_TIMEOUT_MS) {
         const position = await fetchNodePosition(graphId, nodeId);
+        if (!position) {
+          await page.waitForTimeout(120);
+          continue;
+        }
         if (position.x >= 300) {
           persistedPosition = position;
           break;
