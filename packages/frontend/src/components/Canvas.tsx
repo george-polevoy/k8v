@@ -18,8 +18,11 @@ import type {
 } from '../store/graphStore';
 import {
   CanvasBackgroundSettings,
+  formatNumericInputValue,
+  normalizeNumericInputConfig,
   NodeType,
   Position,
+  snapNumericInputValue,
 } from '../types';
 import { resolveGraphCanvasBackground } from '../utils/canvasBackground';
 import {
@@ -59,11 +62,6 @@ import {
   resolveNodeCardAppearance,
 } from '../utils/nodeCardAppearance';
 import { truncateTextToWidth } from '../utils/textLayout';
-import {
-  formatNumericInputValue,
-  normalizeNumericInputConfig,
-  snapNumericInputValue,
-} from '../utils/numericInput';
 import {
   HEADER_HEIGHT,
   NODE_BODY_PADDING,

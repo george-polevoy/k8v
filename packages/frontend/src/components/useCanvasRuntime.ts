@@ -2,15 +2,17 @@ import { useCallback, type MutableRefObject } from 'react';
 import { Application, Container, Graphics, Point, Sprite, Texture } from 'pixi.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { NodeExecutionState } from '../store/graphStore';
-import type {
-  CanvasBackgroundSettings,
-  Connection,
-  ConnectionAnchorSide,
-  DrawingPath,
-  Graph,
-  Position,
+import {
+  NodeType,
+  normalizeNumericInputConfig,
+  snapNumericInputValue,
+  type CanvasBackgroundSettings,
+  type Connection,
+  type ConnectionAnchorSide,
+  type DrawingPath,
+  type Graph,
+  type Position,
 } from '../types';
-import { NodeType } from '../types';
 import {
   ANNOTATION_CONNECTION_PORT,
   areConnectionAnchorsEqual,
@@ -41,7 +43,6 @@ import {
 import { DEFAULT_GRAPH_CONNECTION_STROKE, resolveGraphConnectionStroke } from '../utils/connectionStroke';
 import { resolveConnectionArrowHeadLayout } from '../utils/connectionArrows';
 import { hexColorToNumber } from '../utils/color';
-import { normalizeNumericInputConfig, snapNumericInputValue } from '../utils/numericInput';
 import type {
   ActiveDrawingPath,
   ConnectionDragState,

@@ -1,13 +1,13 @@
 import {
   ComputationResult as ComputationResultSchema,
   type ComputationResult as ComputationResultType,
+  dedupeConnectionsByTargetSlot,
   type Graph,
   type GraphicsArtifact,
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
 import { normalizeGraphCameraState } from '../utils/cameras';
 import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
-import { dedupeConnectionsByTargetSlot } from '../utils/connectionSlots';
 import { normalizeHexColor } from '../utils/color';
 import {
   applyProjectionToNodes,

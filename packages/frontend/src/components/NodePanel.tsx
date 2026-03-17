@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import { GraphNode, NodeType, PortDefinition } from '../types';
+import { GraphNode, NodeType, PortDefinition, normalizeNumericInputConfig } from '../types';
 import { createInlineCodeNode } from '../utils/nodeFactory';
 import { inferInlineOutputPortNames } from '../utils/inlinePortInference';
 import { normalizeColorString } from '../utils/color';
@@ -9,7 +9,6 @@ import {
   DEFAULT_NODE_CARD_BORDER_COLOR,
   resolveNodeCardAppearance,
 } from '../utils/nodeCardAppearance';
-import { normalizeNumericInputConfig } from '../utils/numericInput';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import NodePanelAnnotationSection from './panels/NodePanelAnnotationSection';
 import NodePanelDrawingSection from './panels/NodePanelDrawingSection';

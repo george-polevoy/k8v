@@ -8,20 +8,18 @@ import type {
   NodeGraphicsComputationDebug,
   PencilColor,
 } from '../store/graphStore';
-import type {
-  CanvasBackgroundSettings,
-  ConnectionAnchorSide,
-  GraphNode,
+import {
+  NodeType,
+  formatNumericInputValue,
+  snapNumericInputValue,
+  type CanvasBackgroundSettings,
+  type ConnectionAnchorSide,
+  type GraphNode,
 } from '../types';
-import { NodeType } from '../types';
 import { deriveGradientStops } from '../utils/canvasBackground';
 import { clamp, snapToPixel } from '../utils/canvasHelpers';
 import type { ConnectionGeometry } from '../utils/canvasEffects';
 import { hexColorToNumber } from '../utils/color';
-import {
-  formatNumericInputValue,
-  snapNumericInputValue,
-} from '../utils/numericInput';
 import {
   NODE_MIN_WIDTH,
   NODE_WIDTH,

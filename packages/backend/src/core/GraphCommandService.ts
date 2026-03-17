@@ -1,13 +1,13 @@
 import {
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
   Graph,
+  applyGraphCommandMutation,
   type Graph as GraphType,
   type GraphCommand,
   type GraphRuntimeState,
 } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { GraphEventBroker } from './GraphEventBroker.js';
-import { applyGraphCommandMutation } from './graphCommandMutations.js';
 import { RecomputeManager } from './RecomputeManager.js';
 import {
   buildGraphNodeMap,
@@ -161,93 +161,13 @@ export class GraphCommandService {
   }
 
   private applyGraphMutation(graph: GraphType, command: GraphCommand): GraphType {
-    switch (command.kind) {
-      case 'replace_nodes':
-        return {
-          ...graph,
-          nodes: command.nodes,
-        };
-      case 'replace_connections':
-        return {
-          ...graph,
-          connections: command.connections,
-        };
-      case 'replace_drawings':
-        return {
-          ...graph,
-          drawings: command.drawings,
-        };
-      case 'replace_projections':
-        if (command.projections.length === 0) {
-          throw new GraphCommandValidationError('At least one projection must remain in the graph.');
-        }
-        return {
-          ...graph,
-          projections: command.projections,
-        };
-      case 'replace_cameras':
-        return {
-          ...graph,
-          cameras: command.cameras,
-        };
-      case 'replace_python_envs':
-        return {
-          ...graph,
-          pythonEnvs: command.pythonEnvs,
-        };
-      case 'set_graph_name':
-        return {
-          ...graph,
-          name: command.name,
-        };
-      case 'set_recompute_concurrency':
-        return {
-          ...graph,
-          recomputeConcurrency: command.recomputeConcurrency,
-        };
-      case 'set_execution_timeout':
-        return {
-          ...graph,
-          executionTimeoutMs: command.executionTimeoutMs,
-        };
-      case 'set_connection_stroke':
-        return {
-          ...graph,
-          connectionStroke: command.connectionStroke,
-        };
-      case 'set_canvas_background': {
-        const activeProjectionId = commandGraphActiveProjectionId(graph);
-        return {
-          ...graph,
-          canvasBackground: command.canvasBackground,
-          projections: (graph.projections ?? []).map((projection) =>
-            projection.id === activeProjectionId
-              ? {
-                  ...projection,
-                  canvasBackground: command.canvasBackground,
-                }
-              : projection
-          ),
-        };
-      }
-      case 'set_active_projection':
-        return applyGraphCommandMutation(graph, {
-          kind: 'graph_projection_select',
-          projectionId: command.activeProjectionId,
-        });
-      default:
-        try {
-          return applyGraphCommandMutation(graph, command);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new GraphCommandValidationError(message);
-        }
+    try {
+      return applyGraphCommandMutation(graph, command);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new GraphCommandValidationError(message);
     }
   }
-}
-
-function commandGraphActiveProjectionId(graph: GraphType): string {
-  return graph.activeProjectionId ?? 'default';
 }
 
 function collectInboundConnectionChangedNodeIds(

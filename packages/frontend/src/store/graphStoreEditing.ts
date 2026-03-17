@@ -1,13 +1,13 @@
-import type {
-  Connection,
-  DrawingPath,
-  Graph,
-  GraphCommand,
-  GraphDrawing,
-  GraphNode,
-  Position,
+import {
+  applyConnectionSetToConnections as applyConnectionSet,
+  type Connection,
+  type DrawingPath,
+  type Graph,
+  type GraphCommand,
+  type GraphDrawing,
+  type GraphNode,
+  type Position,
 } from '../types';
-import { applyConnectionSet } from '../utils/connectionSlots';
 
 interface GraphStoreEditingState {
   graph: Graph | null;

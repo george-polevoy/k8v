@@ -5,6 +5,7 @@ import {
   ComputationResult,
   DataSchema,
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
+  normalizeNumericInputConfig,
 } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
@@ -133,7 +134,9 @@ export class NodeExecutor {
    * Execute numeric input node
    */
   private async executeNumericInput(node: GraphNode): Promise<Record<string, any>> {
-    const { value } = this.resolveNumericInputConfig(node);
+    const { value } = normalizeNumericInputConfig(
+      node.config.config as Record<string, unknown> | undefined
+    );
     const outputName = node.metadata.outputs[0]?.name ?? 'value';
     return { [outputName]: value };
   }
@@ -214,56 +217,6 @@ export class NodeExecutor {
       return timeoutCandidate;
     }
     return DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS;
-  }
-
-  private resolveNumericInputConfig(node: GraphNode): { value: number; min: number; max: number; step: number } {
-    const rawConfig = node.config.config ?? {};
-    const min = this.toFiniteNumber(rawConfig.min, 0);
-    const maxCandidate = this.toFiniteNumber(rawConfig.max, 100);
-    const max = maxCandidate >= min ? maxCandidate : min;
-    const stepCandidate = this.toFiniteNumber(rawConfig.step, 1);
-    const step = stepCandidate > 0 ? stepCandidate : 1;
-    const valueCandidate = this.toFiniteNumber(rawConfig.value, min);
-    const value = this.snapNumericInputValue(valueCandidate, min, max, step);
-    return { value, min, max, step };
-  }
-
-  private toFiniteNumber(value: unknown, fallback: number): number {
-    return typeof value === 'number' && Number.isFinite(value)
-      ? value
-      : fallback;
-  }
-
-  private snapNumericInputValue(value: number, min: number, max: number, step: number): number {
-    if (max <= min) {
-      return min;
-    }
-
-    const clamped = Math.min(Math.max(value, min), max);
-    const steps = Math.round((clamped - min) / step);
-    const snapped = min + (steps * step);
-    const decimals = this.countStepDecimals(step);
-    const rounded = Number(snapped.toFixed(decimals));
-    return Math.min(Math.max(rounded, min), max);
-  }
-
-  private countStepDecimals(step: number): number {
-    if (!Number.isFinite(step) || step <= 0) {
-      return 0;
-    }
-
-    const text = step.toString().toLowerCase();
-    if (text.includes('e-')) {
-      const exponent = Number.parseInt(text.split('e-')[1] ?? '0', 10);
-      return Number.isFinite(exponent) ? exponent : 0;
-    }
-
-    const decimalIndex = text.indexOf('.');
-    if (decimalIndex === -1) {
-      return 0;
-    }
-
-    return text.length - decimalIndex - 1;
   }
 
   private initializeRuntimes(

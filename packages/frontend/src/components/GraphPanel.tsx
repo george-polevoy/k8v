@@ -23,11 +23,10 @@ import {
 import ColorSelectionDialog from './ColorSelectionDialog';
 import { useGraphManagementState } from './useGraphManagementState';
 import GraphPanelAppearanceSection from './panels/GraphPanelAppearanceSection';
-import GraphPanelCameraSection from './panels/GraphPanelCameraSection';
 import GraphPanelIdentitySection from './panels/GraphPanelIdentitySection';
-import GraphPanelProjectionSection from './panels/GraphPanelProjectionSection';
 import GraphPanelPythonSection from './panels/GraphPanelPythonSection';
 import GraphPanelRuntimeSection from './panels/GraphPanelRuntimeSection';
+import GraphPanelListSection from './panels/GraphPanelListSection';
 import {
   embeddedPanelCardStyle,
   floatingPanelStyle,
@@ -602,30 +601,43 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
           onCreateGraph={handleCreateGraph}
           runtimeSettings={runtimeSettings}
         />
-        <GraphPanelCameraSection
+        <GraphPanelListSection
+          title="Cameras"
+          selectLabel="Current camera for this window"
+          addLabel="Add Camera"
+          removeLabel="Remove Current Camera"
+          description="Selecting a camera only changes this browser window. Camera contents are shared on the graph."
           graphExists={Boolean(graph)}
           isGraphActionInFlight={isGraphActionInFlight}
-          activeCameraId={activeCameraId}
-          cameraOptions={cameraOptions}
-          canRemoveActiveCamera={canRemoveActiveCamera}
-          formatCameraLabel={formatCameraOptionLabel}
-          onSelectCamera={(cameraId) => {
+          activeId={activeCameraId}
+          options={cameraOptions}
+          canRemoveActive={canRemoveActiveCamera}
+          formatLabel={(camera) => formatCameraOptionLabel(camera.name, camera.id)}
+          getOptionId={(camera) => camera.id}
+          onSelect={(cameraId) => {
             flushCurrentCameraViewportState();
             selectCamera(cameraId);
           }}
-          onAddCamera={handleAddCamera}
-          onRemoveCamera={handleRemoveCamera}
+          onAdd={handleAddCamera}
+          onRemove={handleRemoveCamera}
+          dataTestPrefix="camera"
         />
-        <GraphPanelProjectionSection
+        <GraphPanelListSection
+          title="Projections"
+          selectLabel="Active projection"
+          addLabel="Add Projection"
+          removeLabel="Remove Active Projection"
           graphExists={Boolean(graph)}
           isGraphActionInFlight={isGraphActionInFlight}
-          activeProjectionId={activeProjectionId}
-          projectionOptions={projectionOptions}
-          canRemoveActiveProjection={canRemoveActiveProjection}
-          formatProjectionLabel={formatProjectionOptionLabel}
-          onSelectProjection={handleSelectProjection}
-          onAddProjection={handleAddProjection}
-          onRemoveProjection={handleRemoveProjection}
+          activeId={activeProjectionId}
+          options={projectionOptions}
+          canRemoveActive={canRemoveActiveProjection}
+          formatLabel={(projection) => formatProjectionOptionLabel(projection.name, projection.id)}
+          getOptionId={(projection) => projection.id}
+          onSelect={handleSelectProjection}
+          onAdd={handleAddProjection}
+          onRemove={handleRemoveProjection}
+          dataTestPrefix="projection"
         />
         <GraphPanelAppearanceSection
           graphExists={Boolean(graph)}
