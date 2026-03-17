@@ -83,6 +83,7 @@ Last reviewed: March 16, 2026.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
 - `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
 - `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
+- `A-FE-44` `packages/frontend/tests/annotationMultiSelection.test.ts`: shared annotation multi-selection helpers detect mixed text styles and batch-apply font color/font-size changes only to the selected annotation cards.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects malformed runtime updates.
@@ -334,6 +335,7 @@ Last reviewed: March 16, 2026.
 | Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `A-E2E-01`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Annotation node editing (`markdown` content + note colors, including border/opacity via shared color dialog, plus font size) | `A-E2E-14`, `A-FE-28`, `M-PANEL-15` | Automated + Manual |
 | Node panel summarizes multi-node selection as a set preview instead of a single node title | `A-E2E-22` | Automated |
+| Multi-selected annotation cards support shared font color and font-size edits in the node panel | `A-FE-44` | Automated |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |

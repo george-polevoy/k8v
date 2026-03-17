@@ -118,6 +118,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Node panel supports annotation content editing (markdown + TeX/LaTeX), annotation card color controls, and annotation font-size controls.
 - Node panel summarizes multi-node selections as a set (`N selected (Name 1, Name 2, ...)`) instead of presenting a single-node identity.
 - Shared node-card background and border color edits can be applied across the full selected node set from the node panel, and canvas cards render those persisted colors for both single- and multi-selected nodes.
+- When a multi-node selection contains only annotation cards, the node panel can apply shared annotation font color and font size edits across the full selected set.
 
 ## Node Status and Indicators
 
