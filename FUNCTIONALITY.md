@@ -115,10 +115,9 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Run selected node manually.
 - Edit selected drawing name and delete selected drawing from node panel.
 - Node panel shows selected-node graphics budget debug values (`maxPixels` inputs/selection) for projected graphics troubleshooting.
-- Node panel supports annotation content editing (markdown + TeX/LaTeX), annotation card color controls, and annotation font-size controls.
+- Node panel supports annotation content editing (markdown + TeX/LaTeX), annotation card color controls, annotation font-size controls, and shared multi-selection annotation font color/font-size edits.
 - Node panel summarizes multi-node selections as a set (`N selected (Name 1, Name 2, ...)`) instead of presenting a single-node identity.
 - Shared node-card background and border color edits can be applied across the full selected node set from the node panel, and canvas cards render those persisted colors for both single- and multi-selected nodes.
-- When a multi-node selection contains only annotation cards, the node panel can apply shared annotation font color and font size edits across the full selected set.
 
 ## Node Status and Indicators
 

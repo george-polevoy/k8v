@@ -129,7 +129,6 @@ Status: DONE
 - Add non-computing `annotation` node type for canvas notes. (DONE)
 - Add markdown + TeX/LaTeX rendering support for annotation card content. (DONE)
 - Add annotation card styling controls (background color + font color) in node panel and creation dialog. (DONE)
-- Add shared multi-selection annotation text style editing (font color + font size) in the node panel. (DONE)
 - Add all-side annotation resize handles with persisted size/position updates. (DONE)
 - Add presentation-only annotation arrows with persisted any-edge anchors. (DONE)
 - Verification:

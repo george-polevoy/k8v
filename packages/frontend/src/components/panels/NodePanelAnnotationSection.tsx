@@ -2,6 +2,9 @@ import { MAX_ANNOTATION_FONT_SIZE, MIN_ANNOTATION_FONT_SIZE } from '../../utils/
 import { sectionCardStyle } from './panelSectionStyles';
 
 interface NodePanelAnnotationSectionProps {
+  mode?: 'single' | 'multi';
+  hasMixedFontColor?: boolean;
+  hasMixedFontSize?: boolean;
   annotationTextDraft: string;
   annotationBackgroundColorDraft: string;
   annotationBorderColorDraft: string;
@@ -21,6 +24,9 @@ interface NodePanelAnnotationSectionProps {
 }
 
 function NodePanelAnnotationSection({
+  mode = 'single',
+  hasMixedFontColor = false,
+  hasMixedFontSize = false,
   annotationTextDraft,
   annotationBackgroundColorDraft,
   annotationBorderColorDraft,
@@ -32,40 +38,74 @@ function NodePanelAnnotationSection({
   onAnnotationFontSizeChange,
   onOpenAnnotationColorDialog,
 }: NodePanelAnnotationSectionProps) {
+  const isMultiSelectionMode = mode === 'multi';
+  const colorOptions = isMultiSelectionMode
+    ? [
+        {
+          label: hasMixedFontColor ? 'Text (mixed)' : 'Text',
+          target: 'font' as const,
+          color: annotationFontColorDraft,
+          testId: 'annotation-font-color-input',
+        },
+      ]
+    : [
+        {
+          label: 'Background',
+          target: 'background' as const,
+          color: annotationBackgroundColorDraft,
+          testId: 'annotation-background-color-input',
+        },
+        {
+          label: 'Border',
+          target: 'border' as const,
+          color: annotationBorderColorDraft,
+          testId: 'annotation-border-color-input',
+        },
+        {
+          label: 'Text',
+          target: 'font' as const,
+          color: annotationFontColorDraft,
+          testId: 'annotation-font-color-input',
+        },
+      ];
+
   return (
     <div style={sectionCardStyle}>
       <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
-        Annotation Content
+        {isMultiSelectionMode ? 'Annotation Text' : 'Annotation Content'}
       </div>
-      <textarea
-        data-testid="annotation-markdown-input"
-        value={annotationTextDraft}
-        onChange={(event) => onAnnotationTextChange(event.target.value)}
-        onBlur={(event) => onCommitAnnotationSettings({ text: event.target.value })}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            onResetAnnotationDrafts();
-            event.currentTarget.blur();
-          }
-        }}
-        style={{
-          width: '100%',
-          minHeight: '160px',
-          fontFamily: 'monospace',
-          fontSize: '12px',
-          padding: '8px',
-          border: '1px solid #ddd',
-          borderRadius: '4px',
-          boxSizing: 'border-box',
-          marginBottom: '10px',
-        }}
-      />
+      {isMultiSelectionMode && (
+        <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
+          Applies to all selected annotation cards.
+        </div>
+      )}
+      {!isMultiSelectionMode && (
+        <textarea
+          data-testid="annotation-markdown-input"
+          value={annotationTextDraft}
+          onChange={(event) => onAnnotationTextChange(event.target.value)}
+          onBlur={(event) => onCommitAnnotationSettings({ text: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              onResetAnnotationDrafts();
+              event.currentTarget.blur();
+            }
+          }}
+          style={{
+            width: '100%',
+            minHeight: '160px',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            padding: '8px',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            boxSizing: 'border-box',
+            marginBottom: '10px',
+          }}
+        />
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-        {[
-          { label: 'Background', target: 'background' as const, color: annotationBackgroundColorDraft, testId: 'annotation-background-color-input' },
-          { label: 'Border', target: 'border' as const, color: annotationBorderColorDraft, testId: 'annotation-border-color-input' },
-          { label: 'Text', target: 'font' as const, color: annotationFontColorDraft, testId: 'annotation-font-color-input' },
-        ].map((option) => (
+        {colorOptions.map((option) => (
           <button
             key={option.testId}
             data-testid={option.testId}
@@ -101,8 +141,17 @@ function NodePanelAnnotationSection({
           </button>
         ))}
       </div>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569', marginTop: '10px' }}>
-        Font size (px)
+      <label
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          fontSize: '11px',
+          color: '#475569',
+          marginTop: isMultiSelectionMode ? 0 : '10px',
+        }}
+      >
+        {isMultiSelectionMode && hasMixedFontSize ? 'Font size (mixed)' : 'Font size (px)'}
         <input
           data-testid="annotation-font-size-input"
           type="number"
@@ -111,7 +160,14 @@ function NodePanelAnnotationSection({
           step={1}
           value={annotationFontSizeDraft}
           onChange={(event) => onAnnotationFontSizeChange(event.target.value)}
-          onBlur={(event) => onCommitAnnotationSettings({ fontSize: event.currentTarget.value })}
+          onBlur={(event) => {
+            const nextFontSize = event.currentTarget.value.trim();
+            if (isMultiSelectionMode && !nextFontSize) {
+              onResetAnnotationDrafts();
+              return;
+            }
+            onCommitAnnotationSettings({ fontSize: nextFontSize });
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.currentTarget.blur();
@@ -131,9 +187,17 @@ function NodePanelAnnotationSection({
           }}
         />
       </label>
-      <div style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
-        Markdown and LaTeX are supported. Use inline math like <code>$a^2 + b^2 = c^2$</code> or block math with <code>$$...$$</code>.
-      </div>
+      {isMultiSelectionMode ? (
+        hasMixedFontSize && (
+          <div style={{ marginTop: '8px', fontSize: '10px', color: '#64748b', lineHeight: 1.4 }}>
+            Selection currently has mixed font sizes. Enter a value to apply one size across all selected annotation cards.
+          </div>
+        )
+      ) : (
+        <div style={{ marginTop: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
+          Markdown and LaTeX are supported. Use inline math like <code>$a^2 + b^2 = c^2$</code> or block math with <code>$$...$$</code>.
+        </div>
+      )}
     </div>
   );
 }

@@ -27,15 +27,9 @@ import {
   DEFAULT_ANNOTATION_FONT_COLOR,
   DEFAULT_ANNOTATION_FONT_SIZE,
   DEFAULT_ANNOTATION_TEXT,
-  MAX_ANNOTATION_FONT_SIZE,
-  MIN_ANNOTATION_FONT_SIZE,
   normalizeAnnotationConfig,
   normalizeAnnotationFontSize,
 } from '../utils/annotation';
-import {
-  buildSharedAnnotationTextStyleNodes,
-  resolveSharedAnnotationTextStyleSelectionState,
-} from '../utils/annotationMultiSelection';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -170,8 +164,13 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const firstSelectedNodeBorderColor = firstSelectedNodeAppearance?.borderColor ?? DEFAULT_NODE_CARD_BORDER_COLOR;
   const selectedDrawing = graph?.drawings?.find((drawing) => drawing.id === selectedDrawingId) || null;
   const isMultiNodeSelection = selectedNodes.length > 1;
-  const multiAnnotationSelection = resolveSharedAnnotationTextStyleSelectionState(selectedNodes);
-  const isMultiAnnotationSelection = multiAnnotationSelection.isApplicable;
+  const selectedAnnotationConfigs = isMultiNodeSelection &&
+    selectedNodes.every((node) => node.config.type === NodeType.ANNOTATION)
+    ? selectedNodes.map((node) =>
+        normalizeAnnotationConfig(node.config.config as Record<string, unknown> | undefined)
+      )
+    : null;
+  const isMultiAnnotationSelection = selectedAnnotationConfigs !== null;
   const selectedNodeSetSummary = formatSelectedNodeSetSummary(selectedNodes);
 
   const [codeValue, setCodeValue] = useState('');
@@ -199,10 +198,16 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const [isGraphicsDebugExpanded, setIsGraphicsDebugExpanded] = useState(false);
   const hydratedNodeDraftSourceRef = useRef<string>('__init__');
   const selectedNodeAppearanceSourceKey = selectedNodes.map((node) => `${node.id}:${node.version}`).join('|') || 'none';
-  const firstSelectedAnnotationFontColor = multiAnnotationSelection.firstFontColor;
-  const firstSelectedAnnotationFontSize = multiAnnotationSelection.firstFontSize;
-  const hasMixedAnnotationFontColor = multiAnnotationSelection.hasMixedFontColor;
-  const hasMixedAnnotationFontSize = multiAnnotationSelection.hasMixedFontSize;
+  const firstSelectedAnnotationFontColor = selectedAnnotationConfigs?.[0]?.fontColor ?? DEFAULT_ANNOTATION_FONT_COLOR;
+  const firstSelectedAnnotationFontSize = selectedAnnotationConfigs?.[0]?.fontSize ?? DEFAULT_ANNOTATION_FONT_SIZE;
+  const hasMixedAnnotationFontColor = Boolean(
+    selectedAnnotationConfigs &&
+      new Set(selectedAnnotationConfigs.map((config) => config.fontColor)).size > 1
+  );
+  const hasMixedAnnotationFontSize = Boolean(
+    selectedAnnotationConfigs &&
+      new Set(selectedAnnotationConfigs.map((config) => config.fontSize)).size > 1
+  );
 
   useEffect(() => {
     const draftSourceKey = selectedNode
@@ -875,20 +880,62 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     isMultiAnnotationSelection,
   ]);
 
-  const commitSelectedAnnotationTextStyles = useCallback((overrides: {
+  const commitSelectedAnnotationTextStyles = useCallback((overrides?: {
     fontColor?: string;
     fontSize?: number | string;
   }) => {
-    if (!graph || !isMultiAnnotationSelection || selectedNodes.length === 0) {
+    if (!graph || !isMultiAnnotationSelection || selectedNodes.length === 0 || !overrides) {
       return;
     }
 
-    const {
-      didChange,
-      nextFontColor,
-      nextFontSize,
-      nodes: nextNodes,
-    } = buildSharedAnnotationTextStyleNodes(graph, selectedNodes, overrides);
+    const nextFontColor = overrides.fontColor === undefined
+      ? undefined
+      : normalizeColorString(overrides.fontColor, DEFAULT_ANNOTATION_FONT_COLOR);
+    const rawFontSize = typeof overrides.fontSize === 'string'
+      ? overrides.fontSize.trim()
+      : overrides.fontSize;
+    const nextFontSize = rawFontSize === undefined || rawFontSize === ''
+      ? undefined
+      : normalizeAnnotationFontSize(rawFontSize, firstSelectedAnnotationFontSize);
+
+    if (nextFontColor === undefined && nextFontSize === undefined) {
+      return;
+    }
+
+    const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
+    let didChange = false;
+    const version = Date.now().toString();
+    const nextNodes = graph.nodes.map((node) => {
+      if (!selectedNodeIdSet.has(node.id) || node.config.type !== NodeType.ANNOTATION) {
+        return node;
+      }
+
+      const current = normalizeAnnotationConfig(
+        node.config.config as Record<string, unknown> | undefined
+      );
+      const resolvedFontColor = nextFontColor ?? current.fontColor;
+      const resolvedFontSize = nextFontSize ?? current.fontSize;
+      if (
+        resolvedFontColor === current.fontColor &&
+        resolvedFontSize === current.fontSize
+      ) {
+        return node;
+      }
+
+      didChange = true;
+      return {
+        ...node,
+        config: {
+          ...node.config,
+          config: {
+            ...(node.config.config ?? {}),
+            fontColor: resolvedFontColor,
+            fontSize: resolvedFontSize,
+          },
+        },
+        version,
+      };
+    });
 
     if (nextFontColor !== undefined) {
       setAnnotationFontColorDraft(nextFontColor);
@@ -905,7 +952,13 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       kind: 'replace_nodes',
       nodes: nextNodes,
     }]);
-  }, [graph, isMultiAnnotationSelection, selectedNodes, submitGraphCommands]);
+  }, [
+    firstSelectedAnnotationFontSize,
+    graph,
+    isMultiAnnotationSelection,
+    selectedNodes,
+    submitGraphCommands,
+  ]);
 
   const applyAnnotationColorFromDialog = (color: string) => {
     if (annotationColorDialogTarget === 'background') {
@@ -1026,100 +1079,28 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       </div>
     </div>
   ) : null;
-
-  const multiSelectionAnnotationTextStyleSection = isMultiAnnotationSelection ? (
-    <div style={{
-      marginBottom: '16px',
-      padding: '10px',
-      border: '1px solid #e2e8f0',
-      borderRadius: '6px',
-      background: '#fff',
-    }}>
-      <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
-        Annotation Text
-      </div>
-      <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
-        Applies to all selected annotation cards.
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-        <button
-          data-testid="annotation-font-color-input"
-          type="button"
-          onClick={() => setAnnotationColorDialogTarget('font')}
-          style={{
-            width: '100%',
-            minHeight: '34px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>{hasMixedAnnotationFontColor ? 'Text (mixed)' : 'Text'}</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: annotationFontColorDraft,
-              flexShrink: 0,
-            }}
-          />
-        </button>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
-          {hasMixedAnnotationFontSize ? 'Font size (mixed)' : 'Font size (px)'}
-          <input
-            data-testid="annotation-font-size-input"
-            type="number"
-            min={MIN_ANNOTATION_FONT_SIZE}
-            max={MAX_ANNOTATION_FONT_SIZE}
-            step={1}
-            value={annotationFontSizeDraft}
-            onChange={(event) => setAnnotationFontSizeDraft(event.target.value)}
-            onBlur={(event) => {
-              const nextFontSize = event.currentTarget.value.trim();
-              if (!nextFontSize) {
-                resetSelectedAnnotationTextStyleDrafts();
-                return;
-              }
-
-              commitSelectedAnnotationTextStyles({ fontSize: nextFontSize });
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.currentTarget.blur();
-              }
-              if (event.key === 'Escape') {
-                resetSelectedAnnotationTextStyleDrafts();
-                event.currentTarget.blur();
-              }
-            }}
-            style={{
-              width: '100%',
-              padding: '6px',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              fontSize: '12px',
-              boxSizing: 'border-box',
-            }}
-          />
-        </label>
-      </div>
-      {hasMixedAnnotationFontSize && (
-        <div style={{ marginTop: '8px', fontSize: '10px', color: '#64748b', lineHeight: 1.4 }}>
-          Selection currently has mixed font sizes. Enter a value to apply one size across all selected annotation cards.
-        </div>
+  const multiSelectionAppearanceSection = (
+    <>
+      {nodeCardColorSection}
+      {isMultiAnnotationSelection && (
+        <NodePanelAnnotationSection
+          mode="multi"
+          hasMixedFontColor={hasMixedAnnotationFontColor}
+          hasMixedFontSize={hasMixedAnnotationFontSize}
+          annotationTextDraft={annotationTextDraft}
+          annotationBackgroundColorDraft={annotationBackgroundColorDraft}
+          annotationBorderColorDraft={annotationBorderColorDraft}
+          annotationFontColorDraft={annotationFontColorDraft}
+          annotationFontSizeDraft={annotationFontSizeDraft}
+          onAnnotationTextChange={setAnnotationTextDraft}
+          onCommitAnnotationSettings={commitSelectedAnnotationTextStyles}
+          onResetAnnotationDrafts={resetSelectedAnnotationTextStyleDrafts}
+          onAnnotationFontSizeChange={setAnnotationFontSizeDraft}
+          onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
+        />
       )}
-    </div>
-  ) : null;
+    </>
+  );
 
   return (
     <div
@@ -1131,8 +1112,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         <NodePanelMultiSelectionSection
           selectedNodeSetSummary={selectedNodeSetSummary}
           selectedCount={selectedNodes.length}
-          nodeCardColorSection={nodeCardColorSection}
-          annotationTextStyleSection={multiSelectionAnnotationTextStyleSection}
+          nodeCardColorSection={multiSelectionAppearanceSection}
         />
       ) : selectedNode ? (
         <div>

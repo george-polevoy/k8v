@@ -5,14 +5,12 @@ interface NodePanelMultiSelectionSectionProps {
   selectedNodeSetSummary: string;
   selectedCount: number;
   nodeCardColorSection: ReactNode;
-  annotationTextStyleSection?: ReactNode;
 }
 
 function NodePanelMultiSelectionSection({
   selectedNodeSetSummary,
   selectedCount,
   nodeCardColorSection,
-  annotationTextStyleSection,
 }: NodePanelMultiSelectionSectionProps) {
   return (
     <div>
@@ -36,7 +34,6 @@ function NodePanelMultiSelectionSection({
       </div>
 
       {nodeCardColorSection}
-      {annotationTextStyleSection}
     </div>
   );
 }
