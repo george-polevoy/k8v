@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
+import ColorFieldButton from './ColorFieldButton';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import NodeCreationDialog from './NodeCreationDialog';
 
@@ -138,8 +139,9 @@ function Toolbar({ embedded = false }: ToolbarProps) {
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
-            <button
-              type="button"
+            <ColorFieldButton
+              label="Pick"
+              color={drawingColor}
               onClick={() => {
                 if (!drawingEnabled) {
                   return;
@@ -148,34 +150,9 @@ function Toolbar({ embedded = false }: ToolbarProps) {
               }}
               disabled={!drawingEnabled}
               title="Choose pencil color"
-              style={{
-                width: '100%',
-                minHeight: '24px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#f8fafc',
-                color: '#0f172a',
-                cursor: drawingEnabled ? 'pointer' : 'not-allowed',
-                padding: '3px 4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                fontSize: '9px',
-              }}
-            >
-              <span
-                style={{
-                  width: '12px',
-                  height: '12px',
-                  borderRadius: '50%',
-                  border: '1px solid #334155',
-                  background: drawingColor,
-                  flexShrink: 0,
-                }}
-              />
-              <span>Pick</span>
-            </button>
+              minHeight="24px"
+              fontSize="9px"
+            />
           </div>
           <div style={{ fontSize: '9px', color: '#475569', marginBottom: '4px', textAlign: 'center' }}>
             Width

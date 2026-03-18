@@ -9,6 +9,7 @@ import {
   DEFAULT_NODE_CARD_BORDER_COLOR,
   resolveNodeCardAppearance,
 } from '../utils/nodeCardAppearance';
+import ColorFieldButton from './ColorFieldButton';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import NodePanelAnnotationSection from './panels/NodePanelAnnotationSection';
 import NodePanelDrawingSection from './panels/NodePanelDrawingSection';
@@ -1002,70 +1003,18 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-        <button
-          data-testid="node-card-background-color-input"
-          type="button"
+        <ColorFieldButton
+          testId="node-card-background-color-input"
+          label={hasMixedCardBackgroundColor ? 'Background (mixed)' : 'Background'}
+          color={cardBackgroundColorDraft}
           onClick={() => setCardColorDialogTarget('background')}
-          style={{
-            width: '100%',
-            minHeight: '34px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>{hasMixedCardBackgroundColor ? 'Background (mixed)' : 'Background'}</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: cardBackgroundColorDraft,
-              flexShrink: 0,
-            }}
-          />
-        </button>
-        <button
-          data-testid="node-card-border-color-input"
-          type="button"
+        />
+        <ColorFieldButton
+          testId="node-card-border-color-input"
+          label={hasMixedCardBorderColor ? 'Border (mixed)' : 'Border'}
+          color={cardBorderColorDraft}
           onClick={() => setCardColorDialogTarget('border')}
-          style={{
-            width: '100%',
-            minHeight: '34px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>{hasMixedCardBorderColor ? 'Border (mixed)' : 'Border'}</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: cardBorderColorDraft,
-              flexShrink: 0,
-            }}
-          />
-        </button>
+        />
       </div>
     </div>
   ) : null;

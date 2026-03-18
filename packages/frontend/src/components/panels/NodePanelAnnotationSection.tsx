@@ -3,6 +3,7 @@ import {
   MAX_ANNOTATION_FONT_SIZE,
   MIN_ANNOTATION_FONT_SIZE,
 } from '../../utils/annotation';
+import ColorFieldButton from '../ColorFieldButton';
 import { sectionCardStyle } from './panelSectionStyles';
 
 interface NodePanelAnnotationSectionProps {
@@ -112,39 +113,13 @@ function NodePanelAnnotationSection({
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
         {colorOptions.map((option) => (
-          <button
+          <ColorFieldButton
             key={option.testId}
-            data-testid={option.testId}
-            type="button"
+            testId={option.testId}
+            label={option.label}
+            color={option.color}
             onClick={() => onOpenAnnotationColorDialog(option.target)}
-            style={{
-              width: '100%',
-              minHeight: '34px',
-              padding: '6px 8px',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              background: '#ffffff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '8px',
-              color: '#0f172a',
-              fontSize: '11px',
-            }}
-          >
-            <span>{option.label}</span>
-            <span
-              style={{
-                width: '14px',
-                height: '14px',
-                borderRadius: '50%',
-                border: '1px solid #334155',
-                background: option.color,
-                flexShrink: 0,
-              }}
-            />
-          </button>
+          />
         ))}
       </div>
       <label

@@ -1,4 +1,5 @@
 import type { CanvasBackgroundSettings, GraphConnectionStrokeSettings } from '../../types';
+import ColorFieldButton from '../ColorFieldButton';
 import { mutedSectionCardStyle, sectionTitleStyle } from './panelSectionStyles';
 
 interface GraphPanelAppearanceSectionProps {
@@ -61,41 +62,13 @@ function GraphPanelAppearanceSection({
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           Base color
         </label>
-        <button
-          data-testid="canvas-background-color-input"
-          type="button"
+        <ColorFieldButton
+          testId="canvas-background-color-input"
+          label="Choose color"
+          color={canvasBackgroundDraft.baseColor}
           disabled={!graphExists || isGraphActionInFlight}
           onClick={onOpenCanvasBackgroundColorDialog}
-          style={{
-            width: '100%',
-            height: '34px',
-            marginBottom: '8px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            boxSizing: 'border-box',
-            background: '#ffffff',
-            cursor: !graphExists || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>Choose color</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: canvasBackgroundDraft.baseColor,
-              flexShrink: 0,
-            }}
-          />
-        </button>
+        />
 
         <button
           data-testid="canvas-background-save"
@@ -124,80 +97,24 @@ function GraphPanelAppearanceSection({
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           Foreground color
         </label>
-        <button
-          data-testid="connection-stroke-foreground-color-input"
-          type="button"
+        <ColorFieldButton
+          testId="connection-stroke-foreground-color-input"
+          label="Choose color"
+          color={connectionStrokeDraft.foregroundColor}
           disabled={!graphExists || isGraphActionInFlight}
           onClick={() => onOpenConnectionStrokeColorDialog('foreground')}
-          style={{
-            width: '100%',
-            height: '34px',
-            marginBottom: '8px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            boxSizing: 'border-box',
-            background: '#ffffff',
-            cursor: !graphExists || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>Choose color</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: connectionStrokeDraft.foregroundColor,
-              flexShrink: 0,
-            }}
-          />
-        </button>
+        />
 
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           Background color
         </label>
-        <button
-          data-testid="connection-stroke-background-color-input"
-          type="button"
+        <ColorFieldButton
+          testId="connection-stroke-background-color-input"
+          label="Choose color"
+          color={connectionStrokeDraft.backgroundColor}
           disabled={!graphExists || isGraphActionInFlight}
           onClick={() => onOpenConnectionStrokeColorDialog('background')}
-          style={{
-            width: '100%',
-            height: '34px',
-            marginBottom: '8px',
-            padding: '6px 8px',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            boxSizing: 'border-box',
-            background: '#ffffff',
-            cursor: !graphExists || isGraphActionInFlight ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            color: '#0f172a',
-            fontSize: '11px',
-          }}
-        >
-          <span>Choose color</span>
-          <span
-            style={{
-              width: '14px',
-              height: '14px',
-              borderRadius: '50%',
-              border: '1px solid #334155',
-              background: connectionStrokeDraft.backgroundColor,
-              flexShrink: 0,
-            }}
-          />
-        </button>
+        />
 
         <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', color: '#475569' }}>
           Foreground width
@@ -271,4 +188,3 @@ function GraphPanelAppearanceSection({
 }
 
 export default GraphPanelAppearanceSection;
-
