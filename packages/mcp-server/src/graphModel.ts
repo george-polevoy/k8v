@@ -1,12 +1,9 @@
 import {
-  normalizeCanvasBackground as normalizeSharedCanvasBackground,
-} from '../../shared/src/canvasBackground.js';
-import {
   normalizeGraphConnectionStroke,
 } from '../../shared/src/connectionStroke.js';
 import {
   materializeGraphProjectionState,
-  normalizeDrawingColor,
+  normalizeGraphDrawings,
   type CanvasBackground,
   type Connection,
   type ConnectionAnchor,
@@ -33,6 +30,7 @@ export {
   materializeGraphProjectionState,
   NodeType,
   normalizeDrawingColor,
+  normalizeGraphDrawings,
 } from '../../domain/dist/index.js';
 
 export type GraphConnectionStrokeSettings = GraphConnectionStroke;
@@ -65,12 +63,7 @@ export interface RenderBitmap {
   height: number;
 }
 
-export function normalizeCanvasBackground(background: CanvasBackground | undefined): CanvasBackground {
-  return normalizeSharedCanvasBackground(background);
-}
-
 export function normalizeGraph(graph: Graph): Graph {
-  const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   const projectionState = materializeGraphProjectionState(
     graph.nodes,
     graph.projections,
@@ -90,13 +83,7 @@ export function normalizeGraph(graph: Graph): Graph {
     projections: projectionState.projections,
     activeProjectionId: projectionState.activeProjectionId,
     cameras: Array.isArray(graph.cameras) ? graph.cameras : [],
-    drawings: drawings.map((drawing) => ({
-      ...drawing,
-      paths: (drawing.paths ?? []).map((path) => ({
-        ...path,
-        color: normalizeDrawingColor(path.color, '#ffffff'),
-      })),
-    })),
+    drawings: normalizeGraphDrawings(graph.drawings),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
   };
 }

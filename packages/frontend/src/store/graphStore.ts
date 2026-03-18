@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import {
+  DEFAULT_DRAWING_COLOR,
   Graph,
   GraphRuntimeState,
   GraphDrawing,
@@ -33,7 +34,6 @@ import {
 } from './graphStoreComputation';
 import { createGraphEditingController } from './graphStoreEditing';
 import {
-  DEFAULT_DRAWING_COLOR,
   normalizeGraph,
   parseGraphSummariesResponse,
   resolveErrorMessage,

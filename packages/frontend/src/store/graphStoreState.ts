@@ -1,6 +1,8 @@
 import {
   ComputationResult as ComputationResultSchema,
+  DEFAULT_DRAWING_COLOR,
   materializeGraphProjectionState,
+  normalizeGraphDrawings,
   normalizeGraphExecutionTimeoutMs,
   type ComputationResult as ComputationResultType,
   dedupeConnectionsByTargetSlot,
@@ -9,15 +11,12 @@ import {
 } from '../types';
 import { normalizeGraphCameraState } from '../utils/cameras';
 import { normalizeGraphConnectionStroke } from '../utils/connectionStroke';
-import { normalizeHexColor } from '../utils/color';
 import type {
   GraphSummary,
   NodeExecutionState,
   NodeGraphicsOutputMap,
   NodeResultMap,
 } from './graphStoreTypes';
-
-export const DEFAULT_DRAWING_COLOR = '#ffffff';
 
 export const DEFAULT_NODE_EXECUTION_STATE: NodeExecutionState = {
   isPending: false,
@@ -47,7 +46,6 @@ export function resolveErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function normalizeGraph(graph: Graph): Graph {
-  const drawings = Array.isArray(graph.drawings) ? graph.drawings : [];
   const connections = Array.isArray(graph.connections)
     ? dedupeConnectionsByTargetSlot(graph.nodes, graph.connections)
     : [];
@@ -73,13 +71,7 @@ export function normalizeGraph(graph: Graph): Graph {
     connectionStroke: normalizeGraphConnectionStroke(graph.connectionStroke),
     cameras: normalizeGraphCameraState(graph.cameras),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
-    drawings: drawings.map((drawing) => ({
-      ...drawing,
-      paths: (drawing.paths ?? []).map((path) => ({
-        ...path,
-        color: normalizeHexColor(path.color, DEFAULT_DRAWING_COLOR),
-      })),
-    })),
+    drawings: normalizeGraphDrawings(graph.drawings, DEFAULT_DRAWING_COLOR),
   };
 }
 

@@ -1,5 +1,5 @@
 import { normalizeHexColor } from '../utils/color';
-import { DEFAULT_DRAWING_COLOR } from './graphStoreState';
+import { DEFAULT_DRAWING_COLOR } from '../types';
 import type {
   NodeGraphicsComputationDebug,
   PencilColor,

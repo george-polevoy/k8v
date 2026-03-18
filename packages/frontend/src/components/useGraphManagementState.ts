@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useGraphStore } from '../store/graphStore';
-import type { PythonEnvironment } from '../types';
+import type { GraphCommand, PythonEnvironment } from '../types';
 import {
   addPythonEnvDraft as addPythonEnvDraftEntry,
   buildPythonEnvCommitPlan,
@@ -60,14 +60,38 @@ export function useGraphManagementState(
     setIsDeleteGraphConfirming(false);
   }, [enabled, graph?.id]);
 
-  const runGraphAction = useCallback(async (action: () => Promise<void>) => {
+  const runGraphAction = useCallback(async (
+    action: () => Promise<void>,
+    { refreshSummaries = false }: { refreshSummaries?: boolean } = {}
+  ) => {
     setIsGraphActionInFlight(true);
     try {
       await action();
+      if (refreshSummaries) {
+        await refreshGraphSummaries();
+      }
     } finally {
       setIsGraphActionInFlight(false);
     }
-  }, []);
+  }, [refreshGraphSummaries]);
+
+  const runGraphCommands = useCallback(async (
+    commands: GraphCommand[],
+    {
+      refreshSummaries = true,
+      afterSubmit,
+    }: {
+      refreshSummaries?: boolean;
+      afterSubmit?: () => void | Promise<void>;
+    } = {}
+  ) => {
+    await runGraphAction(async () => {
+      await submitGraphCommands(commands);
+      if (afterSubmit) {
+        await afterSubmit();
+      }
+    }, { refreshSummaries });
+  }, [runGraphAction, submitGraphCommands]);
 
   const commitGraphName = useCallback(async () => {
     if (!graph) {
@@ -83,14 +107,11 @@ export function useGraphManagementState(
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_graph_name',
-        name: trimmed,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [graph, graphNameValue, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_graph_name',
+      name: trimmed,
+    }]);
+  }, [graph, graphNameValue, runGraphCommands]);
 
   const handleSelectGraph = useCallback(async (graphId: string) => {
     if (!graphId || (graph && graph.id === graphId)) {
@@ -99,19 +120,17 @@ export function useGraphManagementState(
 
     await runGraphAction(async () => {
       await loadGraph(graphId);
-      await refreshGraphSummaries();
-    });
-  }, [graph, loadGraph, refreshGraphSummaries, runGraphAction]);
+    }, { refreshSummaries: true });
+  }, [graph, loadGraph, runGraphAction]);
 
   const handleCreateGraph = useCallback(async () => {
     const name = newGraphName.trim() || 'Untitled Graph';
 
     await runGraphAction(async () => {
       await createGraph(name);
-      await refreshGraphSummaries();
       setNewGraphName('Untitled Graph');
-    });
-  }, [createGraph, newGraphName, refreshGraphSummaries, runGraphAction]);
+    }, { refreshSummaries: true });
+  }, [createGraph, newGraphName, runGraphAction]);
 
   const requestDeleteCurrentGraph = useCallback(() => {
     if (!graph || isGraphActionInFlight) {
@@ -134,10 +153,9 @@ export function useGraphManagementState(
 
     await runGraphAction(async () => {
       await deleteGraph(graph.id);
-      await refreshGraphSummaries();
       setIsDeleteGraphConfirming(false);
-    });
-  }, [deleteGraph, graph, refreshGraphSummaries, runGraphAction]);
+    }, { refreshSummaries: true });
+  }, [deleteGraph, graph, runGraphAction]);
 
   const updatePythonEnvDraftField = useCallback((
     index: number,
@@ -169,8 +187,8 @@ export function useGraphManagementState(
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([
+    await runGraphCommands(
+      [
         {
           kind: 'replace_nodes',
           nodes: resolution.nextNodes,
@@ -179,17 +197,18 @@ export function useGraphManagementState(
           kind: 'replace_python_envs',
           pythonEnvs: resolution.normalizedEnvs,
         },
-      ]);
-      await refreshGraphSummaries();
-      setPythonEnvValidationError(null);
-    });
-  }, [graph, pythonEnvDrafts, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+      ],
+      {
+        afterSubmit: () => {
+          setPythonEnvValidationError(null);
+        },
+      }
+    );
+  }, [graph, pythonEnvDrafts, runGraphCommands]);
 
   return {
     graph,
     graphSummaries,
-    refreshGraphSummaries,
-    submitGraphCommands,
     graphNameValue,
     setGraphNameValue,
     newGraphName,
@@ -198,13 +217,13 @@ export function useGraphManagementState(
     pythonEnvValidationError,
     isGraphActionInFlight,
     isDeleteGraphConfirming,
-    runGraphAction,
     commitGraphName,
     handleSelectGraph,
     handleCreateGraph,
     requestDeleteCurrentGraph,
     cancelDeleteCurrentGraph,
     handleDeleteCurrentGraph,
+    runGraphCommands,
     updatePythonEnvDraftField,
     addPythonEnvDraft,
     deletePythonEnvDraft,

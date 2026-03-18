@@ -19,6 +19,7 @@ import {
   cloneProjectionNodePositions,
   syncActiveProjectionLayout,
 } from './graphProjection.js';
+import { DEFAULT_DRAWING_COLOR, normalizeDrawingColor } from './graphDrawing.js';
 import { getNextProjectionName } from './graphState.js';
 import {
   assertValidPortName,
@@ -32,35 +33,9 @@ import {
   updateInlineCodeNodeCode,
 } from './graphNodes.js';
 
-const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
-
 function createGeneratedId(prefix: string): string {
   const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   return cryptoLike?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-export function normalizeDrawingColor(value: unknown, fallback = '#ffffff'): string {
-  const fallbackColor = HEX_COLOR_PATTERN.test(String(fallback))
-    ? String(fallback).toLowerCase()
-    : '#ffffff';
-  if (typeof value !== 'string') {
-    return fallbackColor;
-  }
-
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === 'white') {
-    return '#ffffff';
-  }
-  if (trimmed === 'green') {
-    return '#22c55e';
-  }
-  if (trimmed === 'red') {
-    return '#ef4444';
-  }
-  if (!HEX_COLOR_PATTERN.test(trimmed)) {
-    return fallbackColor;
-  }
-  return trimmed;
 }
 
 function replaceNode(

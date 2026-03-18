@@ -3,8 +3,10 @@ import { useGraphStore } from '../store/graphStore';
 import {
   CanvasBackgroundSettings,
   DEFAULT_GRAPH_EXECUTION_TIMEOUT_MS,
+  DEFAULT_GRAPH_PROJECTION_ID,
   GraphConnectionStrokeSettings,
   getNextProjectionName,
+  materializeGraphProjectionState,
   normalizeGraphExecutionTimeoutMs,
 } from '../types';
 import { normalizeCanvasBackground } from '../utils/canvasBackground';
@@ -19,10 +21,6 @@ import {
   removeGraphCamera,
   resolveGraphCamera,
 } from '../utils/cameras';
-import {
-  DEFAULT_GRAPH_PROJECTION_ID,
-  normalizeGraphProjectionState,
-} from '../utils/projections';
 import ColorSelectionDialog from './ColorSelectionDialog';
 import { useGraphManagementState } from './useGraphManagementState';
 import GraphPanelAppearanceSection from './panels/GraphPanelAppearanceSection';
@@ -105,8 +103,6 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const {
     graph,
     graphSummaries,
-    refreshGraphSummaries,
-    submitGraphCommands,
     graphNameValue,
     setGraphNameValue,
     newGraphName,
@@ -115,13 +111,13 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     pythonEnvValidationError,
     isGraphActionInFlight,
     isDeleteGraphConfirming,
-    runGraphAction,
     commitGraphName,
     handleSelectGraph,
     handleCreateGraph,
     requestDeleteCurrentGraph,
     cancelDeleteCurrentGraph,
     handleDeleteCurrentGraph,
+    runGraphCommands,
     updatePythonEnvDraftField,
     addPythonEnvDraft,
     deletePythonEnvDraft,
@@ -142,6 +138,22 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
   const [executionTimeoutSecondsValue, setExecutionTimeoutSecondsValue] = useState(
     String(DEFAULT_GRAPH_EXECUTION_TIMEOUT_SECONDS)
   );
+  const projectionState = graph
+    ? materializeGraphProjectionState(
+      graph.nodes,
+      graph.projections,
+      graph.activeProjectionId,
+      graph.canvasBackground
+    )
+    : null;
+  const activeProjection = projectionState?.projections.find(
+    (projection) => projection.id === projectionState.activeProjectionId
+  ) ?? projectionState?.projections[0] ?? null;
+  const projectionOptions = projectionState?.projections ?? [];
+  const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
+  const cameraOptions = graph ? normalizeGraphCameraState(graph.cameras) : [];
+  const activeCamera = graph ? resolveGraphCamera(cameraOptions, selectedCameraId) : null;
+  const activeCameraId = activeCamera?.id ?? DEFAULT_GRAPH_CAMERA_ID;
 
   const flushCurrentCameraViewportState = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -155,17 +167,14 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
 
   useEffect(() => {
     if (graph) {
-      const projectionState = normalizeGraphProjectionState(
+      const normalizedProjectionState = materializeGraphProjectionState(
         graph.nodes,
         graph.projections,
         graph.activeProjectionId,
         graph.canvasBackground
       );
-      const activeProjection = projectionState.projections.find(
-        (projection) => projection.id === projectionState.activeProjectionId
-      ) ?? projectionState.projections[0];
       setCanvasBackgroundDraft(
-        normalizeCanvasBackground(activeProjection?.canvasBackground ?? graph.canvasBackground)
+        normalizeCanvasBackground(normalizedProjectionState.canvasBackground)
       );
       setConnectionStrokeDraft(normalizeGraphConnectionStroke(graph.connectionStroke));
       setRecomputeConcurrencyValue(
@@ -205,14 +214,11 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_recompute_concurrency',
-        recomputeConcurrency: next,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [graph, recomputeConcurrencyValue, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_recompute_concurrency',
+      recomputeConcurrency: next,
+    }]);
+  }, [graph, recomputeConcurrencyValue, runGraphCommands]);
 
   const commitExecutionTimeout = useCallback(async () => {
     if (!graph) {
@@ -228,30 +234,14 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_execution_timeout',
-        executionTimeoutMs: nextTimeoutMs,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [executionTimeoutSecondsValue, graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_execution_timeout',
+      executionTimeoutMs: nextTimeoutMs,
+    }]);
+  }, [executionTimeoutSecondsValue, graph, runGraphCommands]);
 
   const commitCanvasBackground = useCallback(async () => {
-    if (!graph) {
-      return;
-    }
-
-    const projectionState = normalizeGraphProjectionState(
-      graph.nodes,
-      graph.projections,
-      graph.activeProjectionId,
-      graph.canvasBackground
-    );
-    const activeProjection = projectionState.projections.find(
-      (projection) => projection.id === projectionState.activeProjectionId
-    ) ?? projectionState.projections[0];
-    if (!activeProjection) {
+    if (!graph || !activeProjection) {
       return;
     }
 
@@ -265,14 +255,11 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
     ) {
       return;
     }
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_canvas_background',
-        canvasBackground: normalized,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [canvasBackgroundDraft, graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_canvas_background',
+      canvasBackground: normalized,
+    }]);
+  }, [activeProjection, canvasBackgroundDraft, graph, runGraphCommands]);
 
   const updateConnectionStrokeForegroundWidth = useCallback((nextValue: string) => {
     const parsedValue = Number.parseFloat(nextValue);
@@ -315,26 +302,16 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_connection_stroke',
-        connectionStroke: normalized,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [connectionStrokeDraft, graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_connection_stroke',
+      connectionStroke: normalized,
+    }]);
+  }, [connectionStrokeDraft, graph, runGraphCommands]);
 
   const handleSelectProjection = useCallback(async (projectionId: string) => {
-    if (!graph || !projectionId.trim()) {
+    if (!projectionState || !projectionId.trim()) {
       return;
     }
-
-    const projectionState = normalizeGraphProjectionState(
-      graph.nodes,
-      graph.projections,
-      graph.activeProjectionId,
-      graph.canvasBackground
-    );
     if (projectionState.activeProjectionId === projectionId) {
       return;
     }
@@ -346,60 +323,35 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       return;
     }
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'set_active_projection',
-        activeProjectionId: selectedProjection.id,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'set_active_projection',
+      activeProjectionId: selectedProjection.id,
+    }]);
+  }, [projectionState, runGraphCommands]);
 
   const handleAddProjection = useCallback(async () => {
-    if (!graph) {
+    if (!projectionState) {
       return;
     }
-
-    const projectionState = normalizeGraphProjectionState(
-      graph.nodes,
-      graph.projections,
-      graph.activeProjectionId,
-      graph.canvasBackground
-    );
     const projectionId = uuidv4();
     const projectionName = getNextProjectionName(
       projectionState.projections.map((projection) => projection.name)
     );
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
-        kind: 'graph_projection_add',
-        projectionId,
-        name: projectionName,
-        sourceProjectionId: projectionState.activeProjectionId,
-      }]);
-      await refreshGraphSummaries();
-    });
-  }, [graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([{
+      kind: 'graph_projection_add',
+      projectionId,
+      name: projectionName,
+      sourceProjectionId: projectionState.activeProjectionId,
+    }]);
+  }, [projectionState, runGraphCommands]);
 
   const handleRemoveProjection = useCallback(async () => {
-    if (!graph) {
-      return;
-    }
-
-    const projectionState = normalizeGraphProjectionState(
-      graph.nodes,
-      graph.projections,
-      graph.activeProjectionId,
-      graph.canvasBackground
-    );
-    if (projectionState.projections.length <= 1) {
-      return;
-    }
-
-    const activeProjection = projectionState.projections.find(
-      (projection) => projection.id === projectionState.activeProjectionId
-    );
-    if (!activeProjection || activeProjection.id === DEFAULT_GRAPH_PROJECTION_ID) {
+    if (
+      !projectionState ||
+      !activeProjection ||
+      projectionState.projections.length <= 1 ||
+      activeProjection.id === DEFAULT_GRAPH_PROJECTION_ID
+    ) {
       return;
     }
 
@@ -414,20 +366,17 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       (projection) => projection.id === DEFAULT_GRAPH_PROJECTION_ID
     ) ?? remainingProjections[0];
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([
-        {
-          kind: 'replace_projections',
-          projections: remainingProjections,
-        },
-        {
-          kind: 'set_active_projection',
-          activeProjectionId: nextActiveProjection.id,
-        },
-      ]);
-      await refreshGraphSummaries();
-    });
-  }, [graph, refreshGraphSummaries, runGraphAction, submitGraphCommands]);
+    await runGraphCommands([
+      {
+        kind: 'replace_projections',
+        projections: remainingProjections,
+      },
+      {
+        kind: 'set_active_projection',
+        activeProjectionId: nextActiveProjection.id,
+      },
+    ]);
+  }, [activeProjection, projectionState, runGraphCommands]);
 
   const handleAddCamera = useCallback(async () => {
     const currentGraph = useGraphStore.getState().graph ?? graph;
@@ -456,57 +405,54 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       ),
     };
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
+    await runGraphCommands(
+      [{
         kind: 'replace_cameras',
         cameras: [...cameraOptions, nextCamera],
-      }]);
-      selectCamera(nextCamera.id);
-    });
-  }, [flushCurrentCameraViewportState, graph, runGraphAction, selectCamera, selectedCameraId, submitGraphCommands]);
+      }],
+      {
+        refreshSummaries: false,
+        afterSubmit: () => {
+          selectCamera(nextCamera.id);
+        },
+      }
+    );
+  }, [flushCurrentCameraViewportState, graph, runGraphCommands, selectCamera, selectedCameraId]);
 
   const handleRemoveCamera = useCallback(async () => {
     if (!graph) {
       return;
     }
 
-    const cameraOptions = normalizeGraphCameraState(graph.cameras);
-    const activeCamera = resolveGraphCamera(cameraOptions, selectedCameraId);
-    if (activeCamera.id === DEFAULT_GRAPH_CAMERA_ID) {
-      return;
-    }
-    if (cameraOptions.length <= 1) {
+    const currentCameraOptions = normalizeGraphCameraState(graph.cameras);
+    const currentActiveCamera = resolveGraphCamera(currentCameraOptions, selectedCameraId);
+    if (
+      currentActiveCamera.id === DEFAULT_GRAPH_CAMERA_ID ||
+      currentCameraOptions.length <= 1
+    ) {
       return;
     }
 
-    const remainingCameras = removeGraphCamera(cameraOptions, activeCamera.id);
+    const remainingCameras = removeGraphCamera(currentCameraOptions, currentActiveCamera.id);
     if (remainingCameras.length === 0) {
       return;
     }
     const nextSelectedCameraId = remainingCameras.find((camera) => camera.id === DEFAULT_GRAPH_CAMERA_ID)?.id
       ?? remainingCameras[0].id;
 
-    await runGraphAction(async () => {
-      await submitGraphCommands([{
+    await runGraphCommands(
+      [{
         kind: 'replace_cameras',
         cameras: remainingCameras,
-      }]);
-      selectCamera(nextSelectedCameraId);
-    });
-  }, [graph, runGraphAction, selectCamera, selectedCameraId, submitGraphCommands]);
-
-  const projectionState = graph
-    ? normalizeGraphProjectionState(
-      graph.nodes,
-      graph.projections,
-      graph.activeProjectionId,
-      graph.canvasBackground
-    )
-    : null;
-  const projectionOptions = projectionState?.projections ?? [];
-  const activeProjectionId = projectionState?.activeProjectionId ?? DEFAULT_GRAPH_PROJECTION_ID;
-  const cameraOptions = graph ? normalizeGraphCameraState(graph.cameras) : [];
-  const activeCameraId = selectedCameraId ?? cameraOptions[0]?.id ?? DEFAULT_GRAPH_CAMERA_ID;
+      }],
+      {
+        refreshSummaries: false,
+        afterSubmit: () => {
+          selectCamera(nextSelectedCameraId);
+        },
+      }
+    );
+  }, [graph, runGraphCommands, selectCamera, selectedCameraId]);
   const canRemoveActiveProjection = Boolean(
     graph &&
     !isGraphActionInFlight &&

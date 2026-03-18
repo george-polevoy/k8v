@@ -1,19 +1,5 @@
 import { z } from 'zod';
-
-const LEGACY_DRAWING_COLORS: Record<string, string> = {
-  white: '#ffffff',
-  green: '#22c55e',
-  red: '#ef4444',
-};
-
-function normalizeDrawingColor(value: string): string {
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) {
-    return trimmed;
-  }
-
-  return LEGACY_DRAWING_COLORS[trimmed] ?? trimmed;
-}
+import { normalizeDrawingColor } from './graphDrawing.js';
 
 export const DataSchema = z.object({
   type: z.enum(['string', 'number', 'boolean', 'object', 'array', 'null']),
@@ -798,6 +784,7 @@ export function buildGraphCommandsFromSnapshotChange(
 export * from './graphCommands.js';
 export * from './graphCamera.js';
 export * from './graphConnection.js';
+export * from './graphDrawing.js';
 export * from './graphMutation.js';
 export * from './graphNodes.js';
 export * from './graphProjection.js';

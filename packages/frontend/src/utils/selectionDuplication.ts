@@ -10,7 +10,7 @@ import type {
   Position,
   ProjectionNodeCardSize,
 } from '../types';
-import { DEFAULT_GRAPH_PROJECTION_ID } from './projections';
+import { DEFAULT_GRAPH_PROJECTION_ID } from '../types';
 
 interface DuplicateNodeSelectionInGraphParams {
   graph: Graph;

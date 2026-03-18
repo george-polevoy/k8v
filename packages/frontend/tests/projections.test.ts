@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NodeType } from '../src/types.ts';
 import {
   applyProjectionToNodes,
   cloneProjectionNodePositions,
   DEFAULT_GRAPH_PROJECTION_ID,
+  NodeType,
   normalizeGraphProjectionState,
   syncActiveProjectionLayout,
-} from '../src/utils/projections.ts';
+} from '../src/types.ts';
 
 function makeNode(id: string, x: number, y: number) {
   return {
