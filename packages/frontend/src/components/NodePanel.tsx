@@ -23,11 +23,10 @@ import {
 } from './panels/panelSectionStyles';
 import {
   type AnnotationColorTarget,
-  DEFAULT_ANNOTATION_BACKGROUND_COLOR,
-  DEFAULT_ANNOTATION_BORDER_COLOR,
+  type AnnotationDraft,
   DEFAULT_ANNOTATION_FONT_COLOR,
   DEFAULT_ANNOTATION_FONT_SIZE,
-  DEFAULT_ANNOTATION_TEXT,
+  createAnnotationDraft,
   getAnnotationColorDialogDefaultColor,
   getAnnotationColorDialogInitialColor,
   normalizeAnnotationConfig,
@@ -38,6 +37,22 @@ import {
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type CardColorTarget = 'background' | 'border';
+interface NumericInputDraft {
+  value: string;
+  min: string;
+  max: string;
+  step: string;
+}
+
+function createNumericInputDraft(config?: unknown): NumericInputDraft {
+  const normalized = normalizeNumericInputConfig(config as Record<string, unknown> | undefined);
+  return {
+    value: String(normalized.value),
+    min: String(normalized.min),
+    max: String(normalized.max),
+    step: String(normalized.step),
+  };
+}
 
 function getNextInputName(inputs: PortDefinition[]): string {
   const existing = new Set(inputs.map((input) => input.name));
@@ -180,19 +195,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const [cardBackgroundColorDraft, setCardBackgroundColorDraft] = useState(DEFAULT_NODE_CARD_BACKGROUND_COLOR);
   const [cardBorderColorDraft, setCardBorderColorDraft] = useState(DEFAULT_NODE_CARD_BORDER_COLOR);
   const [cardColorDialogTarget, setCardColorDialogTarget] = useState<CardColorTarget | null>(null);
-  const [numericValueDraft, setNumericValueDraft] = useState('0');
-  const [numericMinDraft, setNumericMinDraft] = useState('0');
-  const [numericMaxDraft, setNumericMaxDraft] = useState('100');
-  const [numericStepDraft, setNumericStepDraft] = useState('1');
-  const [annotationTextDraft, setAnnotationTextDraft] = useState(DEFAULT_ANNOTATION_TEXT);
-  const [annotationBackgroundColorDraft, setAnnotationBackgroundColorDraft] = useState(
-    DEFAULT_ANNOTATION_BACKGROUND_COLOR
-  );
-  const [annotationBorderColorDraft, setAnnotationBorderColorDraft] = useState(
-    DEFAULT_ANNOTATION_BORDER_COLOR
-  );
-  const [annotationFontColorDraft, setAnnotationFontColorDraft] = useState(DEFAULT_ANNOTATION_FONT_COLOR);
-  const [annotationFontSizeDraft, setAnnotationFontSizeDraft] = useState(String(DEFAULT_ANNOTATION_FONT_SIZE));
+  const [numericDraft, setNumericDraft] = useState<NumericInputDraft>(() => createNumericInputDraft());
+  const [annotationDraft, setAnnotationDraft] = useState<AnnotationDraft>(() => createAnnotationDraft());
   const [annotationColorDialogTarget, setAnnotationColorDialogTarget] = useState<AnnotationColorTarget | null>(null);
   const [drawingNameValue, setDrawingNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
@@ -239,24 +243,15 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     }
 
     if (selectedNode?.config.type === NodeType.NUMERIC_INPUT) {
-      const numericConfig = normalizeNumericInputConfig(
+      setNumericDraft(createNumericInputDraft(
         selectedNode.config.config as Record<string, unknown> | undefined
-      );
-      setNumericValueDraft(String(numericConfig.value));
-      setNumericMinDraft(String(numericConfig.min));
-      setNumericMaxDraft(String(numericConfig.max));
-      setNumericStepDraft(String(numericConfig.step));
+      ));
     }
 
     if (selectedNode?.config.type === NodeType.ANNOTATION) {
-      const annotationConfig = normalizeAnnotationConfig(
+      setAnnotationDraft(createAnnotationDraft(
         selectedNode.config.config as Record<string, unknown> | undefined
-      );
-      setAnnotationTextDraft(annotationConfig.text);
-      setAnnotationBackgroundColorDraft(annotationConfig.backgroundColor);
-      setAnnotationBorderColorDraft(annotationConfig.borderColor);
-      setAnnotationFontColorDraft(annotationConfig.fontColor);
-      setAnnotationFontSizeDraft(String(annotationConfig.fontSize));
+      ));
     }
 
     setInputValidationError(null);
@@ -283,10 +278,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    setAnnotationFontColorDraft(firstSelectedAnnotationFontColor);
-    setAnnotationFontSizeDraft(
-      hasMixedAnnotationFontSize ? '' : String(firstSelectedAnnotationFontSize)
-    );
+    setAnnotationDraft((current) => ({
+      ...current,
+      fontColor: firstSelectedAnnotationFontColor,
+      fontSize: hasMixedAnnotationFontSize ? '' : String(firstSelectedAnnotationFontSize),
+    }));
   }, [
     firstSelectedAnnotationFontColor,
     firstSelectedAnnotationFontSize,
@@ -442,10 +438,10 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       selectedNode.config.config as Record<string, unknown> | undefined
     );
 
-    const parsedValue = Number.parseFloat(numericValueDraft);
-    const parsedMin = Number.parseFloat(numericMinDraft);
-    const parsedMax = Number.parseFloat(numericMaxDraft);
-    const parsedStep = Number.parseFloat(numericStepDraft);
+    const parsedValue = Number.parseFloat(numericDraft.value);
+    const parsedMin = Number.parseFloat(numericDraft.min);
+    const parsedMax = Number.parseFloat(numericDraft.max);
+    const parsedStep = Number.parseFloat(numericDraft.step);
 
     const next = normalizeNumericInputConfig({
       value: Number.isFinite(parsedValue) ? parsedValue : current.value,
@@ -454,10 +450,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       step: Number.isFinite(parsedStep) ? parsedStep : current.step,
     });
 
-    setNumericValueDraft(String(next.value));
-    setNumericMinDraft(String(next.min));
-    setNumericMaxDraft(String(next.max));
-    setNumericStepDraft(String(next.step));
+    setNumericDraft(createNumericInputDraft(next));
 
     if (
       next.value === current.value &&
@@ -481,10 +474,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       },
     });
   }, [
-    numericMaxDraft,
-    numericMinDraft,
-    numericStepDraft,
-    numericValueDraft,
+    numericDraft,
     selectedNode,
     updateNode,
   ]);
@@ -494,13 +484,9 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    const current = normalizeNumericInputConfig(
+    setNumericDraft(createNumericInputDraft(
       selectedNode.config.config as Record<string, unknown> | undefined
-    );
-    setNumericValueDraft(String(current.value));
-    setNumericMinDraft(String(current.min));
-    setNumericMaxDraft(String(current.max));
-    setNumericStepDraft(String(current.step));
+    ));
   }, [selectedNode]);
 
   const commitAnnotationSettings = useCallback((overrides?: {
@@ -518,18 +504,14 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       selectedNode.config.config as Record<string, unknown> | undefined
     );
     const next = normalizeAnnotationDraft({
-      text: overrides?.text ?? annotationTextDraft,
-      backgroundColor: overrides?.backgroundColor ?? annotationBackgroundColorDraft,
-      borderColor: overrides?.borderColor ?? annotationBorderColorDraft,
-      fontColor: overrides?.fontColor ?? annotationFontColorDraft,
-      fontSize: overrides?.fontSize ?? annotationFontSizeDraft,
+      text: overrides?.text ?? annotationDraft.text,
+      backgroundColor: overrides?.backgroundColor ?? annotationDraft.backgroundColor,
+      borderColor: overrides?.borderColor ?? annotationDraft.borderColor,
+      fontColor: overrides?.fontColor ?? annotationDraft.fontColor,
+      fontSize: overrides?.fontSize ?? annotationDraft.fontSize,
     }, current);
 
-    setAnnotationTextDraft(next.text);
-    setAnnotationBackgroundColorDraft(next.backgroundColor);
-    setAnnotationBorderColorDraft(next.borderColor);
-    setAnnotationFontColorDraft(next.fontColor);
-    setAnnotationFontSizeDraft(String(next.fontSize));
+    setAnnotationDraft(createAnnotationDraft(next));
 
     if (
       next.text === current.text &&
@@ -555,11 +537,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       },
     });
   }, [
-    annotationBackgroundColorDraft,
-    annotationBorderColorDraft,
-    annotationFontColorDraft,
-    annotationFontSizeDraft,
-    annotationTextDraft,
+    annotationDraft,
     selectedNode,
     updateNode,
   ]);
@@ -767,9 +745,9 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const annotationColorDialogInitialColor = getAnnotationColorDialogInitialColor(
     annotationColorDialogTarget,
     {
-      backgroundColor: annotationBackgroundColorDraft,
-      borderColor: annotationBorderColorDraft,
-      fontColor: annotationFontColorDraft,
+      backgroundColor: annotationDraft.backgroundColor,
+      borderColor: annotationDraft.borderColor,
+      fontColor: annotationDraft.fontColor,
     }
   );
   const annotationColorDialogDescription = isMultiAnnotationSelection
@@ -860,10 +838,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    setAnnotationFontColorDraft(firstSelectedAnnotationFontColor);
-    setAnnotationFontSizeDraft(
-      hasMixedAnnotationFontSize ? '' : String(firstSelectedAnnotationFontSize)
-    );
+    setAnnotationDraft((current) => ({
+      ...current,
+      fontColor: firstSelectedAnnotationFontColor,
+      fontSize: hasMixedAnnotationFontSize ? '' : String(firstSelectedAnnotationFontSize),
+    }));
   }, [
     firstSelectedAnnotationFontColor,
     firstSelectedAnnotationFontSize,
@@ -929,10 +908,16 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     });
 
     if (nextFontColor !== undefined) {
-      setAnnotationFontColorDraft(nextFontColor);
+      setAnnotationDraft((current) => ({
+        ...current,
+        fontColor: nextFontColor,
+      }));
     }
     if (nextFontSize !== undefined) {
-      setAnnotationFontSizeDraft(String(nextFontSize));
+      setAnnotationDraft((current) => ({
+        ...current,
+        fontSize: String(nextFontSize),
+      }));
     }
 
     if (!didChange) {
@@ -956,18 +941,15 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       if (isMultiAnnotationSelection) {
         commitSelectedNodeCardColors({ backgroundColor: color });
       } else {
-        setAnnotationBackgroundColorDraft(color);
         commitAnnotationSettings({ backgroundColor: color });
       }
     } else if (annotationColorDialogTarget === 'border') {
       if (isMultiAnnotationSelection) {
         commitSelectedNodeCardColors({ borderColor: color });
       } else {
-        setAnnotationBorderColorDraft(color);
         commitAnnotationSettings({ borderColor: color });
       }
     } else if (annotationColorDialogTarget === 'font') {
-      setAnnotationFontColorDraft(color);
       if (isMultiAnnotationSelection) {
         commitSelectedAnnotationTextStyles({ fontColor: color });
       } else {
@@ -1026,15 +1008,15 @@ function NodePanel({ embedded = false }: NodePanelProps) {
           mode="multi"
           hasMixedFontColor={hasMixedAnnotationFontColor}
           hasMixedFontSize={hasMixedAnnotationFontSize}
-          annotationTextDraft={annotationTextDraft}
-          annotationBackgroundColorDraft={annotationBackgroundColorDraft}
-          annotationBorderColorDraft={annotationBorderColorDraft}
-          annotationFontColorDraft={annotationFontColorDraft}
-          annotationFontSizeDraft={annotationFontSizeDraft}
-          onAnnotationTextChange={setAnnotationTextDraft}
+          annotationDraft={annotationDraft}
+          onAnnotationDraftChange={(field, value) => {
+            setAnnotationDraft((current) => ({
+              ...current,
+              [field]: value,
+            }));
+          }}
           onCommitAnnotationSettings={commitSelectedAnnotationTextStyles}
           onResetAnnotationDrafts={resetSelectedAnnotationTextStyleDrafts}
-          onAnnotationFontSizeChange={setAnnotationFontSizeDraft}
           onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
         />
       )}
@@ -1118,14 +1100,13 @@ function NodePanel({ embedded = false }: NodePanelProps) {
 
           {selectedNode.config.type === NodeType.NUMERIC_INPUT && (
             <NodePanelNumericSection
-              numericValueDraft={numericValueDraft}
-              numericStepDraft={numericStepDraft}
-              numericMinDraft={numericMinDraft}
-              numericMaxDraft={numericMaxDraft}
-              onNumericValueChange={setNumericValueDraft}
-              onNumericStepChange={setNumericStepDraft}
-              onNumericMinChange={setNumericMinDraft}
-              onNumericMaxChange={setNumericMaxDraft}
+              numericDraft={numericDraft}
+              onNumericDraftChange={(field, value) => {
+                setNumericDraft((current) => ({
+                  ...current,
+                  [field]: value,
+                }));
+              }}
               onCommitNumericInputConfig={commitNumericInputConfig}
               onResetNumericInputDrafts={resetNumericInputDrafts}
             />
@@ -1133,24 +1114,19 @@ function NodePanel({ embedded = false }: NodePanelProps) {
 
           {selectedNode.config.type === NodeType.ANNOTATION && (
             <NodePanelAnnotationSection
-              annotationTextDraft={annotationTextDraft}
-              annotationBackgroundColorDraft={annotationBackgroundColorDraft}
-              annotationBorderColorDraft={annotationBorderColorDraft}
-              annotationFontColorDraft={annotationFontColorDraft}
-              annotationFontSizeDraft={annotationFontSizeDraft}
-              onAnnotationTextChange={setAnnotationTextDraft}
+              annotationDraft={annotationDraft}
+              onAnnotationDraftChange={(field, value) => {
+                setAnnotationDraft((current) => ({
+                  ...current,
+                  [field]: value,
+                }));
+              }}
               onCommitAnnotationSettings={commitAnnotationSettings}
               onResetAnnotationDrafts={() => {
-                const current = normalizeAnnotationConfig(
+                setAnnotationDraft(createAnnotationDraft(
                   selectedNode.config.config as Record<string, unknown> | undefined
-                );
-                setAnnotationTextDraft(current.text);
-                setAnnotationBackgroundColorDraft(current.backgroundColor);
-                setAnnotationBorderColorDraft(current.borderColor);
-                setAnnotationFontColorDraft(current.fontColor);
-                setAnnotationFontSizeDraft(String(current.fontSize));
+                ));
               }}
-              onAnnotationFontSizeChange={setAnnotationFontSizeDraft}
               onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
             />
           )}

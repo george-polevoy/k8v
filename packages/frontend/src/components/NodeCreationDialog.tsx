@@ -11,7 +11,7 @@ import {
 } from '../utils/nodeFactory';
 import {
   type AnnotationColorTarget,
-  DEFAULT_ANNOTATION_TEXT,
+  createAnnotationDraft,
   getAnnotationColorDialogDefaultColor,
   getAnnotationColorDialogInitialColor,
   normalizeAnnotationDraft,
@@ -28,7 +28,7 @@ interface NodeCreationDialogProps {
   position: { x: number; y: number };
 }
 
-const DEFAULT_ANNOTATION_CONFIG = normalizeAnnotationDraft(undefined);
+const DEFAULT_ANNOTATION_DRAFT = createAnnotationDraft();
 
 function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProps) {
   const graph = useGraphStore((state) => state.graph);
@@ -37,19 +37,7 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
   const [code, setCode] = useState('outputs.output = inputs.input;');
   const [runtime, setRuntime] = useState('javascript_vm');
   const [pythonEnv, setPythonEnv] = useState('');
-  const [annotationText, setAnnotationText] = useState(DEFAULT_ANNOTATION_TEXT);
-  const [annotationBackgroundColor, setAnnotationBackgroundColor] = useState(
-    () => DEFAULT_ANNOTATION_CONFIG.backgroundColor
-  );
-  const [annotationBorderColor, setAnnotationBorderColor] = useState(
-    () => DEFAULT_ANNOTATION_CONFIG.borderColor
-  );
-  const [annotationFontColor, setAnnotationFontColor] = useState(
-    () => DEFAULT_ANNOTATION_CONFIG.fontColor
-  );
-  const [annotationFontSize, setAnnotationFontSize] = useState(
-    () => String(DEFAULT_ANNOTATION_CONFIG.fontSize)
-  );
+  const [annotationDraft, setAnnotationDraft] = useState(() => DEFAULT_ANNOTATION_DRAFT);
   const [annotationColorDialogTarget, setAnnotationColorDialogTarget] = useState<AnnotationColorTarget | null>(null);
   const pythonEnvs = graph?.pythonEnvs ?? [];
 
@@ -62,25 +50,15 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
   }) => {
     const next = normalizeAnnotationDraft(
       {
-        text: overrides?.text ?? annotationText,
-        backgroundColor: overrides?.backgroundColor ?? annotationBackgroundColor,
-        borderColor: overrides?.borderColor ?? annotationBorderColor,
-        fontColor: overrides?.fontColor ?? annotationFontColor,
-        fontSize: overrides?.fontSize ?? annotationFontSize,
+        text: overrides?.text ?? annotationDraft.text,
+        backgroundColor: overrides?.backgroundColor ?? annotationDraft.backgroundColor,
+        borderColor: overrides?.borderColor ?? annotationDraft.borderColor,
+        fontColor: overrides?.fontColor ?? annotationDraft.fontColor,
+        fontSize: overrides?.fontSize ?? annotationDraft.fontSize,
       },
-      {
-        text: annotationText,
-        backgroundColor: annotationBackgroundColor,
-        borderColor: annotationBorderColor,
-        fontColor: annotationFontColor,
-        fontSize: normalizeAnnotationFontSize(annotationFontSize),
-      }
+      normalizeAnnotationDraft(annotationDraft)
     );
-    setAnnotationText(next.text);
-    setAnnotationBackgroundColor(next.backgroundColor);
-    setAnnotationBorderColor(next.borderColor);
-    setAnnotationFontColor(next.fontColor);
-    setAnnotationFontSize(String(next.fontSize));
+    setAnnotationDraft(createAnnotationDraft(next));
   };
 
   const handleCreate = () => {
@@ -108,11 +86,11 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
         newNode = createAnnotationNode({
           position,
           name: name || undefined,
-          annotationText,
-          annotationBackgroundColor,
-          annotationBorderColor,
-          annotationFontColor,
-          annotationFontSize: normalizeAnnotationFontSize(annotationFontSize),
+          annotationText: annotationDraft.text,
+          annotationBackgroundColor: annotationDraft.backgroundColor,
+          annotationBorderColor: annotationDraft.borderColor,
+          annotationFontColor: annotationDraft.fontColor,
+          annotationFontSize: normalizeAnnotationFontSize(annotationDraft.fontSize),
         });
         break;
       default:
@@ -134,9 +112,9 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
   const annotationColorDialogInitialColor = getAnnotationColorDialogInitialColor(
     annotationColorDialogTarget,
     {
-      backgroundColor: annotationBackgroundColor,
-      borderColor: annotationBorderColor,
-      fontColor: annotationFontColor,
+      backgroundColor: annotationDraft.backgroundColor,
+      borderColor: annotationDraft.borderColor,
+      fontColor: annotationDraft.fontColor,
     }
   );
   const applyAnnotationColor = (nextColor: string) => {
@@ -285,17 +263,17 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
         <div style={{ marginBottom: '16px' }}>
           <NodePanelAnnotationSection
             framed={false}
-            annotationTextDraft={annotationText}
-            annotationBackgroundColorDraft={annotationBackgroundColor}
-            annotationBorderColorDraft={annotationBorderColor}
-            annotationFontColorDraft={annotationFontColor}
-            annotationFontSizeDraft={annotationFontSize}
-            onAnnotationTextChange={setAnnotationText}
+            annotationDraft={annotationDraft}
+            onAnnotationDraftChange={(field, value) => {
+              setAnnotationDraft((current) => ({
+                ...current,
+                [field]: value,
+              }));
+            }}
             onCommitAnnotationSettings={commitAnnotationSettings}
             onResetAnnotationDrafts={() => {
               commitAnnotationSettings();
             }}
-            onAnnotationFontSizeChange={setAnnotationFontSize}
             onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
           />
         </div>

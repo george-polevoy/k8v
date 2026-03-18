@@ -17,6 +17,14 @@ export interface AnnotationConfig {
   fontSize: number;
 }
 
+export interface AnnotationDraft {
+  text: string;
+  backgroundColor: string;
+  borderColor: string;
+  fontColor: string;
+  fontSize: string;
+}
+
 export function normalizeAnnotationFontSize(
   value: unknown,
   fallback = DEFAULT_ANNOTATION_FONT_SIZE
@@ -66,6 +74,19 @@ export function normalizeAnnotationDraft(
       normalizedFallback.fontColor
     ),
     fontSize: normalizeAnnotationFontSize(draft?.fontSize, normalizedFallback.fontSize),
+  };
+}
+
+export function createAnnotationDraft(
+  value?: Partial<Record<keyof AnnotationConfig, unknown>>
+): AnnotationDraft {
+  const normalized = normalizeAnnotationDraft(value);
+  return {
+    text: normalized.text,
+    backgroundColor: normalized.backgroundColor,
+    borderColor: normalized.borderColor,
+    fontColor: normalized.fontColor,
+    fontSize: String(normalized.fontSize),
   };
 }
 

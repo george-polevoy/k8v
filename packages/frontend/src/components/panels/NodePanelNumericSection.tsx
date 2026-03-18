@@ -1,27 +1,22 @@
 import { sectionCardStyle } from './panelSectionStyles';
 
+interface NumericInputDraft {
+  value: string;
+  step: string;
+  min: string;
+  max: string;
+}
+
 interface NodePanelNumericSectionProps {
-  numericValueDraft: string;
-  numericStepDraft: string;
-  numericMinDraft: string;
-  numericMaxDraft: string;
-  onNumericValueChange: (value: string) => void;
-  onNumericStepChange: (value: string) => void;
-  onNumericMinChange: (value: string) => void;
-  onNumericMaxChange: (value: string) => void;
+  numericDraft: NumericInputDraft;
+  onNumericDraftChange: (field: keyof NumericInputDraft, value: string) => void;
   onCommitNumericInputConfig: () => void;
   onResetNumericInputDrafts: () => void;
 }
 
 function NodePanelNumericSection({
-  numericValueDraft,
-  numericStepDraft,
-  numericMinDraft,
-  numericMaxDraft,
-  onNumericValueChange,
-  onNumericStepChange,
-  onNumericMinChange,
-  onNumericMaxChange,
+  numericDraft,
+  onNumericDraftChange,
   onCommitNumericInputConfig,
   onResetNumericInputDrafts,
 }: NodePanelNumericSectionProps) {
@@ -38,10 +33,10 @@ function NodePanelNumericSection({
         }}
       >
         {[
-          { label: 'Value', testId: 'numeric-input-value', value: numericValueDraft, onChange: onNumericValueChange },
-          { label: 'Step', testId: 'numeric-input-step', value: numericStepDraft, onChange: onNumericStepChange },
-          { label: 'Min', testId: 'numeric-input-min', value: numericMinDraft, onChange: onNumericMinChange },
-          { label: 'Max', testId: 'numeric-input-max', value: numericMaxDraft, onChange: onNumericMaxChange },
+          { label: 'Value', testId: 'numeric-input-value', value: numericDraft.value, field: 'value' as const },
+          { label: 'Step', testId: 'numeric-input-step', value: numericDraft.step, field: 'step' as const },
+          { label: 'Min', testId: 'numeric-input-min', value: numericDraft.min, field: 'min' as const },
+          { label: 'Max', testId: 'numeric-input-max', value: numericDraft.max, field: 'max' as const },
         ].map((field) => (
           <label
             key={field.testId}
@@ -52,7 +47,7 @@ function NodePanelNumericSection({
               data-testid={field.testId}
               type="number"
               value={field.value}
-              onChange={(event) => field.onChange(event.target.value)}
+              onChange={(event) => onNumericDraftChange(field.field, event.target.value)}
               onBlur={onCommitNumericInputConfig}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -80,4 +75,3 @@ function NodePanelNumericSection({
 }
 
 export default NodePanelNumericSection;
-

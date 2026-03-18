@@ -1,5 +1,6 @@
 import {
   type AnnotationColorTarget,
+  type AnnotationDraft,
   MAX_ANNOTATION_FONT_SIZE,
   MIN_ANNOTATION_FONT_SIZE,
 } from '../../utils/annotation';
@@ -11,12 +12,8 @@ interface NodePanelAnnotationSectionProps {
   mode?: 'single' | 'multi';
   hasMixedFontColor?: boolean;
   hasMixedFontSize?: boolean;
-  annotationTextDraft: string;
-  annotationBackgroundColorDraft: string;
-  annotationBorderColorDraft: string;
-  annotationFontColorDraft: string;
-  annotationFontSizeDraft: string;
-  onAnnotationTextChange: (value: string) => void;
+  annotationDraft: AnnotationDraft;
+  onAnnotationDraftChange: (field: keyof AnnotationDraft, value: string) => void;
   onCommitAnnotationSettings: (overrides?: {
     text?: string;
     backgroundColor?: string;
@@ -25,7 +22,6 @@ interface NodePanelAnnotationSectionProps {
     fontSize?: number | string;
   }) => void;
   onResetAnnotationDrafts: () => void;
-  onAnnotationFontSizeChange: (value: string) => void;
   onOpenAnnotationColorDialog: (target: AnnotationColorTarget) => void;
 }
 
@@ -34,15 +30,10 @@ function NodePanelAnnotationSection({
   mode = 'single',
   hasMixedFontColor = false,
   hasMixedFontSize = false,
-  annotationTextDraft,
-  annotationBackgroundColorDraft,
-  annotationBorderColorDraft,
-  annotationFontColorDraft,
-  annotationFontSizeDraft,
-  onAnnotationTextChange,
+  annotationDraft,
+  onAnnotationDraftChange,
   onCommitAnnotationSettings,
   onResetAnnotationDrafts,
-  onAnnotationFontSizeChange,
   onOpenAnnotationColorDialog,
 }: NodePanelAnnotationSectionProps) {
   const isMultiSelectionMode = mode === 'multi';
@@ -51,7 +42,7 @@ function NodePanelAnnotationSection({
         {
           label: hasMixedFontColor ? 'Text (mixed)' : 'Text',
           target: 'font' as const,
-          color: annotationFontColorDraft,
+          color: annotationDraft.fontColor,
           testId: 'annotation-font-color-input',
         },
       ]
@@ -59,19 +50,19 @@ function NodePanelAnnotationSection({
         {
           label: 'Background',
           target: 'background' as const,
-          color: annotationBackgroundColorDraft,
+          color: annotationDraft.backgroundColor,
           testId: 'annotation-background-color-input',
         },
         {
           label: 'Border',
           target: 'border' as const,
-          color: annotationBorderColorDraft,
+          color: annotationDraft.borderColor,
           testId: 'annotation-border-color-input',
         },
         {
           label: 'Text',
           target: 'font' as const,
-          color: annotationFontColorDraft,
+          color: annotationDraft.fontColor,
           testId: 'annotation-font-color-input',
         },
       ];
@@ -89,8 +80,8 @@ function NodePanelAnnotationSection({
       {!isMultiSelectionMode && (
         <textarea
           data-testid="annotation-markdown-input"
-          value={annotationTextDraft}
-          onChange={(event) => onAnnotationTextChange(event.target.value)}
+          value={annotationDraft.text}
+          onChange={(event) => onAnnotationDraftChange('text', event.target.value)}
           onBlur={(event) => onCommitAnnotationSettings({ text: event.target.value })}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
@@ -139,8 +130,8 @@ function NodePanelAnnotationSection({
           min={MIN_ANNOTATION_FONT_SIZE}
           max={MAX_ANNOTATION_FONT_SIZE}
           step={1}
-          value={annotationFontSizeDraft}
-          onChange={(event) => onAnnotationFontSizeChange(event.target.value)}
+          value={annotationDraft.fontSize}
+          onChange={(event) => onAnnotationDraftChange('fontSize', event.target.value)}
           onBlur={(event) => {
             const nextFontSize = event.currentTarget.value.trim();
             if (isMultiSelectionMode && !nextFontSize) {
