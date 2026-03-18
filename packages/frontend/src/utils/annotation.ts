@@ -7,6 +7,7 @@ export const DEFAULT_ANNOTATION_FONT_COLOR = '#1f2937';
 export const DEFAULT_ANNOTATION_FONT_SIZE = 14;
 export const MIN_ANNOTATION_FONT_SIZE = 8;
 export const MAX_ANNOTATION_FONT_SIZE = 72;
+export type AnnotationColorTarget = 'background' | 'border' | 'font';
 
 export interface AnnotationConfig {
   text: string;
@@ -43,4 +44,52 @@ export function normalizeAnnotationConfig(config?: Record<string, unknown>): Ann
     fontColor: normalizeColorString(config?.fontColor, DEFAULT_ANNOTATION_FONT_COLOR),
     fontSize: normalizeAnnotationFontSize(config?.fontSize),
   };
+}
+
+export function normalizeAnnotationDraft(
+  draft: Partial<Record<keyof AnnotationConfig, unknown>> | undefined,
+  fallback?: Partial<AnnotationConfig>
+): AnnotationConfig {
+  const normalizedFallback = normalizeAnnotationConfig(fallback as Record<string, unknown> | undefined);
+  return {
+    text: typeof draft?.text === 'string' ? draft.text : normalizedFallback.text,
+    backgroundColor: normalizeColorString(
+      draft?.backgroundColor,
+      normalizedFallback.backgroundColor
+    ),
+    borderColor: normalizeColorString(
+      draft?.borderColor,
+      normalizedFallback.borderColor
+    ),
+    fontColor: normalizeColorString(
+      draft?.fontColor,
+      normalizedFallback.fontColor
+    ),
+    fontSize: normalizeAnnotationFontSize(draft?.fontSize, normalizedFallback.fontSize),
+  };
+}
+
+export function getAnnotationColorDialogDefaultColor(
+  target: AnnotationColorTarget | null
+): string {
+  if (target === 'background') {
+    return DEFAULT_ANNOTATION_BACKGROUND_COLOR;
+  }
+  if (target === 'border') {
+    return DEFAULT_ANNOTATION_BORDER_COLOR;
+  }
+  return DEFAULT_ANNOTATION_FONT_COLOR;
+}
+
+export function getAnnotationColorDialogInitialColor(
+  target: AnnotationColorTarget | null,
+  colors: Pick<AnnotationConfig, 'backgroundColor' | 'borderColor' | 'fontColor'>
+): string {
+  if (target === 'background') {
+    return colors.backgroundColor;
+  }
+  if (target === 'border') {
+    return colors.borderColor;
+  }
+  return colors.fontColor;
 }

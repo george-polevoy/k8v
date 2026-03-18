@@ -1,7 +1,12 @@
-import { MAX_ANNOTATION_FONT_SIZE, MIN_ANNOTATION_FONT_SIZE } from '../../utils/annotation';
+import {
+  type AnnotationColorTarget,
+  MAX_ANNOTATION_FONT_SIZE,
+  MIN_ANNOTATION_FONT_SIZE,
+} from '../../utils/annotation';
 import { sectionCardStyle } from './panelSectionStyles';
 
 interface NodePanelAnnotationSectionProps {
+  framed?: boolean;
   mode?: 'single' | 'multi';
   hasMixedFontColor?: boolean;
   hasMixedFontSize?: boolean;
@@ -20,10 +25,11 @@ interface NodePanelAnnotationSectionProps {
   }) => void;
   onResetAnnotationDrafts: () => void;
   onAnnotationFontSizeChange: (value: string) => void;
-  onOpenAnnotationColorDialog: (target: 'background' | 'border' | 'font') => void;
+  onOpenAnnotationColorDialog: (target: AnnotationColorTarget) => void;
 }
 
 function NodePanelAnnotationSection({
+  framed = true,
   mode = 'single',
   hasMixedFontColor = false,
   hasMixedFontSize = false,
@@ -69,8 +75,8 @@ function NodePanelAnnotationSection({
         },
       ];
 
-  return (
-    <div style={sectionCardStyle}>
+  const content = (
+    <>
       <div style={{ fontWeight: 'bold', fontSize: '12px', marginBottom: '10px' }}>
         {isMultiSelectionMode ? 'Annotation Text' : 'Annotation Content'}
       </div>
@@ -198,8 +204,14 @@ function NodePanelAnnotationSection({
           Markdown and LaTeX are supported. Use inline math like <code>$a^2 + b^2 = c^2$</code> or block math with <code>$$...$$</code>.
         </div>
       )}
-    </div>
+    </>
   );
+
+  if (!framed) {
+    return content;
+  }
+
+  return <div style={sectionCardStyle}>{content}</div>;
 }
 
 export default NodePanelAnnotationSection;

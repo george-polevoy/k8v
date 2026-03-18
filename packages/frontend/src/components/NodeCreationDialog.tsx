@@ -3,19 +3,18 @@ import { createPortal } from 'react-dom';
 import { GraphNode, NodeType } from '../types';
 import { useGraphStore } from '../store/graphStore';
 import ColorSelectionDialog from './ColorSelectionDialog';
+import NodePanelAnnotationSection from './panels/NodePanelAnnotationSection';
 import {
   createAnnotationNode,
   createInlineCodeNode,
   createNumericInputNode,
 } from '../utils/nodeFactory';
 import {
-  DEFAULT_ANNOTATION_BACKGROUND_COLOR,
-  DEFAULT_ANNOTATION_BORDER_COLOR,
-  DEFAULT_ANNOTATION_FONT_COLOR,
-  DEFAULT_ANNOTATION_FONT_SIZE,
+  type AnnotationColorTarget,
   DEFAULT_ANNOTATION_TEXT,
-  MAX_ANNOTATION_FONT_SIZE,
-  MIN_ANNOTATION_FONT_SIZE,
+  getAnnotationColorDialogDefaultColor,
+  getAnnotationColorDialogInitialColor,
+  normalizeAnnotationDraft,
   normalizeAnnotationFontSize,
 } from '../utils/annotation';
 import {
@@ -29,7 +28,7 @@ interface NodeCreationDialogProps {
   position: { x: number; y: number };
 }
 
-type AnnotationColorTarget = 'background' | 'border' | 'font';
+const DEFAULT_ANNOTATION_CONFIG = normalizeAnnotationDraft(undefined);
 
 function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProps) {
   const graph = useGraphStore((state) => state.graph);
@@ -39,12 +38,50 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
   const [runtime, setRuntime] = useState('javascript_vm');
   const [pythonEnv, setPythonEnv] = useState('');
   const [annotationText, setAnnotationText] = useState(DEFAULT_ANNOTATION_TEXT);
-  const [annotationBackgroundColor, setAnnotationBackgroundColor] = useState(DEFAULT_ANNOTATION_BACKGROUND_COLOR);
-  const [annotationBorderColor, setAnnotationBorderColor] = useState(DEFAULT_ANNOTATION_BORDER_COLOR);
-  const [annotationFontColor, setAnnotationFontColor] = useState(DEFAULT_ANNOTATION_FONT_COLOR);
-  const [annotationFontSize, setAnnotationFontSize] = useState(String(DEFAULT_ANNOTATION_FONT_SIZE));
+  const [annotationBackgroundColor, setAnnotationBackgroundColor] = useState(
+    () => DEFAULT_ANNOTATION_CONFIG.backgroundColor
+  );
+  const [annotationBorderColor, setAnnotationBorderColor] = useState(
+    () => DEFAULT_ANNOTATION_CONFIG.borderColor
+  );
+  const [annotationFontColor, setAnnotationFontColor] = useState(
+    () => DEFAULT_ANNOTATION_CONFIG.fontColor
+  );
+  const [annotationFontSize, setAnnotationFontSize] = useState(
+    () => String(DEFAULT_ANNOTATION_CONFIG.fontSize)
+  );
   const [annotationColorDialogTarget, setAnnotationColorDialogTarget] = useState<AnnotationColorTarget | null>(null);
   const pythonEnvs = graph?.pythonEnvs ?? [];
+
+  const commitAnnotationSettings = (overrides?: {
+    text?: string;
+    backgroundColor?: string;
+    borderColor?: string;
+    fontColor?: string;
+    fontSize?: number | string;
+  }) => {
+    const next = normalizeAnnotationDraft(
+      {
+        text: overrides?.text ?? annotationText,
+        backgroundColor: overrides?.backgroundColor ?? annotationBackgroundColor,
+        borderColor: overrides?.borderColor ?? annotationBorderColor,
+        fontColor: overrides?.fontColor ?? annotationFontColor,
+        fontSize: overrides?.fontSize ?? annotationFontSize,
+      },
+      {
+        text: annotationText,
+        backgroundColor: annotationBackgroundColor,
+        borderColor: annotationBorderColor,
+        fontColor: annotationFontColor,
+        fontSize: normalizeAnnotationFontSize(annotationFontSize),
+      }
+    );
+    setAnnotationText(next.text);
+    setAnnotationBackgroundColor(next.backgroundColor);
+    setAnnotationBorderColor(next.borderColor);
+    setAnnotationFontColor(next.fontColor);
+    setAnnotationFontSize(String(next.fontSize));
+  };
 
   const handleCreate = () => {
     let newNode: GraphNode;
@@ -92,23 +129,26 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
     : annotationColorDialogTarget === 'border'
       ? 'Annotation Border'
       : 'Annotation Text';
-  const annotationColorDialogDefaultColor = annotationColorDialogTarget === 'background'
-    ? DEFAULT_ANNOTATION_BACKGROUND_COLOR
-    : annotationColorDialogTarget === 'border'
-      ? DEFAULT_ANNOTATION_BORDER_COLOR
-      : DEFAULT_ANNOTATION_FONT_COLOR;
-  const annotationColorDialogInitialColor = annotationColorDialogTarget === 'background'
-    ? annotationBackgroundColor
-    : annotationColorDialogTarget === 'border'
-      ? annotationBorderColor
-      : annotationFontColor;
+  const annotationColorDialogDefaultColor =
+    getAnnotationColorDialogDefaultColor(annotationColorDialogTarget);
+  const annotationColorDialogInitialColor = getAnnotationColorDialogInitialColor(
+    annotationColorDialogTarget,
+    {
+      backgroundColor: annotationBackgroundColor,
+      borderColor: annotationBorderColor,
+      fontColor: annotationFontColor,
+    }
+  );
   const applyAnnotationColor = (nextColor: string) => {
+    if (annotationColorDialogTarget === null) {
+      return;
+    }
     if (annotationColorDialogTarget === 'background') {
-      setAnnotationBackgroundColor(nextColor);
+      commitAnnotationSettings({ backgroundColor: nextColor });
     } else if (annotationColorDialogTarget === 'border') {
-      setAnnotationBorderColor(nextColor);
-    } else if (annotationColorDialogTarget === 'font') {
-      setAnnotationFontColor(nextColor);
+      commitAnnotationSettings({ borderColor: nextColor });
+    } else {
+      commitAnnotationSettings({ fontColor: nextColor });
     }
     setAnnotationColorDialogTarget(null);
   };
@@ -243,151 +283,21 @@ function NodeCreationDialog({ onClose, onAdd, position }: NodeCreationDialogProp
 
       {nodeType === NodeType.ANNOTATION && (
         <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-            Markdown:
-          </label>
-          <textarea
-            value={annotationText}
-            onChange={(e) => setAnnotationText(e.target.value)}
-            style={{
-              width: '100%',
-              minHeight: '150px',
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              padding: '8px',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              marginBottom: '12px',
+          <NodePanelAnnotationSection
+            framed={false}
+            annotationTextDraft={annotationText}
+            annotationBackgroundColorDraft={annotationBackgroundColor}
+            annotationBorderColorDraft={annotationBorderColor}
+            annotationFontColorDraft={annotationFontColor}
+            annotationFontSizeDraft={annotationFontSize}
+            onAnnotationTextChange={setAnnotationText}
+            onCommitAnnotationSettings={commitAnnotationSettings}
+            onResetAnnotationDrafts={() => {
+              commitAnnotationSettings();
             }}
+            onAnnotationFontSizeChange={setAnnotationFontSize}
+            onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
           />
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr',
-              gap: '8px',
-              marginBottom: '8px',
-            }}
-          >
-            <button
-              type="button"
-              data-testid="annotation-background-color-input"
-              onClick={() => setAnnotationColorDialogTarget('background')}
-              style={{
-                width: '100%',
-                minHeight: '34px',
-                padding: '6px 8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                background: '#ffffff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                color: '#0f172a',
-                fontSize: '11px',
-              }}
-            >
-              <span>Background</span>
-              <span
-                style={{
-                  width: '14px',
-                  height: '14px',
-                  borderRadius: '50%',
-                  border: '1px solid #334155',
-                  background: annotationBackgroundColor,
-                  flexShrink: 0,
-                }}
-              />
-            </button>
-            <button
-              type="button"
-              data-testid="annotation-border-color-input"
-              onClick={() => setAnnotationColorDialogTarget('border')}
-              style={{
-                width: '100%',
-                minHeight: '34px',
-                padding: '6px 8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                background: '#ffffff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                color: '#0f172a',
-                fontSize: '11px',
-              }}
-            >
-              <span>Border</span>
-              <span
-                style={{
-                  width: '14px',
-                  height: '14px',
-                  borderRadius: '50%',
-                  border: '1px solid #334155',
-                  background: annotationBorderColor,
-                  flexShrink: 0,
-                }}
-              />
-            </button>
-            <button
-              type="button"
-              data-testid="annotation-font-color-input"
-              onClick={() => setAnnotationColorDialogTarget('font')}
-              style={{
-                width: '100%',
-                minHeight: '34px',
-                padding: '6px 8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                background: '#ffffff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                color: '#0f172a',
-                fontSize: '11px',
-              }}
-            >
-              <span>Text</span>
-              <span
-                style={{
-                  width: '14px',
-                  height: '14px',
-                  borderRadius: '50%',
-                  border: '1px solid #334155',
-                  background: annotationFontColor,
-                  flexShrink: 0,
-                }}
-              />
-            </button>
-          </div>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#475569' }}>
-            Font size (px)
-            <input
-              data-testid="annotation-font-size-input"
-              type="number"
-              min={MIN_ANNOTATION_FONT_SIZE}
-              max={MAX_ANNOTATION_FONT_SIZE}
-              step={1}
-              value={annotationFontSize}
-              onChange={(event) => setAnnotationFontSize(event.target.value)}
-              onBlur={() => {
-                setAnnotationFontSize(String(normalizeAnnotationFontSize(annotationFontSize)));
-              }}
-              style={{
-                width: '100%',
-                padding: '6px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                fontSize: '12px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </label>
         </div>
       )}
 

@@ -21,12 +21,16 @@ import {
   floatingPanelStyle,
 } from './panels/panelSectionStyles';
 import {
+  type AnnotationColorTarget,
   DEFAULT_ANNOTATION_BACKGROUND_COLOR,
   DEFAULT_ANNOTATION_BORDER_COLOR,
   DEFAULT_ANNOTATION_FONT_COLOR,
   DEFAULT_ANNOTATION_FONT_SIZE,
   DEFAULT_ANNOTATION_TEXT,
+  getAnnotationColorDialogDefaultColor,
+  getAnnotationColorDialogInitialColor,
   normalizeAnnotationConfig,
+  normalizeAnnotationDraft,
   normalizeAnnotationFontSize,
 } from '../utils/annotation';
 
@@ -130,8 +134,6 @@ function formatSelectedNodeSetSummary(nodes: GraphNode[]): string {
 interface NodePanelProps {
   embedded?: boolean;
 }
-
-type AnnotationColorTarget = 'background' | 'border' | 'font';
 
 function NodePanel({ embedded = false }: NodePanelProps) {
   const graph = useGraphStore((state) => state.graph);
@@ -514,24 +516,13 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     const current = normalizeAnnotationConfig(
       selectedNode.config.config as Record<string, unknown> | undefined
     );
-    const parsedDraftFontSize = Number.parseFloat(annotationFontSizeDraft);
-    const draftFontSize = Number.isFinite(parsedDraftFontSize) ? parsedDraftFontSize : current.fontSize;
-    const next = {
+    const next = normalizeAnnotationDraft({
       text: overrides?.text ?? annotationTextDraft,
-      backgroundColor: normalizeColorString(
-        overrides?.backgroundColor ?? annotationBackgroundColorDraft,
-        DEFAULT_ANNOTATION_BACKGROUND_COLOR
-      ),
-      borderColor: normalizeColorString(
-        overrides?.borderColor ?? annotationBorderColorDraft,
-        DEFAULT_ANNOTATION_BORDER_COLOR
-      ),
-      fontColor: normalizeColorString(
-        overrides?.fontColor ?? annotationFontColorDraft,
-        DEFAULT_ANNOTATION_FONT_COLOR
-      ),
-      fontSize: normalizeAnnotationFontSize(overrides?.fontSize ?? draftFontSize, current.fontSize),
-    };
+      backgroundColor: overrides?.backgroundColor ?? annotationBackgroundColorDraft,
+      borderColor: overrides?.borderColor ?? annotationBorderColorDraft,
+      fontColor: overrides?.fontColor ?? annotationFontColorDraft,
+      fontSize: overrides?.fontSize ?? annotationFontSizeDraft,
+    }, current);
 
     setAnnotationTextDraft(next.text);
     setAnnotationBackgroundColorDraft(next.backgroundColor);
@@ -768,18 +759,18 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         ? 'Selected Annotation Border'
         : 'Annotation Border'
       : isMultiAnnotationSelection
-        ? 'Selected Annotation Text'
-        : 'Annotation Text';
-  const annotationColorDialogDefaultColor = annotationColorDialogTarget === 'background'
-    ? DEFAULT_ANNOTATION_BACKGROUND_COLOR
-    : annotationColorDialogTarget === 'border'
-      ? DEFAULT_ANNOTATION_BORDER_COLOR
-      : DEFAULT_ANNOTATION_FONT_COLOR;
-  const annotationColorDialogInitialColor = annotationColorDialogTarget === 'background'
-    ? annotationBackgroundColorDraft
-    : annotationColorDialogTarget === 'border'
-      ? annotationBorderColorDraft
-      : annotationFontColorDraft;
+      ? 'Selected Annotation Text'
+      : 'Annotation Text';
+  const annotationColorDialogDefaultColor =
+    getAnnotationColorDialogDefaultColor(annotationColorDialogTarget);
+  const annotationColorDialogInitialColor = getAnnotationColorDialogInitialColor(
+    annotationColorDialogTarget,
+    {
+      backgroundColor: annotationBackgroundColorDraft,
+      borderColor: annotationBorderColorDraft,
+      fontColor: annotationFontColorDraft,
+    }
+  );
   const annotationColorDialogDescription = isMultiAnnotationSelection
     ? `Choose a text color to apply across ${selectedNodes.length} selected annotation cards.`
     : 'Choose annotation color and opacity.';
