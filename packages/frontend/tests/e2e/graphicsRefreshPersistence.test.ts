@@ -140,8 +140,15 @@ async function reloadCanvasForGraph(
   });
   await graphLoadResponse;
   await page.waitForFunction((expectedGraphId: string) => {
-    const graphSelect = document.querySelector('[data-testid="graph-select"]');
-    return graphSelect instanceof HTMLSelectElement && graphSelect.value === expectedGraphId;
+    const activeGraphId = (window as Window & {
+      __k8vGraphStore?: {
+        getState: () => {
+          graph?: { id?: string | null } | null;
+        };
+      };
+    }).__k8vGraphStore?.getState().graph?.id;
+
+    return activeGraphId === expectedGraphId;
   }, graphId, {
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
@@ -172,6 +179,14 @@ async function openOutputForNode(
     }).__k8vGraphStore?.getState().selectNode(targetNodeId);
   }, nodeId);
 
+  await waitForSelectedNode(page, nodeId);
+  await ensureOutputSectionVisible(page);
+}
+
+async function waitForSelectedNode(
+  page: import('playwright').Page,
+  nodeId: string
+): Promise<void> {
   await page.waitForFunction((targetNodeId: string) => {
     const store = (window as Window & {
       __k8vGraphStore?: {
@@ -184,7 +199,9 @@ async function openOutputForNode(
   }, nodeId, {
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
+}
 
+async function ensureOutputSectionVisible(page: import('playwright').Page): Promise<void> {
   const outputSection = page.locator('[data-testid="sidebar-content-output"]');
   const outputVisible = await outputSection.isVisible().catch(() => false);
   if (!outputVisible) {
@@ -310,6 +327,46 @@ test(
       await reloadCanvasForGraph(page, graphId);
       await openOutputForNode(page, nodeId);
       await waitForRuntimeStateCalls(() => runtimeStateCalls, callsBeforeReload + 2);
+      await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'selected graphics output stays visible after page reload without reselecting the node',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createGraphWithGraphicsNode();
+    const runtimeState = await waitForRuntimeStateWithGraphics(graphId, nodeId);
+    const expectedGraphicsId = runtimeState.results[nodeId]?.graphics?.id;
+    assert.ok(expectedGraphicsId, 'Expected runtime-state to include graphics metadata');
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+
+      await page.addInitScript(() => {
+        Object.defineProperty(window, 'EventSource', {
+          configurable: true,
+          writable: true,
+          value: undefined,
+        });
+      });
+
+      await openCanvasForGraph(page, graphId);
+      await openOutputForNode(page, nodeId);
+      await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
+
+      await reloadCanvasForGraph(page, graphId);
+      await waitForSelectedNode(page, nodeId);
+      await ensureOutputSectionVisible(page);
       await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
 
       await context.close();

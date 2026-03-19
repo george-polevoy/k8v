@@ -8,6 +8,11 @@ import {
   saveCurrentCameraId,
 } from '../src/store/graphCameraSessionStorage.ts';
 import {
+  clearCurrentNodeSelection,
+  readCurrentNodeSelection,
+  saveCurrentNodeSelection,
+} from '../src/store/graphNodeSelectionSessionStorage.ts';
+import {
   DEFAULT_GRAPH_CAMERA_ID,
   normalizeGraphCameraState,
   resolveFloatingWindowCameraLayout,
@@ -143,6 +148,19 @@ test('graph camera session storage helpers persist camera selection per graph', 
   assert.equal(readCurrentCameraId('graph-b'), 'camera-b');
 });
 
+test('graph node selection session storage helpers persist selected node per graph', () => {
+  saveCurrentNodeSelection('graph-a', 'node-a');
+  saveCurrentNodeSelection('graph-b', 'node-b');
+
+  assert.equal(readCurrentNodeSelection('graph-a'), 'node-a');
+  assert.equal(readCurrentNodeSelection('graph-b'), 'node-b');
+
+  clearCurrentNodeSelection('graph-a');
+
+  assert.equal(readCurrentNodeSelection('graph-a'), null);
+  assert.equal(readCurrentNodeSelection('graph-b'), 'node-b');
+});
+
 test('graph store restores and saves the current camera selection per window', async () => {
   const originalGet = axios.get;
   const graph = {
@@ -194,6 +212,74 @@ test('graph store restores and saves the current camera selection per window', a
     assert.equal(
       (globalThis as any).sessionStorage.getItem('k8v-current-camera-id:g-cameras'),
       DEFAULT_GRAPH_CAMERA_ID
+    );
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
+test('graph store restores and clears the current node selection per window', async () => {
+  const originalGet = axios.get;
+  const graph = {
+    ...makeGraph('g-node-selection'),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'numeric_input' as const,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Selected Node',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'numeric_input' as const,
+          config: {
+            value: 10,
+            min: 0,
+            max: 100,
+            step: 1,
+          },
+        },
+        version: 'node-1-v1',
+      },
+    ],
+  };
+
+  (globalThis as any).sessionStorage.setItem('k8v-current-node-selection:g-node-selection', 'node-1');
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-node-selection') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-node-selection/runtime-state') {
+      return {
+        data: {
+          graphId: 'g-node-selection',
+          revision: graph.revision ?? 0,
+          statusVersion: 1,
+          queueLength: 0,
+          workerConcurrency: 1,
+          nodeStates: {},
+          results: {},
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-node-selection');
+
+    assert.equal(useGraphStore.getState().selectedNodeId, 'node-1');
+    assert.deepEqual(useGraphStore.getState().selectedNodeIds, ['node-1']);
+
+    useGraphStore.getState().selectNode(null);
+
+    assert.equal(useGraphStore.getState().selectedNodeId, null);
+    assert.equal(
+      (globalThis as any).sessionStorage.getItem('k8v-current-node-selection:g-node-selection'),
+      null
     );
   } finally {
     (axios as any).get = originalGet;

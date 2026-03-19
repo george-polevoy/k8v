@@ -22,6 +22,11 @@ import {
   readCurrentCameraId as readWindowCurrentCameraId,
   saveCurrentCameraId as saveWindowCurrentCameraId,
 } from './graphCameraSessionStorage';
+import {
+  clearCurrentNodeSelection as clearWindowCurrentNodeSelection,
+  readCurrentNodeSelection as readWindowCurrentNodeSelection,
+  saveCurrentNodeSelection as saveWindowCurrentNodeSelection,
+} from './graphNodeSelectionSessionStorage';
 import { createRecomputeStatusPollController } from './recomputeStatusPolling';
 import {
   buildGraphStateUpdate,
@@ -100,6 +105,31 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
   computeNode: (nodeId: string) => Promise<void>;
   computeGraph: () => Promise<void>;
   drawingCreateRequestId: number;
+}
+
+function areSelectedNodeIdsEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((nodeId, index) => nodeId === right[index]);
+}
+
+function syncWindowCurrentNodeSelection(
+  graphId: string,
+  state: {
+    selectedNodeId: string | null;
+    selectedNodeIds: string[];
+    selectedDrawingId: string | null;
+  }
+): void {
+  if (
+    state.selectedDrawingId !== null ||
+    state.selectedNodeId === null ||
+    state.selectedNodeIds.length !== 1 ||
+    state.selectedNodeIds[0] !== state.selectedNodeId
+  ) {
+    clearWindowCurrentNodeSelection(graphId);
+    return;
+  }
+
+  saveWindowCurrentNodeSelection(graphId, state.selectedNodeId);
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => {
@@ -342,15 +372,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const graph = normalizeGraph(await graphApi.fetchGraph(id));
+        const selectedNodeId = readWindowCurrentNodeSelection(graph.id);
         set(buildGraphStateUpdate({
           graph,
           selectedCameraId: readWindowCurrentCameraId(graph.id),
+          selectedNodeId,
+          selectedNodeIds: selectedNodeId ? [selectedNodeId] : [],
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
           nodeResults: get().nodeResults,
           error: null,
           isLoading: false,
-          selectionMode: 'reset',
+          selectionMode: 'reconcile',
         }));
         await graphComputation.hydrateNodeExecutionStates(graph);
         syncPersistedGraph(graph);
@@ -370,6 +403,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       }
       try {
         const newGraph = normalizeGraph(await graphApi.createGraph(name));
+        clearWindowCurrentNodeSelection(newGraph.id);
         set(buildGraphStateUpdate({
           graph: newGraph,
           selectedCameraId: readWindowCurrentCameraId(newGraph.id),
@@ -399,6 +433,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         removeGraphSummary(id);
         clearCurrentGraphIdIfMatches(id);
         clearWindowCurrentCameraId(id);
+        clearWindowCurrentNodeSelection(id);
         if (currentGraphId === id) {
           stopGraphRealtime();
         }
@@ -420,15 +455,18 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const graph = normalizeGraph(await graphApi.fetchLatestGraph());
+        const selectedNodeId = readWindowCurrentNodeSelection(graph.id);
         set(buildGraphStateUpdate({
           graph,
           selectedCameraId: readWindowCurrentCameraId(graph.id),
+          selectedNodeId,
+          selectedNodeIds: selectedNodeId ? [selectedNodeId] : [],
           nodeExecutionStates: get().nodeExecutionStates,
           nodeGraphicsOutputs: get().nodeGraphicsOutputs,
           nodeResults: get().nodeResults,
           error: null,
           isLoading: false,
-          selectionMode: 'reset',
+          selectionMode: 'reconcile',
         }));
         await graphComputation.hydrateNodeExecutionStates(graph);
         syncPersistedGraph(graph);
@@ -560,4 +598,24 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
     computeGraph: graphComputation.computeGraph,
   };
+});
+
+useGraphStore.subscribe((state, previousState) => {
+  const graphId = state.graph?.id ?? null;
+  const previousGraphId = previousState.graph?.id ?? null;
+
+  if (!graphId) {
+    return;
+  }
+
+  if (
+    graphId === previousGraphId &&
+    state.selectedNodeId === previousState.selectedNodeId &&
+    state.selectedDrawingId === previousState.selectedDrawingId &&
+    areSelectedNodeIdsEqual(state.selectedNodeIds, previousState.selectedNodeIds)
+  ) {
+    return;
+  }
+
+  syncWindowCurrentNodeSelection(graphId, state);
 });
