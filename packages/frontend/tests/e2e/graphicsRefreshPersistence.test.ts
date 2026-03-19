@@ -39,7 +39,7 @@ function createSolidPngDataUrl(width: number, height: number): string {
   return `data:image/png;base64,${base64}`;
 }
 
-async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId: string }> {
+async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId: string; baseRevision: number }> {
   const nodeId = `gfx-node-${Date.now()}`;
   const pngDataUrl = createSolidPngDataUrl(1024, 1024);
   const code = `outputPng(${JSON.stringify(pngDataUrl)})\noutputs.output = 1`;
@@ -74,7 +74,11 @@ async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId:
     'Compute graphics refresh node'
   );
 
-  return { graphId: graph.id, nodeId };
+  return {
+    graphId: graph.id,
+    nodeId,
+    baseRevision: graph.revision ?? 0,
+  };
 }
 
 async function waitForRuntimeStateWithGraphics(
@@ -367,6 +371,55 @@ test(
       await reloadCanvasForGraph(page, graphId);
       await waitForSelectedNode(page, nodeId);
       await ensureOutputSectionVisible(page);
+      await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'graphics stay visible after a graph save and subsequent page reload',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId, baseRevision } = await createGraphWithGraphicsNode();
+    const runtimeState = await waitForRuntimeStateWithGraphics(graphId, nodeId);
+    const expectedGraphicsId = runtimeState.results[nodeId]?.graphics?.id;
+    assert.ok(expectedGraphicsId, 'Expected runtime-state to include graphics metadata');
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+
+      await page.addInitScript(() => {
+        Object.defineProperty(window, 'EventSource', {
+          configurable: true,
+          writable: true,
+          value: undefined,
+        });
+      });
+
+      await openCanvasForGraph(page, graphId);
+      await openOutputForNode(page, nodeId);
+      await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
+
+      await submitGraphCommands(
+        graphId,
+        baseRevision,
+        [{
+          kind: 'set_graph_name',
+          name: `graphics_refresh_saved_${Date.now()}`,
+        }],
+        'Rename graphics refresh graph'
+      );
+
+      await reloadCanvasForGraph(page, graphId);
+      await openOutputForNode(page, nodeId);
       await assertGraphicsRemainVisible(page, nodeId, expectedGraphicsId);
 
       await context.close();

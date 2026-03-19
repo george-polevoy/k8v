@@ -100,3 +100,43 @@ test('DataStore stores PNG graphics as mip levels and serves selected level by m
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('DataStore preserves graphics-backed results when updating an existing graph row', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-datastore-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const store = new DataStore(dbPath, dataDir);
+  const graphId = 'graph-update-preserves-results';
+  const nodeId = 'node-graphics';
+  const initialGraph = makeGraph(graphId);
+
+  try {
+    await store.storeGraph(initialGraph);
+    await store.storeResult(graphId, nodeId, {
+      nodeId,
+      outputs: {},
+      schema: {},
+      timestamp: 4321,
+      version: 'v1',
+      graphicsOutput: `data:image/png;base64,${PNG_4X4_BASE64}`,
+    });
+
+    await store.storeGraph({
+      ...initialGraph,
+      name: 'Updated Graph Name',
+      revision: initialGraph.revision + 1,
+      updatedAt: initialGraph.updatedAt + 1,
+    });
+
+    const stored = await store.getResult(graphId, nodeId);
+    assert.ok(stored, 'expected stored result to survive graph update');
+    assert.ok(stored.graphics, 'expected graphics metadata to survive graph update');
+
+    const binary = await store.getGraphicsBinary(stored.graphics.id, 16);
+    assert.ok(binary, 'expected graphics binary to remain available after graph update');
+    assert.equal(binary?.mimeType, 'image/png');
+  } finally {
+    store.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -6,9 +6,15 @@ export class GraphRepository {
 
   async storeGraph(graph: GraphType): Promise<void> {
     this.db.prepare(`
-      INSERT OR REPLACE INTO graphs
+      INSERT INTO graphs
       (id, name, revision, document_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        revision = excluded.revision,
+        document_json = excluded.document_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
     `).run(
       graph.id,
       graph.name,
