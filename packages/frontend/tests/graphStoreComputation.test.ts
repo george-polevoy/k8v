@@ -462,6 +462,92 @@ test('computeGraph stores runtime results for returned nodes', async () => {
   }
 });
 
+test('runtime-state refresh preserves prior node results when results payload omits that node', async () => {
+  const originalGet = axios.get;
+  const graph: Graph = {
+    id: 'g-sparse-runtime-results',
+    name: 'Sparse Runtime Results Graph',
+    revision: 0,
+    nodes: [
+      {
+        id: 'node-a',
+        type: 'inline_code' as any,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          type: 'inline_code' as any,
+          code: 'outputs.output = 1;',
+          runtime: 'python_process',
+        },
+        version: 'a-v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  const existingResult = {
+    nodeId: 'node-a',
+    outputs: { output: 1 },
+    schema: { output: { type: 'number' } },
+    timestamp: Date.now(),
+    version: 'v-node-a',
+    graphics: {
+      id: 'gfx-existing',
+      mimeType: 'image/png',
+      levels: [
+        { level: 0, width: 64, height: 64, pixelCount: 4096 },
+      ],
+    },
+  };
+
+  (axios as any).get = async (url: string) => {
+    if (url === '/api/graphs/g-sparse-runtime-results') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-sparse-runtime-results/runtime-state') {
+      return {
+        data: buildRuntimeState(graph, {
+          statusVersion: 2,
+          results: {},
+          nodeStates: {
+            'node-a': {
+              isPending: false,
+              isComputing: false,
+              hasError: false,
+              isStale: false,
+              errorMessage: null,
+              lastRunAt: existingResult.timestamp,
+            },
+          },
+        }),
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  resetGraphStoreState({
+    graph,
+    nodeResults: { 'node-a': existingResult as any },
+    nodeGraphicsOutputs: { 'node-a': existingResult.graphics as any },
+  });
+
+  try {
+    await useGraphStore.getState().loadGraph(graph.id);
+    const state = useGraphStore.getState();
+    assert.equal(state.nodeResults['node-a']?.version, 'v-node-a');
+    assert.equal(state.nodeResults['node-a']?.graphics?.id, 'gfx-existing');
+    assert.equal(state.nodeGraphicsOutputs['node-a']?.id, 'gfx-existing');
+  } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
 test('loadGraph hydrates node graphics outputs from persisted node results', async () => {
   (globalThis as any).localStorage = new MemoryLocalStorage();
   const originalGet = axios.get;

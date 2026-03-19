@@ -82,10 +82,12 @@ export function createGraphComputationController({
           runtimeState.nodeStates[node.id],
           nextNodeStates[node.id] ?? DEFAULT_NODE_EXECUTION_STATE
         );
-        nextNodeResults[node.id] = normalizeComputationResult(runtimeState.results[node.id] ?? null);
-        nextGraphicsOutputs[node.id] = normalizeGraphicsOutput(
-          nextNodeResults[node.id]?.graphics ?? null
-        );
+        if (Object.prototype.hasOwnProperty.call(runtimeState.results, node.id)) {
+          nextNodeResults[node.id] = normalizeComputationResult(runtimeState.results[node.id] ?? null);
+          nextGraphicsOutputs[node.id] = normalizeGraphicsOutput(
+            nextNodeResults[node.id]?.graphics ?? null
+          );
+        }
       }
 
       return {
