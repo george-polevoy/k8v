@@ -12,7 +12,13 @@ const GRAPH_COMMAND_SCHEMA_URI = 'k8v://docs/graph-command-schema.json';
 const GRAPH_QUERY_SCHEMA_URI = 'k8v://docs/graph-query-schema.json';
 const ANNOTATION_WORKFLOWS_URI = 'k8v://docs/annotation-workflows.md';
 
-type ExampleTopic = 'annotation-board' | 'annotation-arrows' | 'bulk-edit-retry' | 'graph-query';
+type ExampleTopic =
+  | 'annotation-board'
+  | 'annotation-arrows'
+  | 'annotation-multi-arrows'
+  | 'bulk-edit-call'
+  | 'bulk-edit-retry'
+  | 'graph-query';
 
 const GraphCommandDocumentationSchema: ZodTypeAny = GraphCommand as z.ZodTypeAny;
 const GraphQueryDocumentationSchema: ZodTypeAny = GraphQueryRequestSchema as z.ZodTypeAny;
@@ -24,16 +30,28 @@ function buildMcpOverviewText(): string {
     '',
     '- `graph_create` is the only non-bulk exception and creates an empty graph only.',
     '- `bulk_edit` is the only graph mutation tool and accepts ordered `GraphCommand[]`.',
+    '- Pass `bulk_edit.commands` as structured MCP objects in the tool arguments; do not stringify each command as JSON text.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
     '- `connections_list` is for filtered connection inspection.',
     '- `graph_screenshot_region` renders through the dedicated screenshot harness and can start its own harness server when no explicit frontend URL override is provided.',
     '',
-    'Useful resources:',
-    `- \`${GRAPH_COMMAND_SCHEMA_URI}\``,
-    `- \`${GRAPH_QUERY_SCHEMA_URI}\``,
-    `- \`${ANNOTATION_WORKFLOWS_URI}\``,
+    'Recommended reading order:',
+    '- `k8v://docs/examples/bulk-edit-call`',
     '- `k8v://docs/examples/annotation-board`',
     '- `k8v://docs/examples/annotation-arrows`',
+    '- `k8v://docs/examples/annotation-multi-arrows`',
+    '- `k8v://docs/examples/graph-query`',
+    `- \`${ANNOTATION_WORKFLOWS_URI}\``,
+    '',
+    'Reference schemas for uncommon commands or validation details:',
+    `- \`${GRAPH_COMMAND_SCHEMA_URI}\``,
+    `- \`${GRAPH_QUERY_SCHEMA_URI}\``,
+    '',
+    'Additional examples:',
+    '- `k8v://docs/examples/annotation-board`',
+    '- `k8v://docs/examples/annotation-arrows`',
+    '- `k8v://docs/examples/annotation-multi-arrows`',
+    '- `k8v://docs/examples/bulk-edit-call`',
     '- `k8v://docs/examples/bulk-edit-retry`',
     '- `k8v://docs/examples/graph-query`',
     '',
@@ -47,6 +65,7 @@ function buildAnnotationWorkflowsText(): string {
     '# Annotation Workflows',
     '',
     'Annotation cards are regular graph nodes with `type: "annotation"`.',
+    'When calling `bulk_edit`, pass commands as structured MCP objects in the tool arguments, not stringified JSON strings.',
     '',
     'Creation:',
     '```json',
@@ -82,6 +101,9 @@ function buildAnnotationWorkflowsText(): string {
     '',
     `Presentation arrows use the pseudo-port \`${ANNOTATION_CONNECTION_PORT}\` on card-edge endpoints.`,
     'Anchors are optional and use `{ "side": "top|right|bottom|left", "offset": 0..1 }`.',
+    'Target slots are unique by `(targetNodeId, targetPort, targetAnchor)`.',
+    'If multiple arrows land on the same annotation side, use distinct `targetAnchor.offset` values for each inbound arrow.',
+    'Use `connection_set` when reusing an occupied target slot should replace the existing inbound connection rather than coexist with it.',
     '',
     'Card-edge presentation arrow:',
     '```json',
@@ -161,6 +183,70 @@ function buildExampleText(topic: ExampleTopic): string {
             targetAnchor: { side: 'top', offset: 0.75 },
           },
         ], null, 2),
+        '```',
+      ].join('\n');
+    case 'annotation-multi-arrows':
+      return [
+        '# Example: Multiple Inbound Annotation Arrows',
+        '',
+        'Two inbound presentation arrows can target the same annotation side only when they use distinct target anchors.',
+        'If you want replacement behavior instead of coexistence, use `connection_set` for the occupied target slot.',
+        '',
+        '```json',
+        JSON.stringify([
+          {
+            kind: 'connection_add',
+            connectionId: 'arrow-top',
+            sourceNodeId: 'note-a',
+            sourcePort: ANNOTATION_CONNECTION_PORT,
+            sourceAnchor: { side: 'right', offset: 0.5 },
+            targetNodeId: 'note-target',
+            targetPort: ANNOTATION_CONNECTION_PORT,
+            targetAnchor: { side: 'left', offset: 0.35 },
+          },
+          {
+            kind: 'connection_add',
+            connectionId: 'arrow-bottom',
+            sourceNodeId: 'note-b',
+            sourcePort: ANNOTATION_CONNECTION_PORT,
+            sourceAnchor: { side: 'right', offset: 0.5 },
+            targetNodeId: 'note-target',
+            targetPort: ANNOTATION_CONNECTION_PORT,
+            targetAnchor: { side: 'left', offset: 0.75 },
+          },
+        ], null, 2),
+        '```',
+      ].join('\n');
+    case 'bulk-edit-call':
+      return [
+        '# Example: bulk_edit Tool Call',
+        '',
+        'Pass `commands` as raw structured objects in the MCP arguments. Do not stringify each command.',
+        '',
+        '```json',
+        JSON.stringify({
+          graphId: 'graph-123',
+          baseRevision: 7,
+          commands: [
+            {
+              kind: 'node_add_annotation',
+              nodeId: 'note-a',
+              name: 'A',
+              x: 100,
+              y: 120,
+              text: 'Alpha',
+            },
+            {
+              kind: 'connection_add',
+              connectionId: 'arrow-a',
+              sourceNodeId: 'note-a',
+              sourcePort: ANNOTATION_CONNECTION_PORT,
+              targetNodeId: 'note-b',
+              targetPort: ANNOTATION_CONNECTION_PORT,
+              targetAnchor: { side: 'left', offset: 0.5 },
+            },
+          ],
+        }, null, 2),
         '```',
       ].join('\n');
     case 'bulk-edit-retry':
@@ -272,12 +358,21 @@ export function registerDocumentationResources(server: any): void {
       resources: [
         { uri: 'k8v://docs/examples/annotation-board', name: 'annotation-board' },
         { uri: 'k8v://docs/examples/annotation-arrows', name: 'annotation-arrows' },
+        { uri: 'k8v://docs/examples/annotation-multi-arrows', name: 'annotation-multi-arrows' },
+        { uri: 'k8v://docs/examples/bulk-edit-call', name: 'bulk-edit-call' },
         { uri: 'k8v://docs/examples/bulk-edit-retry', name: 'bulk-edit-retry' },
         { uri: 'k8v://docs/examples/graph-query', name: 'graph-query' },
       ],
     }),
     complete: {
-      topic: async () => ['annotation-board', 'annotation-arrows', 'bulk-edit-retry', 'graph-query'],
+      topic: async () => [
+        'annotation-board',
+        'annotation-arrows',
+        'annotation-multi-arrows',
+        'bulk-edit-call',
+        'bulk-edit-retry',
+        'graph-query',
+      ],
     },
   });
 

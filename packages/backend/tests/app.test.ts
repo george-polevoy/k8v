@@ -2647,6 +2647,71 @@ test('POST /api/graphs/:id/commands rejects multiple inbound connections on the 
   }
 });
 
+test('POST /api/graphs/:id/commands returns actionable errors for duplicate annotation target slots', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sourceA = createAnnotationNode('source-a');
+    const sourceB = createAnnotationNode('source-b');
+    const target = createAnnotationNode('target-note');
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      name: 'Duplicate Annotation Slot Graph',
+      nodes: [sourceA, sourceB, target],
+      connections: [
+        {
+          id: 'arrow-a',
+          sourceNodeId: 'source-a',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'right',
+            offset: 0.5,
+          },
+          targetNodeId: 'target-note',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'left',
+            offset: 0.5,
+          },
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      connections: [
+        ...graph.connections,
+        {
+          id: 'arrow-b',
+          sourceNodeId: 'source-b',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'right',
+            offset: 0.5,
+          },
+          targetNodeId: 'target-note',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'left',
+            offset: 0.5,
+          },
+        },
+      ],
+    }));
+
+    assert.equal(updateResponse.status, 400);
+    const payload = await updateResponse.json();
+    assert.match(payload.error, /target-note:__annotation__@left:0\.5/i);
+    assert.match(payload.error, /already occupied by connection arrow-a/i);
+    assert.match(payload.error, /different targetAnchor/i);
+    assert.match(payload.error, /connection_set/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs/:id/commands rejects all updates on cyclic graphs (strict DAG)', async () => {
   const ctx = await setupTestServer();
 

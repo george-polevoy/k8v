@@ -6,6 +6,7 @@ import { registerGraphTools } from '../src/mcpGraphTools.ts';
 type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: Array<{ text?: string }> }>;
 
 interface RegisteredTool {
+  description?: string;
   inputSchema: Record<string, unknown>;
   handler: ToolHandler;
 }
@@ -15,10 +16,11 @@ class FakeMcpServer {
 
   registerTool(
     name: string,
-    definition: { inputSchema: Record<string, unknown> },
+    definition: { inputSchema: Record<string, unknown>; description?: string },
     handler: ToolHandler
   ): void {
     this.tools.set(name, {
+      description: definition.description,
       inputSchema: definition.inputSchema,
       handler,
     });
@@ -126,6 +128,14 @@ test('bulk_edit accepts GraphCommand[] and resolves base revision from graph whe
 
   const bulkEdit = server.tools.get('bulk_edit');
   assert.ok(bulkEdit);
+  assert.match(bulkEdit.description ?? '', /structured objects/i);
+  assert.match(bulkEdit.description ?? '', /do not stringify/i);
+  const commandsSchema = bulkEdit.inputSchema.commands as { parse: (value: unknown) => unknown };
+  assert.deepEqual(
+    commandsSchema.parse([{ kind: 'compute_graph' }]),
+    [{ kind: 'compute_graph' }]
+  );
+  assert.throws(() => commandsSchema.parse(['{"kind":"compute_graph"}']));
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -169,6 +179,37 @@ test('bulk_edit accepts GraphCommand[] and resolves base revision from graph whe
     });
     assert.equal(parsed.commandCount, 2);
     assert.equal((parsed.graph as Record<string, unknown>).revision, 8);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('bulk_edit re-validates structured command objects against GraphCommand before posting', async () => {
+  const server = new FakeMcpServer();
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+
+  registerGraphTools(server as unknown as any, {
+    resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+  });
+
+  const bulkEdit = server.tools.get('bulk_edit');
+  assert.ok(bulkEdit);
+
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    throw new Error('fetch should not be called for invalid commands');
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => bulkEdit.handler({
+        graphId: 'graph-1',
+        commands: [{ kind: 'not_a_real_graph_command' }],
+        backendUrl: 'http://backend.test',
+      })
+    );
+    assert.equal(fetchCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }

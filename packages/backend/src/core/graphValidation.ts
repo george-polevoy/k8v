@@ -24,6 +24,27 @@ function serializeConnectionTargetSlot(
   return `${connection.targetNodeId}:${connection.targetPort}@${targetAnchor}`;
 }
 
+function formatDuplicateTargetSlotError(
+  targetSlot: string,
+  existingConnectionId: string,
+  connection: Graph['connections'][number]
+): string {
+  if (connection.targetPort === ANNOTATION_CONNECTION_PORT) {
+    return (
+      `Target slot ${targetSlot} is already occupied by connection ${existingConnectionId}; ` +
+      'multiple inbound connections are not allowed. ' +
+      'Use a different targetAnchor for additional presentation arrows, or use connection_set ' +
+      'if you want to replace the existing inbound connection.'
+    );
+  }
+
+  return (
+    `Target slot ${targetSlot} is already occupied by connection ${existingConnectionId}; ` +
+    'multiple inbound connections are not allowed. ' +
+    'Use connection_set if you want to replace the existing inbound connection.'
+  );
+}
+
 export function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set<string>();
   const drawingIds = new Set<string>();
@@ -129,7 +150,7 @@ export function validateGraphStructure(graph: Graph): string | null {
     const targetSlot = serializeConnectionTargetSlot(nodeById, connection);
     const existingConnectionId = occupiedTargetSlots.get(targetSlot);
     if (existingConnectionId) {
-      return `Target slot ${targetSlot} cannot have multiple inbound connections`;
+      return formatDuplicateTargetSlotError(targetSlot, existingConnectionId, connection);
     }
     occupiedTargetSlots.set(targetSlot, connection.id);
   }

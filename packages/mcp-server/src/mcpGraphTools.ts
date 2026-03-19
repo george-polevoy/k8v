@@ -20,6 +20,16 @@ interface GraphToolRegistrarDeps {
   resolveBackendUrl: (backendUrl?: string) => string;
 }
 
+const GraphCommandArgumentSchema = z.object({
+  kind: z.string().min(1).describe('GraphCommand kind, such as node_add_annotation or connection_add.'),
+}).passthrough().describe(
+  'One GraphCommand object. Pass a structured object with a `kind` field and any required command fields; do not pass a JSON string.'
+);
+
+const GraphCommandArgumentListSchema = z.array(GraphCommandArgumentSchema).min(1).describe(
+  'Ordered GraphCommand objects to apply. Each item must be a structured object, not a string.'
+);
+
 export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): void {
   const { resolveBackendUrl } = deps;
 
@@ -134,18 +144,20 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     'bulk_edit',
     {
       description:
-        'Apply an ordered GraphCommand[] batch to one graph. This is the only MCP graph mutation tool. ' +
+        'Apply an ordered GraphCommand[] batch to one graph. Pass `commands` as structured objects in the MCP arguments; do not stringify each command. ' +
+        'This is the only MCP graph mutation tool. ' +
         'See k8v://docs/graph-command-schema.json and k8v://docs/annotation-workflows.md for command shapes and examples.',
       inputSchema: {
         graphId: z.string(),
         baseRevision: z.number().int().nonnegative().optional(),
-        commands: z.array(GraphCommand).min(1),
+        commands: GraphCommandArgumentListSchema,
         noRecompute: z.boolean().optional(),
         backendUrl: z.string().optional(),
       },
     },
     async ({ graphId, baseRevision, commands, noRecompute, backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
+      const parsedCommands = z.array(GraphCommand).min(1).parse(commands);
       const resolvedBaseRevision = typeof baseRevision === 'number'
         ? baseRevision
         : (await getGraph(resolvedBackendUrl, graphId)).revision ?? 0;
@@ -153,7 +165,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
         resolvedBackendUrl,
         graphId,
         resolvedBaseRevision,
-        commands,
+        parsedCommands,
         {
           noRecompute,
         }
@@ -162,7 +174,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
       return textResult({
         graphId,
         baseRevision: resolvedBaseRevision,
-        commandCount: commands.length,
+        commandCount: parsedCommands.length,
         ...response,
       });
     }
