@@ -61,8 +61,8 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Removes MCP-local mutation registries/operation schemas so agents share the backend/domain `GraphCommand` language
 - Keeps only read/query/runtime helpers: `graph_list`, `graph_get`, `graph_query`, `connections_list`, `graphics_get`, and `graph_screenshot_region`
 - Publishes MCP resources/templates for command/query schema discovery and annotation workflow examples
-- Renders internal screenshots by driving the frontend in `canvasOnly` mode so MCP matches production rendering
-- Screenshot API captures explicit world rectangles into fixed bitmap dimensions, reusing the frontend canvas path
+- Renders internal screenshots through a dedicated screenshot harness page that reuses the frontend canvas renderer without booting the interactive app shell
+- Screenshot API captures explicit world rectangles into fixed bitmap dimensions, reusing the shared frontend canvas render path while avoiding toolbar/sidebar/localStorage app boot concerns
 
 ### Frontend
 

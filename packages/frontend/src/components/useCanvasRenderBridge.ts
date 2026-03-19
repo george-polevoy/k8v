@@ -6,49 +6,44 @@ import type {
   ScreenshotRegion,
 } from './useCanvasViewport';
 
-export interface McpScreenshotBridge {
+export interface CanvasRenderBridge {
   isCanvasReady: () => boolean;
   isGraphReady: () => boolean;
   setViewportRegion: (region: ScreenshotRegion, bitmap: ScreenshotBitmap) => boolean;
 }
 
-declare global {
-  interface Window {
-    __k8vMcpScreenshotBridge?: McpScreenshotBridge;
-  }
-}
-
-interface UseMcpScreenshotBridgeParams {
+interface UseCanvasRenderBridgeParams {
   enabled: boolean;
   appRef: MutableRefObject<Application | null>;
   graphRef: MutableRefObject<Graph | null>;
   setViewportRegionForScreenshot: (region: ScreenshotRegion, bitmap: ScreenshotBitmap) => boolean;
+  onBridgeChange?: (bridge: CanvasRenderBridge | null) => void;
 }
 
-export function useMcpScreenshotBridge(params: UseMcpScreenshotBridgeParams): void {
+export function useCanvasRenderBridge(params: UseCanvasRenderBridgeParams): void {
   const {
     enabled,
     appRef,
     graphRef,
     setViewportRegionForScreenshot,
+    onBridgeChange,
   } = params;
 
   useEffect(() => {
-    if (!enabled || typeof window === 'undefined') {
+    if (!enabled) {
+      onBridgeChange?.(null);
       return;
     }
 
-    const bridge: McpScreenshotBridge = {
+    const bridge: CanvasRenderBridge = {
       isCanvasReady: () => Boolean(appRef.current),
       isGraphReady: () => Boolean(graphRef.current),
       setViewportRegion: (region, bitmap) => setViewportRegionForScreenshot(region, bitmap),
     };
-    window.__k8vMcpScreenshotBridge = bridge;
+    onBridgeChange?.(bridge);
 
     return () => {
-      if (window.__k8vMcpScreenshotBridge === bridge) {
-        delete window.__k8vMcpScreenshotBridge;
-      }
+      onBridgeChange?.(null);
     };
-  }, [appRef, enabled, graphRef, setViewportRegionForScreenshot]);
+  }, [appRef, enabled, graphRef, onBridgeChange, setViewportRegionForScreenshot]);
 }

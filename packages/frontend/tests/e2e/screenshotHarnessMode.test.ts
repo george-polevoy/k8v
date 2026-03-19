@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEmptyGraph } from './support/api.ts';
 import { launchBrowser } from './support/browser.ts';
-import { E2E_ASSERT_TIMEOUT_MS, E2E_FRONTEND_URL } from './support/config.ts';
+import {
+  E2E_ASSERT_TIMEOUT_MS,
+  E2E_BACKEND_URL,
+  E2E_FRONTEND_URL,
+} from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 test.before(async () => {
@@ -14,10 +18,18 @@ test.after(async () => {
 });
 
 test(
-  'canvasOnly mode hides floating windows and exposes screenshot bridge',
+  'screenshot harness renders canvas without interactive app chrome',
   { timeout: 90_000 },
   async () => {
-    const { graphId } = await createEmptyGraph('E2E Canvas Only Screenshot');
+    const { graphId } = await createEmptyGraph('E2E Screenshot Harness');
+    const graph = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}`).then(async (response) => {
+      assert.equal(response.ok, true, 'Expected screenshot harness test graph to load from backend.');
+      return await response.json();
+    });
+    const runtimeState = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/runtime-state`).then(async (response) => {
+      assert.equal(response.ok, true, 'Expected screenshot harness runtime state to load from backend.');
+      return await response.json();
+    });
     const browser = await launchBrowser();
     try {
       const context = await browser.newContext({
@@ -25,12 +37,15 @@ test(
       });
       const page = await context.newPage();
 
-      await page.addInitScript((savedGraphId: string) => {
-        window.localStorage.clear();
-        window.localStorage.setItem('k8v-current-graph-id', savedGraphId);
-      }, graphId);
+      await page.addInitScript((bootstrap) => {
+        (window as any).__k8vScreenshotHarnessBootstrap = bootstrap;
+      }, {
+        graph,
+        runtimeState,
+        backendUrl: E2E_BACKEND_URL,
+      });
 
-      await page.goto(`${E2E_FRONTEND_URL}?canvasOnly=1&mcpScreenshot=1`, {
+      await page.goto(`${E2E_FRONTEND_URL}/screenshot.html`, {
         waitUntil: 'domcontentloaded',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
@@ -47,16 +62,16 @@ test(
       assert.equal(
         await page.locator('[data-testid="floating-window-toolbar"]').count(),
         0,
-        'Expected toolbar floating window to be hidden in canvasOnly mode.'
+        'Expected toolbar floating window to be absent from the screenshot harness.'
       );
       assert.equal(
         await page.locator('[data-testid="floating-window-right-sidebar"]').count(),
         0,
-        'Expected right sidebar floating window to be hidden in canvasOnly mode.'
+        'Expected right sidebar floating window to be absent from the screenshot harness.'
       );
 
       await page.waitForFunction(() => {
-        const bridge = (window as any).__k8vMcpScreenshotBridge;
+        const bridge = (window as any).__k8vScreenshotHarness;
         return Boolean(
           bridge &&
             typeof bridge.isCanvasReady === 'function' &&
@@ -68,7 +83,7 @@ test(
       }, { timeout: E2E_ASSERT_TIMEOUT_MS });
 
       const applied = await page.evaluate(() => {
-        const bridge = (window as any).__k8vMcpScreenshotBridge;
+        const bridge = (window as any).__k8vScreenshotHarness;
         if (!bridge) {
           return false;
         }
@@ -77,7 +92,7 @@ test(
           { width: 920, height: 540 }
         );
       });
-      assert.equal(applied, true, 'Expected canvas screenshot bridge to accept viewport region update.');
+      assert.equal(applied, true, 'Expected screenshot harness bridge to accept viewport region update.');
 
       await context.close();
     } finally {

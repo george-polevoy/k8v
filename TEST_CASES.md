@@ -28,7 +28,7 @@ Last reviewed: March 16, 2026.
 - `A-E2E-15` `packages/frontend/tests/e2e/inlineCodeOutputPortSync.test.ts`: editing inline-code source in the node panel updates inferred output port metadata on blur.
 - `A-E2E-16` `packages/frontend/tests/e2e/connectionStroke.test.ts`: graph panel connection stroke controls persist foreground/background colors and preserve the required 2x background-to-foreground width ratio.
 - `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas remains full viewport while toolbar/sidebar floating windows stay draggable and inside viewport bounds across window resize.
-- `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
+- `A-E2E-18` `packages/frontend/tests/e2e/screenshotHarnessMode.test.ts`: Dedicated screenshot harness bootstraps a graph snapshot, renders the canvas without interactive app chrome, and exposes the screenshot control bridge.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
 - `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: generic cards create persisted presentation-only arrows from arbitrary card edges to other card edges while port drags still create data connections.
 - `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport even when the drag starts on a selected node.
@@ -244,7 +244,7 @@ Last reviewed: March 16, 2026.
 - `M-VALID-01`: API rejects connection with missing source/target node references.
 - `M-VALID-02`: API rejects cycles on graph create and rejects all command updates on legacy cyclic graphs.
 ## MCP Manual Notes
-- `M-MCP-01`: `graph_screenshot_region` renders the canvas in `canvasOnly` mode and produces fixed-size bitmaps for explicit world rectangles.
+- `M-MCP-01`: `graph_screenshot_region` renders through the dedicated screenshot harness and produces fixed-size bitmaps for explicit world rectangles.
 
 ## Feature Coverage Map
 
@@ -280,7 +280,7 @@ Last reviewed: March 16, 2026.
 | Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
 | Shared color-selection dialogs layer outside floating windows and are not clipped by narrow panel client areas | `A-E2E-24` | Automated |
 | Shared color-selection dialogs support hue, saturation/value, RGB, and optional opacity controls | `A-E2E-25`, `A-FE-35` | Automated |
-| Frontend `canvasOnly` mode hides floating toolbar/sidebar windows and keeps MCP screenshot bridge available | `A-E2E-18`, `A-MCP-06`, `M-MCP-01` | Automated + Manual |
+| Dedicated screenshot harness renders canvas without interactive app chrome and keeps the screenshot bridge available | `A-E2E-18`, `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 | Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
 | Canvas node titles are ellipsized to fit card width and avoid overlap | `A-FE-17` | Automated |
 | Canvas per-projection background rendering (solid or base-color-driven gradient) | `A-FE-19`, `A-BE-42`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
@@ -384,6 +384,6 @@ Last reviewed: March 16, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, canvas-only screenshot mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, dedicated screenshot harness mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`).
 - No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

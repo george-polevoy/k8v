@@ -91,9 +91,9 @@ The MCP server exposes:
 - read/query helpers: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`
 - discoverability resources/templates for MCP schema/docs, including command/query schema JSON and annotation workflow examples
 - internal screenshot tool `graph_screenshot_region`:
-  - renders the preview frontend in `canvasOnly` mode
+  - renders a dedicated screenshot harness built from the frontend canvas renderer
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)
-  - hides floating toolbar/sidebar windows while preserving the canvas rendering stack
+  - avoids the interactive app shell and its floating toolbar/sidebar windows while preserving the canvas rendering stack
 
 ## Project Structure
 

@@ -191,4 +191,4 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Read/query helpers remain available: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`.
 - MCP exposes discoverability resources/templates for command schemas, query schemas, and annotation workflow examples.
 - `graph_query` can project annotation-oriented fields such as `position`, `cardSize`, `annotationText`, and `config` for lightweight board inspection.
-- Internal Playwright screenshot tool (`graph_screenshot_region`) renders the frontend canvas in `canvasOnly` mode, hides floating controls, and captures fixed-size bitmaps from explicit world rectangles (`x`, `y`, `width`, `height`), including drawing paths and handles.
+- Internal Playwright screenshot tool (`graph_screenshot_region`) renders a dedicated screenshot harness built from the frontend canvas renderer, avoids the interactive app shell, and captures fixed-size bitmaps from explicit world rectangles (`x`, `y`, `width`, `height`), including drawing paths and handles.

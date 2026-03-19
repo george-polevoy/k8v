@@ -140,7 +140,10 @@ import {
 } from './canvasShared';
 import { useCanvasGraphEffects } from './useCanvasGraphEffects';
 import { useCanvasInteractions } from './useCanvasInteractions';
-import { useMcpScreenshotBridge } from './useMcpScreenshotBridge';
+import {
+  useCanvasRenderBridge,
+  type CanvasRenderBridge,
+} from './useCanvasRenderBridge';
 import { useCanvasRuntime } from './useCanvasRuntime';
 import { usePixiCanvasLifecycle } from './usePixiCanvasLifecycle';
 import { useCanvasExecutionEffects } from './useCanvasExecutionEffects';
@@ -161,10 +164,16 @@ declare global {
 }
 
 interface CanvasProps {
-  enableMcpScreenshotBridge?: boolean;
+  graphicsBaseUrl?: string;
+  onRenderBridgeChange?: (bridge: CanvasRenderBridge | null) => void;
+  persistViewportState?: boolean;
 }
 
-function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
+function Canvas({
+  graphicsBaseUrl,
+  onRenderBridgeChange,
+  persistViewportState = true,
+}: CanvasProps) {
   const graph = useGraphStore((state) => state.graph);
   const selectedCameraId = useGraphStore((state) => state.selectedCameraId);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
@@ -373,7 +382,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       scale: number;
     };
   }) => {
-    if (enableMcpScreenshotBridge) {
+    if (!persistViewportState) {
       return;
     }
 
@@ -401,7 +410,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         viewport: cameraState.viewport,
       })),
     }]);
-  }, [enableMcpScreenshotBridge, submitGraphCommands]);
+  }, [persistViewportState, submitGraphCommands]);
 
   const commitPendingViewportCameraState = useCallback(() => {
     const pendingCameraState = pendingViewportCameraStateRef.current;
@@ -414,7 +423,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   }, [persistViewportCameraState]);
 
   const flushViewportStateForCamera = useCallback((cameraId: string | null) => {
-    if (enableMcpScreenshotBridge) {
+    if (!persistViewportState) {
       pendingViewportCameraStateRef.current = null;
       return;
     }
@@ -444,7 +453,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         scale: clamp(Math.abs(viewport.scale.x || 1), MIN_ZOOM, MAX_ZOOM),
       },
     });
-  }, [enableMcpScreenshotBridge, persistViewportCameraState]);
+  }, [persistViewportState, persistViewportCameraState]);
 
   const flushSelectedCameraViewportState = useCallback(() => {
     const currentGraph = graphRef.current;
@@ -460,7 +469,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
   }, [flushViewportStateForCamera]);
 
   const persistViewportTransform = useCallback(() => {
-    if (enableMcpScreenshotBridge) {
+    if (!persistViewportState) {
       return;
     }
 
@@ -492,7 +501,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
       viewportCameraPersistTimeoutRef.current = null;
       commitPendingViewportCameraState();
     }, VIEWPORT_INTERACTION_SETTLE_MS);
-  }, [commitPendingViewportCameraState, enableMcpScreenshotBridge, graphRef, viewportRef]);
+  }, [commitPendingViewportCameraState, graphRef, persistViewportState, viewportRef]);
 
   const requestViewportDrivenGraphRefresh = useCallback(() => {
     if (viewportRefreshRafRef.current !== null) {
@@ -701,11 +710,12 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     viewportInitializedRef,
   ]);
 
-  useMcpScreenshotBridge({
-    enabled: enableMcpScreenshotBridge,
+  useCanvasRenderBridge({
+    enabled: Boolean(onRenderBridgeChange),
     appRef,
     graphRef,
     setViewportRegionForScreenshot,
+    onBridgeChange: onRenderBridgeChange,
   });
 
   const {
@@ -1118,7 +1128,8 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         if (shouldLoadProjectedGraphics) {
           const source = buildGraphicsImageUrl(
             graphicsOutput,
-            stableMaxPixels ?? undefined
+            stableMaxPixels ?? undefined,
+            graphicsBaseUrl
           );
           requestUrl = source;
           projectedGraphicsTexture = getNodeGraphicsTextureForNode(node.id, source);
@@ -2176,6 +2187,7 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
     beginViewportPanInteraction,
     fitViewportToGraph,
     getNodeGraphicsTextureForNode,
+    graphicsBaseUrl,
     restoreViewportFromSelectedCamera,
     releaseUnusedNodeGraphicsTextures,
     refreshCanvasBackgroundTexture,

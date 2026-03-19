@@ -72,6 +72,11 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
 
   // Actions
   loadGraph: (id: string) => Promise<void>;
+  loadGraphSnapshotForRender: (params: {
+    graph: Graph;
+    runtimeState?: GraphRuntimeState | null;
+    selectedCameraId?: string | null;
+  }) => void;
   loadLatestGraph: () => Promise<void>;
   refreshGraphSummaries: () => Promise<void>;
   createGraph: (name: string) => Promise<void>;
@@ -393,6 +398,28 @@ export const useGraphStore = create<GraphStore>((set, get) => {
         }
         set({ error: resolveErrorMessage(error, 'Failed to load graph'), isLoading: false });
         throw error;
+      }
+    },
+
+    loadGraphSnapshotForRender: ({ graph: snapshotGraph, runtimeState, selectedCameraId }) => {
+      stopGraphRealtime();
+      runtimeStatePolling.stop();
+      lastAppliedRuntimeStateMeta.clear();
+
+      const graph = normalizeGraph(snapshotGraph);
+      set(buildGraphStateUpdate({
+        graph,
+        selectedCameraId,
+        nodeExecutionStates: {},
+        nodeGraphicsOutputs: {},
+        nodeResults: {},
+        error: null,
+        isLoading: false,
+        selectionMode: 'reset',
+      }));
+
+      if (runtimeState) {
+        graphComputation.applyRuntimeStateSnapshot(graph, runtimeState);
       }
     },
 

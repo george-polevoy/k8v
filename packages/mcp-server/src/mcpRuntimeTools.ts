@@ -126,7 +126,9 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
       includeBase64,
     }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const resolvedFrontendUrl = resolveFrontendUrl(frontendUrl);
+      const resolvedFrontendUrl = frontendUrl
+        ? resolveFrontendUrl(frontendUrl)
+        : undefined;
       const graphData = graph
         ? normalizeGraph(graph as Graph)
         : graphId
@@ -137,7 +139,7 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
         frontendUrl: resolvedFrontendUrl,
         backendUrl: resolvedBackendUrl,
         graphId: graphData.id,
-        graphOverride: graph ? graphData : undefined,
+        graphOverride: graphData,
         region: {
           x: regionX,
           y: regionY,
@@ -150,7 +152,6 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
         },
         outputPath,
         includeBase64,
-        allowBackendUrlFallback: !frontendUrl,
       });
 
       const content: Array<{
@@ -174,7 +175,7 @@ export function registerRuntimeTools(server: any, deps: RuntimeToolRegistrarDeps
                 width: bitmapWidth,
                 height: bitmapHeight,
               },
-              frontendUrl: resolvedFrontendUrl,
+              frontendUrl: resolvedFrontendUrl ?? 'internal://screenshot-harness',
               outputPath: result.outputPath,
               bytes: result.bytes,
             },

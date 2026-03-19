@@ -14,14 +14,26 @@ export function isRenderableGraphicsArtifact(graphics: GraphicsArtifact | null |
   return Boolean(graphics && typeof graphics.mimeType === 'string' && graphics.mimeType.startsWith('image/'));
 }
 
-export function buildGraphicsImageUrl(graphics: GraphicsArtifact, maxPixels?: number): string {
+function sanitizeBaseUrl(baseUrl?: string): string {
+  if (!baseUrl) {
+    return '';
+  }
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+export function buildGraphicsImageUrl(
+  graphics: GraphicsArtifact,
+  maxPixels?: number,
+  baseUrl?: string
+): string {
   const params = new URLSearchParams();
   if (typeof maxPixels === 'number' && Number.isFinite(maxPixels) && maxPixels > 0) {
     params.set('maxPixels', String(clampPositiveInt(maxPixels)));
   }
 
   const query = params.toString();
-  return `/api/graphics/${encodeURIComponent(graphics.id)}/image${query ? `?${query}` : ''}`;
+  const normalizedBaseUrl = sanitizeBaseUrl(baseUrl);
+  return `${normalizedBaseUrl}/api/graphics/${encodeURIComponent(graphics.id)}/image${query ? `?${query}` : ''}`;
 }
 
 function getSortedLevels(graphics: GraphicsArtifact) {

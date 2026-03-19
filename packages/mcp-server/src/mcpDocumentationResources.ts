@@ -26,7 +26,7 @@ function buildMcpOverviewText(): string {
     '- `bulk_edit` is the only graph mutation tool and accepts ordered `GraphCommand[]`.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
     '- `connections_list` is for filtered connection inspection.',
-    '- `graph_screenshot_region` renders the frontend canvas-only view and may require a reachable frontend URL.',
+    '- `graph_screenshot_region` renders through the dedicated screenshot harness and can start its own harness server when no explicit frontend URL override is provided.',
     '',
     'Useful resources:',
     `- \`${GRAPH_COMMAND_SCHEMA_URI}\``,

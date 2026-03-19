@@ -318,105 +318,31 @@ async function captureDirectFrontendScreenshot(params: {
       deviceScaleFactor: 1,
     });
 
-    await context.route(/\/api\/.*/, async (route) => {
-      const request = route.request();
-      const requestUrl = new URL(request.url());
-      const method = request.method().toUpperCase();
-      const proxyUrl = `${params.backendUrl}${requestUrl.pathname}${requestUrl.search}`;
-
-      if (method === 'GET' && requestUrl.pathname === '/api/graphs/latest') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(params.graphOverride),
-        });
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname === '/api/graphs') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphs: [
-              {
-                id: params.graphOverride.id,
-                name: params.graphOverride.name,
-                revision: params.graphOverride.revision ?? 0,
-                updatedAt: params.graphOverride.updatedAt,
-              },
-            ],
-          }),
-        });
-        return;
-      }
-
-      if (method === 'GET' && /^\/api\/graphs\/[^/]+\/runtime-state$/.test(requestUrl.pathname)) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            graphId: params.graphOverride.id,
-            revision: params.graphOverride.revision ?? 0,
-            statusVersion: params.graphOverride.updatedAt,
-            queueLength: 0,
-            workerConcurrency: params.graphOverride.recomputeConcurrency ?? 1,
-            nodeStates: {},
-            results: {},
-          }),
-        });
-        return;
-      }
-
-      if (method === 'GET' && /^\/api\/graphs\/[^/]+\/events$/.test(requestUrl.pathname)) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: ': connected\n\n',
-        });
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname.startsWith('/api/graphs/')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(params.graphOverride),
-        });
-        return;
-      }
-
-      const requestHeaders = request.headers();
-      const proxyHeaders = Object.fromEntries(
-        Object.entries(requestHeaders).filter(([key]) => key.toLowerCase() !== 'host')
-      );
-      const proxyResponse = await fetch(proxyUrl, {
-        method,
-        headers: proxyHeaders,
-        body: method === 'GET' || method === 'HEAD'
-          ? undefined
-          : request.postDataBuffer() ?? undefined,
-      });
-      const buffer = Buffer.from(await proxyResponse.arrayBuffer());
-      await route.fulfill({
-        status: proxyResponse.status,
-        headers: Object.fromEntries(proxyResponse.headers.entries()),
-        body: buffer,
-      });
+    const page = await context.newPage();
+    await page.addInitScript((bootstrap) => {
+      (window as any).__k8vScreenshotHarnessBootstrap = bootstrap;
+    }, {
+      graph: params.graphOverride,
+      runtimeState: {
+        graphId: params.graphOverride.id,
+        revision: params.graphOverride.revision ?? 0,
+        statusVersion: params.graphOverride.updatedAt,
+        queueLength: 0,
+        workerConcurrency: params.graphOverride.recomputeConcurrency ?? 1,
+        nodeStates: {},
+        results: {},
+      },
+      backendUrl: params.backendUrl,
     });
 
-    const page = await context.newPage();
-    await page.addInitScript((targetGraphId: string) => {
-      window.localStorage.setItem('k8v-current-graph-id', targetGraphId);
-    }, params.graphId);
-
     const targetUrl = new URL(params.frontendUrl);
-    targetUrl.searchParams.set('canvasOnly', '1');
-    targetUrl.searchParams.set('mcpScreenshot', '1');
+    if (targetUrl.pathname === '/' || targetUrl.pathname === '') {
+      targetUrl.pathname = '/screenshot.html';
+    }
     await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded' });
 
     await page.waitForFunction(() => {
-      const bridge = (window as any).__k8vMcpScreenshotBridge;
+      const bridge = (window as any).__k8vScreenshotHarness;
       return Boolean(
         bridge &&
           typeof bridge.isCanvasReady === 'function' &&
@@ -428,7 +354,7 @@ async function captureDirectFrontendScreenshot(params: {
     });
 
     const applied = await page.evaluate((payload) => {
-      const bridge = (window as any).__k8vMcpScreenshotBridge;
+      const bridge = (window as any).__k8vScreenshotHarness;
       if (!bridge || typeof bridge.setViewportRegion !== 'function') {
         return false;
       }
