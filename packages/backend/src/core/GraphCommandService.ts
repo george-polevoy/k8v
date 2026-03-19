@@ -10,9 +10,8 @@ import { DataStore } from './DataStore.js';
 import { GraphEventBroker } from './GraphEventBroker.js';
 import { RecomputeManager } from './RecomputeManager.js';
 import {
-  buildGraphNodeMap,
   getConnectionSignature,
-  isAnnotationLinkedConnection,
+  isPresentationConnection,
 } from './annotationConnections.js';
 import {
   normalizeConnectionStrokeValue,
@@ -176,13 +175,9 @@ function collectInboundConnectionChangedNodeIds(
   nextNodes: GraphType['nodes'],
   nextConnections: GraphType['connections']
 ): Set<string> {
-  const combinedNodeMap = buildGraphNodeMap([
-    ...previousNodes,
-    ...nextNodes,
-  ]);
   const previousByTarget = new Map<string, Set<string>>();
   for (const connection of previousConnections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+    if (isPresentationConnection(connection)) {
       continue;
     }
     const signature = getConnectionSignature(connection);
@@ -196,7 +191,7 @@ function collectInboundConnectionChangedNodeIds(
 
   const nextByTarget = new Map<string, Set<string>>();
   for (const connection of nextConnections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+    if (isPresentationConnection(connection)) {
       continue;
     }
     const signature = getConnectionSignature(connection);

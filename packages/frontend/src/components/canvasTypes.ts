@@ -125,8 +125,8 @@ export interface AnnotationOverlayTransform {
   scale: number;
 }
 
-export interface AnnotationConnectionTarget {
-  type: 'annotation';
+export interface CardEdgeConnectionTarget {
+  type: 'card-edge';
   nodeId: string;
   anchor: ConnectionAnchor;
   point: Position;
@@ -137,7 +137,7 @@ export interface InputPortConnectionTarget {
   portKey: string;
 }
 
-export type HoveredConnectionTarget = AnnotationConnectionTarget | InputPortConnectionTarget | null;
+export type HoveredConnectionTarget = CardEdgeConnectionTarget | InputPortConnectionTarget | null;
 
 export interface ConnectionDragState {
   sourceNodeId: string;

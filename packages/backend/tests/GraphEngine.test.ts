@@ -211,8 +211,8 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
   }
 });
 
-test('GraphEngine ignores annotation-linked cycles when computing executable nodes', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-annotation-cycle-test-'));
+test('GraphEngine ignores presentation-link cycles when computing executable nodes', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-presentation-cycle-test-'));
   const dbPath = path.join(tmpDir, 'k8v.db');
   const dataDir = path.join(tmpDir, 'data');
   const dataStore = new DataStore(dbPath, dataDir);
@@ -228,24 +228,20 @@ test('GraphEngine ignores annotation-linked cycles when computing executable nod
     drawings: [],
     nodes: [
       {
-        id: 'annotation-node',
-        type: NodeType.ANNOTATION,
+        id: 'left-node',
+        type: NodeType.INLINE_CODE,
         position: { x: 0, y: 0 },
         metadata: {
-          name: 'Annotation',
-          inputs: [],
-          outputs: [],
+          name: 'Left',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.ANNOTATION,
-          config: {
-            text: 'Visual note',
-            backgroundColor: '#fef3c7',
-            borderColor: '#334155',
-            fontColor: '#1f2937',
-          },
+          type: NodeType.INLINE_CODE,
+          code: 'outputs.output = inputs.input ?? 1;',
+          runtime: 'javascript_vm',
         },
-        version: 'annotation-v1',
+        version: 'left-v1',
       },
       {
         id: 'compute-node',
@@ -266,20 +262,22 @@ test('GraphEngine ignores annotation-linked cycles when computing executable nod
     ],
     connections: [
       {
-        id: 'annotation-to-compute',
-        sourceNodeId: 'annotation-node',
+        id: 'left-to-compute',
+        sourceNodeId: 'left-node',
         sourcePort: '__annotation__',
         sourceAnchor: { side: 'bottom', offset: 0.25 },
         targetNodeId: 'compute-node',
-        targetPort: 'input',
-      },
-      {
-        id: 'compute-to-annotation',
-        sourceNodeId: 'compute-node',
-        sourcePort: 'output',
-        targetNodeId: 'annotation-node',
         targetPort: '__annotation__',
         targetAnchor: { side: 'top', offset: 0.75 },
+      },
+      {
+        id: 'compute-to-left',
+        sourceNodeId: 'compute-node',
+        sourcePort: '__annotation__',
+        sourceAnchor: { side: 'right', offset: 0.4 },
+        targetNodeId: 'left-node',
+        targetPort: '__annotation__',
+        targetAnchor: { side: 'left', offset: 0.6 },
       },
     ],
   };

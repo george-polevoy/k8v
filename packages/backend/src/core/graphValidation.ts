@@ -5,6 +5,7 @@ import {
   type Graph,
 } from '../types/index.js';
 import {
+  ANNOTATION_CONNECTION_PORT,
   buildGraphNodeMap,
   filterComputationalConnections,
 } from './annotationConnections.js';
@@ -13,8 +14,7 @@ function serializeConnectionTargetSlot(
   nodeById: ReadonlyMap<string, Graph['nodes'][number]>,
   connection: Graph['connections'][number]
 ): string {
-  const targetNode = nodeById.get(connection.targetNodeId);
-  if (targetNode?.type !== 'annotation') {
+  if (connection.targetPort !== ANNOTATION_CONNECTION_PORT) {
     return `${connection.targetNodeId}:${connection.targetPort}`;
   }
 

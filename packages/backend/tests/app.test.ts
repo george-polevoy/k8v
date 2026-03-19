@@ -473,35 +473,43 @@ test('annotation nodes are accepted and are non-executable via command compute',
   }
 });
 
-test('annotation-linked connections preserve anchors and are excluded from DAG validation', async () => {
+test('presentation-only connections preserve anchors and are excluded from DAG validation', async () => {
   const ctx = await setupTestServer();
 
   try {
-    const inlineNode = createPassThroughNode('node-1');
-    const annotationNode = createAnnotationNode('annotation-1');
+    const sourceNode = createPassThroughNode('node-1');
+    const targetNode = createPassThroughNode('node-2');
     const createResponse = await createGraph(ctx.baseUrl, {
-      nodes: [inlineNode, annotationNode],
+      nodes: [sourceNode, targetNode],
       connections: [
         {
           id: 'c1',
-          sourceNodeId: 'annotation-1',
+          sourceNodeId: 'node-1',
           sourcePort: '__annotation__',
           sourceAnchor: {
             side: 'bottom',
             offset: 0.25,
           },
-          targetNodeId: 'node-1',
-          targetPort: 'input',
-        },
-        {
-          id: 'c2',
-          sourceNodeId: 'node-1',
-          sourcePort: 'output',
-          targetNodeId: 'annotation-1',
+          targetNodeId: 'node-2',
           targetPort: '__annotation__',
           targetAnchor: {
             side: 'top',
             offset: 0.75,
+          },
+        },
+        {
+          id: 'c2',
+          sourceNodeId: 'node-2',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'left',
+            offset: 0.5,
+          },
+          targetNodeId: 'node-1',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'right',
+            offset: 0.25,
           },
         },
       ],
@@ -510,15 +518,19 @@ test('annotation-linked connections preserve anchors and are excluded from DAG v
     const createdGraph = await createResponse.json();
 
     assert.equal(createdGraph.connections.length, 2);
-    const annotationToInline = createdGraph.connections.find((connection: any) => connection.id === 'c1');
-    const inlineToAnnotation = createdGraph.connections.find((connection: any) => connection.id === 'c2');
-    assert.deepEqual(annotationToInline?.sourceAnchor, {
+    const sourceToTarget = createdGraph.connections.find((connection: any) => connection.id === 'c1');
+    const targetToSource = createdGraph.connections.find((connection: any) => connection.id === 'c2');
+    assert.deepEqual(sourceToTarget?.sourceAnchor, {
       side: 'bottom',
       offset: 0.25,
     });
-    assert.deepEqual(inlineToAnnotation?.targetAnchor, {
+    assert.deepEqual(sourceToTarget?.targetAnchor, {
       side: 'top',
       offset: 0.75,
+    });
+    assert.deepEqual(targetToSource?.sourceAnchor, {
+      side: 'left',
+      offset: 0.5,
     });
   } finally {
     await ctx.close();
@@ -843,40 +855,48 @@ test('POST /api/graphs/:id/query supports BFS traversal with optional depth', as
   }
 });
 
-test('POST /api/graphs/:id/query traverses annotation-linked nodes and returns anchor fields', async () => {
+test('POST /api/graphs/:id/query traverses presentation-linked nodes and returns anchor fields', async () => {
   const ctx = await setupTestServer();
 
   try {
-    const annotationSource = createAnnotationNode('annotation-source');
-    annotationSource.metadata.name = 'Source Annotation';
+    const sourceNode = createPassThroughNode('node-a');
+    sourceNode.metadata.name = 'Source';
     const inlineNode = createPassThroughNode('node-b');
     inlineNode.metadata.name = 'Inline';
-    const annotationTarget = createAnnotationNode('annotation-target');
-    annotationTarget.metadata.name = 'Target Annotation';
+    const targetNode = createPassThroughNode('node-c');
+    targetNode.metadata.name = 'Target';
 
     const createResponse = await createGraph(ctx.baseUrl, {
-      nodes: [annotationSource, inlineNode, annotationTarget],
+      nodes: [sourceNode, inlineNode, targetNode],
       connections: [
         {
           id: 'conn-annotation-inline',
-          sourceNodeId: 'annotation-source',
+          sourceNodeId: 'node-a',
           sourcePort: '__annotation__',
           sourceAnchor: {
             side: 'bottom',
             offset: 0.25,
           },
           targetNodeId: 'node-b',
-          targetPort: 'input',
-        },
-        {
-          id: 'conn-inline-annotation',
-          sourceNodeId: 'node-b',
-          sourcePort: 'output',
-          targetNodeId: 'annotation-target',
           targetPort: '__annotation__',
           targetAnchor: {
             side: 'top',
             offset: 0.75,
+          },
+        },
+        {
+          id: 'conn-inline-annotation',
+          sourceNodeId: 'node-b',
+          sourcePort: '__annotation__',
+          sourceAnchor: {
+            side: 'right',
+            offset: 0.5,
+          },
+          targetNodeId: 'node-c',
+          targetPort: '__annotation__',
+          targetAnchor: {
+            side: 'left',
+            offset: 0.5,
           },
         },
       ],
@@ -889,7 +909,7 @@ test('POST /api/graphs/:id/query traverses annotation-linked nodes and returns a
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         operation: 'traverse_bfs',
-        startNodeIds: ['annotation-source'],
+        startNodeIds: ['node-a'],
         nodeFields: ['id', 'type'],
         connectionFields: [
           'id',
@@ -906,31 +926,39 @@ test('POST /api/graphs/:id/query traverses annotation-linked nodes and returns a
     const query = await queryResponse.json();
 
     assert.deepEqual(query.nodes, [
-      { id: 'annotation-source', type: 'annotation' },
+      { id: 'node-a', type: 'inline_code' },
       { id: 'node-b', type: 'inline_code' },
-      { id: 'annotation-target', type: 'annotation' },
+      { id: 'node-c', type: 'inline_code' },
     ]);
     assert.deepEqual(query.connections, [
       {
         id: 'conn-annotation-inline',
-        sourceNodeId: 'annotation-source',
+        sourceNodeId: 'node-a',
         sourcePort: '__annotation__',
         sourceAnchor: {
           side: 'bottom',
           offset: 0.25,
         },
         targetNodeId: 'node-b',
-        targetPort: 'input',
-      },
-      {
-        id: 'conn-inline-annotation',
-        sourceNodeId: 'node-b',
-        sourcePort: 'output',
-        targetNodeId: 'annotation-target',
         targetPort: '__annotation__',
         targetAnchor: {
           side: 'top',
           offset: 0.75,
+        },
+      },
+      {
+        id: 'conn-inline-annotation',
+        sourceNodeId: 'node-b',
+        sourcePort: '__annotation__',
+        sourceAnchor: {
+          side: 'right',
+          offset: 0.5,
+        },
+        targetNodeId: 'node-c',
+        targetPort: '__annotation__',
+        targetAnchor: {
+          side: 'left',
+          offset: 0.5,
         },
       },
     ]);

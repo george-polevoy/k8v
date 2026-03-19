@@ -80,10 +80,10 @@ function buildAnnotationWorkflowsText(): string {
     ], null, 2),
     '```',
     '',
-    `Annotation arrows use the pseudo-port \`${ANNOTATION_CONNECTION_PORT}\` on annotation nodes.`,
+    `Presentation arrows use the pseudo-port \`${ANNOTATION_CONNECTION_PORT}\` on card-edge endpoints.`,
     'Anchors are optional and use `{ "side": "top|right|bottom|left", "offset": 0..1 }`.',
     '',
-    'Annotation-to-annotation arrow:',
+    'Card-edge presentation arrow:',
     '```json',
     JSON.stringify([
       {
@@ -118,7 +118,7 @@ function buildExampleText(topic: ExampleTopic): string {
         '',
         '1. Call `graph_create`.',
         '2. Call `bulk_edit` with multiple `node_add_annotation` commands.',
-        '3. Optionally connect notes with `connection_add` using the annotation pseudo-port.',
+        '3. Optionally connect cards with `connection_add` using the presentation pseudo-port.',
         '',
         'Minimal batch:',
         '```json',
@@ -146,7 +146,7 @@ function buildExampleText(topic: ExampleTopic): string {
       return [
         '# Example: Annotation Arrows',
         '',
-        `Use \`${ANNOTATION_CONNECTION_PORT}\` for annotation endpoints.`,
+        `Use \`${ANNOTATION_CONNECTION_PORT}\` for card-edge presentation endpoints.`,
         '',
         '```json',
         JSON.stringify([

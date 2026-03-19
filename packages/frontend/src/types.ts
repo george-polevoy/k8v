@@ -68,6 +68,7 @@ export {
   inferOutputPortNamesFromCode,
   isAnnotationLinkedConnection,
   isAnnotationNode,
+  isPresentationConnection,
   materializeGraphProjectionState,
   normalizeAnnotationFontSize,
   normalizeGraphCameraState,

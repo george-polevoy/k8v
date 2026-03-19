@@ -16,9 +16,8 @@ import {
 import {
   ANNOTATION_CONNECTION_PORT,
   areConnectionAnchorsEqual,
-  buildGraphNodeMap,
-  isAnnotationConnection,
-  isAnnotationNode,
+  isPresentationArrowConnection,
+  isPresentationConnectionEndpoint,
   resolveConnectionAnchorPoint,
 } from '../utils/annotationConnections';
 import { hasErroredNodeExecutionState, shouldKeepCanvasAnimationLoopRunning } from '../utils/canvasAnimation';
@@ -487,7 +486,6 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     );
     const selectedForegroundColor = blendPixiColors(foregroundColor, 0x2563eb, 0.55);
     const selectedBackgroundColor = blendPixiColors(backgroundColor, 0x93c5fd, 0.45);
-    const nodeById = buildGraphNodeMap(currentGraph.nodes);
     const arrowHeadLayout = resolveConnectionArrowHeadLayout({
       foregroundLineWidth,
       backgroundLineWidth,
@@ -504,28 +502,32 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         continue;
       }
 
-      const sourceNode = nodeById.get(connection.sourceNodeId);
-      const targetNode = nodeById.get(connection.targetNodeId);
-      const sourceIsAnnotation = isAnnotationNode(sourceNode);
-      const targetIsAnnotation = isAnnotationNode(targetNode);
+      const sourceIsPresentation = isPresentationConnectionEndpoint(
+        connection.sourcePort,
+        connection.sourceAnchor
+      );
+      const targetIsPresentation = isPresentationConnectionEndpoint(
+        connection.targetPort,
+        connection.targetAnchor
+      );
       const sourceAnchor = connection.sourceAnchor ?? { side: 'right' as const, offset: 0.5 };
       const targetAnchor = connection.targetAnchor ?? { side: 'left' as const, offset: 0.5 };
       const sourceY = sourceVisual.outputPortOffsets.get(connection.sourcePort) ?? sourceVisual.height / 2;
       const targetY = targetVisual.inputPortOffsets.get(connection.targetPort) ?? targetVisual.height / 2;
-      const sourcePoint = sourceIsAnnotation
+      const sourcePoint = sourceIsPresentation
         ? resolveConnectionAnchorPoint(sourcePosition, sourceVisual.width, sourceVisual.height, sourceAnchor)
         : {
             x: sourcePosition.x + sourceVisual.width,
             y: sourcePosition.y + sourceY,
           };
-      const targetPoint = targetIsAnnotation
+      const targetPoint = targetIsPresentation
         ? resolveConnectionAnchorPoint(targetPosition, targetVisual.width, targetVisual.height, targetAnchor)
         : {
             x: targetPosition.x,
             y: targetPosition.y + targetY,
           };
-      const startSide = resolveConnectionSide(sourceIsAnnotation ? sourceAnchor.side : undefined, 'right');
-      const endSide = resolveConnectionSide(targetIsAnnotation ? targetAnchor.side : undefined, 'left');
+      const startSide = resolveConnectionSide(sourceIsPresentation ? sourceAnchor.side : undefined, 'right');
+      const endSide = resolveConnectionSide(targetIsPresentation ? targetAnchor.side : undefined, 'left');
       const geometry = getBezierGeometry(
         connection.id,
         sourcePoint.x,
@@ -537,7 +539,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       );
       connectionGeometriesRef.current.set(connection.id, geometry);
       const isSelectedConnection = selectedConnectionIdRef.current === connection.id;
-      const shouldDrawArrowHead = isAnnotationConnection(connection, nodeById);
+      const shouldDrawArrowHead = isPresentationArrowConnection(connection);
       const resolvedBackgroundColor = isSelectedConnection ? selectedBackgroundColor : backgroundColor;
       const resolvedBackgroundAlpha = isSelectedConnection
         ? config.connectionWireSelectedBackgroundAlpha
@@ -602,7 +604,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
         endY = hoveredPosition.y;
         endSide = 'left';
       }
-    } else if (hoveredTarget?.type === 'annotation') {
+    } else if (hoveredTarget?.type === 'card-edge') {
       endX = hoveredTarget.point.x;
       endY = hoveredTarget.point.y;
       endSide = hoveredTarget.anchor.side;
@@ -626,9 +628,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       endSide
     );
     const drawPreviewArrowHead =
-      dragState.sourcePort === ANNOTATION_CONNECTION_PORT ||
-      Boolean(dragState.sourceAnchor) ||
-      hoveredTarget?.type === 'annotation';
+      isPresentationConnectionEndpoint(dragState.sourcePort, dragState.sourceAnchor) ||
+      hoveredTarget?.type === 'card-edge';
 
     edges.lineStyle(
       backgroundLineWidth,
@@ -757,9 +758,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       return;
     }
 
-    const nodeById = buildGraphNodeMap(currentGraph.nodes);
     for (const connection of currentGraph.connections) {
-      if (connection.targetNodeId === nodeId && !isAnnotationConnection(connection, nodeById)) {
+      if (connection.targetNodeId === nodeId && !isPresentationArrowConnection(connection)) {
         enqueueLightningForConnection(connection.id);
       }
     }
@@ -844,7 +844,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
           const parsed = parsePortKey(previousHoveredTarget.portKey);
           targetNodeId = parsed.nodeId;
           targetPort = parsed.portName;
-        } else if (previousHoveredTarget.type === 'annotation') {
+        } else if (previousHoveredTarget.type === 'card-edge') {
           targetNodeId = previousHoveredTarget.nodeId;
           targetPort = ANNOTATION_CONNECTION_PORT;
           targetAnchor = previousHoveredTarget.anchor;
@@ -867,12 +867,17 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
           areConnectionAnchorsEqual(connection.targetAnchor, targetAnchor)
         );
 
-        const introducesCycle = createsCycle(
-          currentGraph.nodes,
-          dragState.sourceNodeId,
-          targetNodeId,
-          currentGraph.connections
-        );
+        const isPresentationDrag =
+          isPresentationConnectionEndpoint(dragState.sourcePort, dragState.sourceAnchor) ||
+          isPresentationConnectionEndpoint(targetPort, targetAnchor);
+        const introducesCycle = isPresentationDrag
+          ? false
+          : createsCycle(
+              currentGraph.nodes,
+              dragState.sourceNodeId,
+              targetNodeId,
+              currentGraph.connections
+            );
 
         if (!alreadyExists && !introducesCycle) {
           addConnection({

@@ -73,7 +73,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Annotation color controls support opacity (alpha) and use the shared color dialog used by drawing/canvas background workflows.
 - `annotation` node cards support configurable font size.
 - `annotation` node cards support all-side resize handles (north/south/east/west + corners) and persist updated size/position.
-- `annotation` node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
+- All node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
 - Minimap/navigation assistant with click-to-center behavior.
 - Current graph viewport pan/zoom state persists across browser refresh as part of the active camera.
 - Pencil draw mode on canvas (toggle from toolbar).

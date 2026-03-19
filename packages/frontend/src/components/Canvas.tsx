@@ -1411,79 +1411,77 @@ function Canvas({ enableMcpScreenshotBridge = false }: CanvasProps) {
         }
       }
 
-      if (node.type === NodeType.ANNOTATION) {
-        const edgeHitWidth = ANNOTATION_CONNECTION_EDGE_HIT_WIDTH;
-        const createAnnotationConnectionEdge = (
-          side: 'top' | 'right' | 'bottom' | 'left',
-          x: number,
-          y: number,
-          edgeWidth: number,
-          edgeHeight: number
-        ) => {
-          const edge = new Graphics();
-          edge.beginFill(0x000000, 0.001);
-          edge.drawRect(x, y, edgeWidth, edgeHeight);
-          edge.endFill();
-          edge.eventMode = 'static';
-          edge.cursor = 'crosshair';
-          edge.on('pointerdown', (event: FederatedPointerEvent) => {
-            if (drawingEnabledRef.current) {
-              return;
-            }
-            if (event.button !== 0) {
-              return;
-            }
-            event.stopPropagation();
-            const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
-            canvas?.focus({ preventScroll: true });
-            if (beginViewportPanInteraction(event)) {
-              return;
-            }
+      const edgeHitWidth = ANNOTATION_CONNECTION_EDGE_HIT_WIDTH;
+      const createCardConnectionEdge = (
+        side: 'top' | 'right' | 'bottom' | 'left',
+        x: number,
+        y: number,
+        edgeWidth: number,
+        edgeHeight: number
+      ) => {
+        const edge = new Graphics();
+        edge.beginFill(0x000000, 0.001);
+        edge.drawRect(x, y, edgeWidth, edgeHeight);
+        edge.endFill();
+        edge.eventMode = 'static';
+        edge.cursor = 'crosshair';
+        edge.on('pointerdown', (event: FederatedPointerEvent) => {
+          if (drawingEnabledRef.current) {
+            return;
+          }
+          if (event.button !== 0) {
+            return;
+          }
+          event.stopPropagation();
+          const canvas = appRef.current?.view as HTMLCanvasElement | undefined;
+          canvas?.focus({ preventScroll: true });
+          if (beginViewportPanInteraction(event)) {
+            return;
+          }
 
-            const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
-            const localPoint = container.toLocal(new Point(event.global.x, event.global.y));
-            const anchor = {
-              side,
-              offset: clamp(
-                side === 'top' || side === 'bottom'
-                  ? localPoint.x / Math.max(width, 1)
-                  : localPoint.y / Math.max(height, 1),
-                0,
-                1
-              ),
-            };
-            const startPoint = resolveConnectionAnchorPoint(currentPosition, width, height, anchor);
+          const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
+          const localPoint = container.toLocal(new Point(event.global.x, event.global.y));
+          const anchor = {
+            side,
+            offset: clamp(
+              side === 'top' || side === 'bottom'
+                ? localPoint.x / Math.max(width, 1)
+                : localPoint.y / Math.max(height, 1),
+              0,
+              1
+            ),
+          };
+          const startPoint = resolveConnectionAnchorPoint(currentPosition, width, height, anchor);
 
-            connectionDragStateRef.current = {
-              sourceNodeId: node.id,
-              sourcePort: ANNOTATION_CONNECTION_PORT,
-              sourcePortKey: null,
-              sourceAnchor: anchor,
-              startX: startPoint.x,
-              startY: startPoint.y,
-              pointerX: event.global.x,
-              pointerY: event.global.y,
-              hoveredTarget: null,
-            };
-            selectedConnectionIdRef.current = null;
-            selectedNodeIdRef.current = node.id;
-            selectedNodeIdsRef.current = [node.id];
-            selectedDrawingIdRef.current = null;
-            selectNode(node.id);
-            drawConnections();
-          });
-          edge.on('pointertap', (event: FederatedPointerEvent) => {
-            event.stopPropagation();
-          });
-          container.addChild(edge);
-        };
+          connectionDragStateRef.current = {
+            sourceNodeId: node.id,
+            sourcePort: ANNOTATION_CONNECTION_PORT,
+            sourcePortKey: null,
+            sourceAnchor: anchor,
+            startX: startPoint.x,
+            startY: startPoint.y,
+            pointerX: event.global.x,
+            pointerY: event.global.y,
+            hoveredTarget: null,
+          };
+          selectedConnectionIdRef.current = null;
+          selectedNodeIdRef.current = node.id;
+          selectedNodeIdsRef.current = [node.id];
+          selectedDrawingIdRef.current = null;
+          selectNode(node.id);
+          drawConnections();
+        });
+        edge.on('pointertap', (event: FederatedPointerEvent) => {
+          event.stopPropagation();
+        });
+        container.addChildAt(edge, 0);
+      };
 
-        const halfEdgeHitWidth = edgeHitWidth * 0.5;
-        createAnnotationConnectionEdge('top', 0, -halfEdgeHitWidth, width, edgeHitWidth);
-        createAnnotationConnectionEdge('right', width - halfEdgeHitWidth, 0, edgeHitWidth, height);
-        createAnnotationConnectionEdge('bottom', 0, height - halfEdgeHitWidth, width, edgeHitWidth);
-        createAnnotationConnectionEdge('left', -halfEdgeHitWidth, 0, edgeHitWidth, height);
-      }
+      const halfEdgeHitWidth = edgeHitWidth * 0.5;
+      createCardConnectionEdge('top', 0, -halfEdgeHitWidth, width, edgeHitWidth);
+      createCardConnectionEdge('right', width - halfEdgeHitWidth, 0, edgeHitWidth, height);
+      createCardConnectionEdge('bottom', 0, height - halfEdgeHitWidth, width, edgeHitWidth);
+      createCardConnectionEdge('left', -halfEdgeHitWidth, 0, edgeHitWidth, height);
 
       if (isNumericInputNode) {
         const activeNumericSliderDragState = numericSliderDragStateRef.current;

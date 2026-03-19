@@ -3,7 +3,7 @@ import {
   buildGraphNodeMap,
   filterComputationalConnections,
   getConnectionSignature,
-  isAnnotationLinkedConnection,
+  isPresentationConnection,
 } from '../annotationConnections.js';
 import { BackendNodeExecutionState, DEFAULT_NODE_STATE, RecomputeTaskType } from './recomputeTypes.js';
 
@@ -134,10 +134,6 @@ export function collectStaleNodeIdsFromErrorStates(
 export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph): string[] {
   const previousNodeMap = new Map(previousGraph.nodes.map((node) => [node.id, node]));
   const nextNodeMap = new Map(nextGraph.nodes.map((node) => [node.id, node]));
-  const combinedNodeMap = buildGraphNodeMap([
-    ...previousGraph.nodes,
-    ...nextGraph.nodes,
-  ]);
   const rootNodeIds = new Set<string>();
 
   for (const nextNode of nextGraph.nodes) {
@@ -149,17 +145,17 @@ export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph
 
   const previousConnections = new Set(
     previousGraph.connections
-      .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
+      .filter((connection) => !isPresentationConnection(connection))
       .map(getConnectionSignature)
   );
   const nextConnections = new Set(
     nextGraph.connections
-      .filter((connection) => !isAnnotationLinkedConnection(connection, combinedNodeMap))
+      .filter((connection) => !isPresentationConnection(connection))
       .map(getConnectionSignature)
   );
 
   for (const connection of nextGraph.connections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+    if (isPresentationConnection(connection)) {
       continue;
     }
     const signature = getConnectionSignature(connection);
@@ -172,7 +168,7 @@ export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph
   }
 
   for (const connection of previousGraph.connections) {
-    if (isAnnotationLinkedConnection(connection, combinedNodeMap)) {
+    if (isPresentationConnection(connection)) {
       continue;
     }
     const signature = getConnectionSignature(connection);
@@ -287,4 +283,3 @@ function buildOutgoingAdjacency(graph: Graph): Map<string, string[]> {
 
   return outgoing;
 }
-

@@ -30,7 +30,7 @@ Last reviewed: March 16, 2026.
 - `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas remains full viewport while toolbar/sidebar floating windows stay draggable and inside viewport bounds across window resize.
 - `A-E2E-18` `packages/frontend/tests/e2e/canvasOnlyScreenshotMode.test.ts`: `?canvasOnly=1` hides floating toolbar/sidebar windows and exposes the MCP screenshot bridge on the frontend canvas view.
 - `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
-- `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: annotation cards create persisted presentation-only arrows from arbitrary card edges to standard node ports and other annotation edges.
+- `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: generic cards create persisted presentation-only arrows from arbitrary card edges to other card edges while port drags still create data connections.
 - `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport even when the drag starts on a selected node.
 - `A-E2E-22` `packages/frontend/tests/e2e/nodePanelMultiSelectionColors.test.ts`: node panel summarizes multi-node selection as a named set and applies shared node-card background/border color changes plus shared annotation font color/font-size changes across the selected nodes.
 - `A-E2E-23` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: `Alt`-dragging a selected node set duplicates the nodes, keeps the originals in place, leaves the duplicate set selected, and copies internal links between the duplicated nodes.
@@ -70,7 +70,7 @@ Last reviewed: March 16, 2026.
 - `A-FE-27` `packages/frontend/tests/graphStore.test.ts`: `loadGraph` normalizes missing graph `executionTimeoutMs` to the 30-second default.
 - `A-FE-28` `packages/frontend/tests/nodeFactory.test.ts`: annotation node factory defaults (`text`, `backgroundColor`, `borderColor`, `fontColor`, `fontSize`) and node type.
 - `A-FE-29` `packages/frontend/tests/connectionStroke.test.ts`: connection-stroke normalization enforces defaults, 2x width ratio, and foreground/background brightness separation.
-- `A-FE-30` `packages/frontend/tests/annotationConnections.test.ts`: annotation connection helpers normalize edge anchors, snap arbitrary edge hits, and identify annotation-linked presentation edges.
+- `A-FE-30` `packages/frontend/tests/annotationConnections.test.ts`: card-edge connection helpers normalize edge anchors, snap arbitrary edge hits, and identify presentation-only edges separately from data links.
 - `A-FE-31` `packages/frontend/tests/graphStoreEditing.test.ts`: node multi-selection state preserves selected node IDs across set/toggle flows and reconciles remaining selection when a selected node is deleted.
 - `A-FE-32` `packages/frontend/tests/nodeCardAppearance.test.ts`: node card appearance helpers normalize default/custom background and border colors for generic nodes while preserving annotation-specific color config.
 - `A-FE-33` `packages/frontend/tests/connectionArrows.test.ts`: connection arrowhead sizing keeps the background arrow as outline padding around the foreground arrow instead of scaling the whole triangle with background stroke width.
@@ -147,8 +147,8 @@ Last reviewed: March 16, 2026.
 - `A-BE-62` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` `starting_vertices` returns only nodes without downstream/outgoing connections.
 - `A-BE-63` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` rejects traversal requests whose `startNodeIds` are missing from the graph.
 - `A-BE-64` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` always includes `sourceNodeId`/`targetNodeId` in connections even when `connectionFields` omits them.
-- `A-BE-65` `packages/backend/tests/app.test.ts`: annotation-linked connections round-trip persisted edge anchors and are excluded from DAG validation.
-- `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores annotation-linked cycles when computing executable nodes.
+- `A-BE-65` `packages/backend/tests/app.test.ts`: presentation-only connections round-trip persisted edge anchors and are excluded from DAG validation.
+- `A-BE-66` `packages/backend/tests/GraphEngine.test.ts`: GraphEngine ignores presentation-link cycles when computing executable nodes.
 - `A-BE-67` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` traverses annotation-linked nodes and can project annotation `sourceAnchor`/`targetAnchor` fields for those links.
 - `A-BE-68` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects connection updates that would leave multiple inbound edges on one target input slot.
 - `A-BE-69` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects legacy `library` node payloads.
@@ -313,7 +313,7 @@ Last reviewed: March 16, 2026.
 | Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
-| Annotation cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
+| Node cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
 | Graph traversal/query includes annotation nodes and annotation-linked anchors | `A-BE-67`, `A-MCP-05` | Automated |
 | Graph query can project annotation text/config/position/card size without full graph fetch | `A-BE-76`, `A-MCP-05` | Automated |
 | Projection switch animates node layout/background and defers graphics reload decisions until transition end | `M-CANVAS-23`, `M-CANVAS-24` | Manual |
@@ -371,7 +371,7 @@ Last reviewed: March 16, 2026.
 | Reject cycle-introducing connection changes on `PUT` | `A-BE-06` | Automated |
 | Reject updates on legacy cyclic graphs | `A-BE-07` | Automated |
 | NodeExecutor supports current inline runtime selection and `numeric_input` execution | `A-BE-10`, `A-BE-11`, `A-BE-12`, `A-BE-34`, `A-BE-35` | Automated |
-| Annotation nodes are non-executable presentation nodes and annotation-linked edges stay out of DAG validation/execution | `A-BE-52`, `A-BE-53`, `A-BE-65`, `A-BE-66` | Automated |
+| Annotation nodes are non-executable presentation nodes and presentation-only edges stay out of DAG validation/execution | `A-BE-52`, `A-BE-53`, `A-BE-65`, `A-BE-66` | Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |

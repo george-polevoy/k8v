@@ -59,11 +59,20 @@ export function isAnnotationLinkedConnection(
   );
 }
 
+export function isPresentationConnection(connection: Connection): boolean {
+  return (
+    connection.sourcePort === ANNOTATION_CONNECTION_PORT ||
+    connection.targetPort === ANNOTATION_CONNECTION_PORT ||
+    Boolean(connection.sourceAnchor) ||
+    Boolean(connection.targetAnchor)
+  );
+}
+
 export function filterComputationalConnections(
   connections: Connection[],
   nodeById: ReadonlyMap<string, GraphNode>
 ): Connection[] {
-  return connections.filter((connection) => !isAnnotationLinkedConnection(connection, nodeById));
+  return connections.filter((connection) => !isPresentationConnection(connection));
 }
 
 export function areConnectionAnchorsEqual(
@@ -114,14 +123,14 @@ export function getNode(graph: Pick<Graph, 'id' | 'nodes'>, nodeId: string): Gra
 
 function isValidSourcePort(node: GraphNode, port: string): boolean {
   return (
-    (isAnnotationNode(node) && port === ANNOTATION_CONNECTION_PORT) ||
+    (port === ANNOTATION_CONNECTION_PORT) ||
     node.metadata.outputs.some((output) => output.name === port)
   );
 }
 
 function isValidTargetPort(node: GraphNode, port: string): boolean {
   return (
-    (isAnnotationNode(node) && port === ANNOTATION_CONNECTION_PORT) ||
+    (port === ANNOTATION_CONNECTION_PORT) ||
     node.metadata.inputs.some((input) => input.name === port)
   );
 }
@@ -159,7 +168,7 @@ function matchesTargetSlot(
     return false;
   }
 
-  if (!isAnnotationNode(targetNode)) {
+  if (!isPresentationConnection(connection) && input.targetPort !== ANNOTATION_CONNECTION_PORT) {
     return true;
   }
 
@@ -167,14 +176,12 @@ function matchesTargetSlot(
 }
 
 export function dedupeConnectionsByTargetSlot(nodes: GraphNode[], connections: Connection[]): Connection[] {
-  const nodeById = buildGraphNodeMap(nodes);
   const seenSlots = new Set<string>();
   const deduped: Connection[] = [];
 
   for (let index = connections.length - 1; index >= 0; index -= 1) {
     const connection = connections[index];
-    const targetNode = nodeById.get(connection.targetNodeId);
-    const slotKey = !isAnnotationNode(targetNode)
+    const slotKey = !isPresentationConnection(connection)
       ? `${connection.targetNodeId}:${connection.targetPort}`
       : `${connection.targetNodeId}:${connection.targetPort}@${serializeConnectionAnchor(connection.targetAnchor)}`;
     if (seenSlots.has(slotKey)) {
@@ -205,11 +212,11 @@ export function assertConnectionPortsExist(
   if (!isValidTargetPort(targetNode, targetPort)) {
     throw new Error(`Target port ${targetPort} not found on node ${targetNodeId}`);
   }
-  if (sourceAnchor && !isAnnotationNode(sourceNode)) {
-    throw new Error(`Source anchor is only valid for annotation node ${sourceNodeId}`);
+  if (sourceAnchor && sourcePort !== ANNOTATION_CONNECTION_PORT) {
+    throw new Error(`Source anchor is only valid for presentation port ${ANNOTATION_CONNECTION_PORT}`);
   }
-  if (targetAnchor && !isAnnotationNode(targetNode)) {
-    throw new Error(`Target anchor is only valid for annotation node ${targetNodeId}`);
+  if (targetAnchor && targetPort !== ANNOTATION_CONNECTION_PORT) {
+    throw new Error(`Target anchor is only valid for presentation port ${ANNOTATION_CONNECTION_PORT}`);
   }
 }
 

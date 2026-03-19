@@ -542,43 +542,37 @@ export async function createAnnotationGraph(options?: {
 
 export async function createAnnotationArrowGraph(): Promise<{
   graphId: string;
-  leftAnnotationId: string;
-  inlineNodeId: string;
+  leftInlineId: string;
+  middleInlineId: string;
   rightAnnotationId: string;
 }> {
-  const leftAnnotationId = randomUUID();
-  const inlineNodeId = randomUUID();
+  const leftInlineId = randomUUID();
+  const middleInlineId = randomUUID();
   const rightAnnotationId = randomUUID();
 
-  const leftAnnotation: AnnotationNodePayload = {
-    id: leftAnnotationId,
-    type: 'annotation',
-    position: { x: 100, y: 100 },
+  const leftInline: InlineNodePayload = {
+    id: leftInlineId,
+    type: 'inline_code',
+    position: { x: 100, y: 166 },
     metadata: {
-      name: 'Left Annotation',
-      inputs: [],
-      outputs: [],
+      name: 'Left Inline',
+      inputs: [{ name: 'input', schema: { type: 'number' } }],
+      outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'annotation',
-      config: {
-        text: 'Left note',
-        backgroundColor: '#fef3c7',
-        borderColor: '#334155',
-        fontColor: '#1f2937',
-        cardWidth: 320,
-        cardHeight: 200,
-      },
+      type: 'inline_code',
+      code: 'outputs.output = inputs.input ?? 0;',
+      runtime: 'javascript_vm',
     },
     version: Date.now().toString(),
   };
 
-  const inlineNode: InlineNodePayload = {
-    id: inlineNodeId,
+  const middleInline: InlineNodePayload = {
+    id: middleInlineId,
     type: 'inline_code',
-    position: { x: 500, y: 166 },
+    position: { x: 440, y: 166 },
     metadata: {
-      name: 'Pass Through',
+      name: 'Middle Inline',
       inputs: [{ name: 'input', schema: { type: 'number' } }],
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
@@ -615,13 +609,13 @@ export async function createAnnotationArrowGraph(): Promise<{
 
   const graph = await createSeededGraph({
     name: `e2e_annotation_arrows_${Date.now()}`,
-    nodes: [leftAnnotation, inlineNode, rightAnnotation],
+    nodes: [leftInline, middleInline, rightAnnotation],
     context: 'Create annotation arrow graph',
   });
   return {
     graphId: graph.id,
-    leftAnnotationId,
-    inlineNodeId,
+    leftInlineId,
+    middleInlineId,
     rightAnnotationId,
   };
 }

@@ -2,14 +2,13 @@ import type {
   Connection,
   ConnectionAnchor,
   ConnectionAnchorSide,
-  GraphNode,
   Position,
 } from '../types';
 import {
   ANNOTATION_CONNECTION_PORT,
   areConnectionAnchorsEqual,
   buildGraphNodeMap,
-  isAnnotationLinkedConnection,
+  isPresentationConnection,
   isAnnotationNode,
 } from '../types';
 
@@ -20,11 +19,15 @@ export {
   isAnnotationNode,
 };
 
-export function isAnnotationConnection(
-  connection: Connection,
-  nodeById: ReadonlyMap<string, GraphNode>
+export function isPresentationConnectionEndpoint(
+  port: string,
+  anchor?: ConnectionAnchor
 ): boolean {
-  return isAnnotationLinkedConnection(connection, nodeById);
+  return port === ANNOTATION_CONNECTION_PORT || Boolean(anchor);
+}
+
+export function isPresentationArrowConnection(connection: Connection): boolean {
+  return isPresentationConnection(connection);
 }
 
 export function clampConnectionAnchorOffset(value: number): number {
@@ -152,3 +155,5 @@ export function resolveAnnotationEdgeDropTarget(
   candidates.sort((left, right) => left.distance - right.distance);
   return candidates[0] ?? null;
 }
+
+export const resolveCardEdgeDropTarget = resolveAnnotationEdgeDropTarget;

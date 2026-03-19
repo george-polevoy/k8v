@@ -69,14 +69,13 @@ test.after(async () => {
 });
 
 test(
-  'annotation cards create persisted arrows from arbitrary card edges',
+  'card edges create persisted presentation arrows without affecting port data connections',
   { timeout: 90_000 },
   async () => {
     const {
       graphId,
-      leftAnnotationId,
-      inlineNodeId,
-      rightAnnotationId,
+      leftInlineId,
+      middleInlineId,
     } = await createAnnotationArrowGraph();
 
     const browser = await launchBrowser();
@@ -92,29 +91,27 @@ test(
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
 
       const leftBottomEdge = resolveWorldPointToScreen(canvasBox, {
-        x: 100 + (320 * 0.25),
-        y: 300,
+        x: 100 + (220 * 0.25),
+        y: 166 + 68,
       });
-      const inlineInput = resolveWorldPointToScreen(canvasBox, {
-        x: 500,
+      const middleTopEdge = resolveWorldPointToScreen(canvasBox, {
+        x: 440 + (220 * 0.5),
+        y: 166,
+      });
+      const leftOutput = resolveWorldPointToScreen(canvasBox, {
+        x: 100 + 220,
         y: 166 + 49,
       });
-      const inlineOutput = resolveWorldPointToScreen(canvasBox, {
-        x: 720,
+      const middleInput = resolveWorldPointToScreen(canvasBox, {
+        x: 440,
         y: 166 + 49,
-      });
-      const rightTopEdge = resolveWorldPointToScreen(canvasBox, {
-        x: 820 + (320 * 0.75),
-        y: 100,
       });
 
       await waitForCursorAtPoint(page, leftBottomEdge.x, leftBottomEdge.y, 'crosshair');
-      await waitForCursorAtPoint(page, inlineInput.x, inlineInput.y, 'crosshair');
-      await dragConnection(page, leftBottomEdge, inlineInput);
+      await dragConnection(page, leftBottomEdge, middleTopEdge);
 
-      await waitForCursorAtPoint(page, inlineOutput.x, inlineOutput.y, 'crosshair');
-      await waitForCursorAtPoint(page, rightTopEdge.x, rightTopEdge.y, 'crosshair');
-      await dragConnection(page, inlineOutput, rightTopEdge);
+      await waitForCursorAtPoint(page, leftOutput.x, leftOutput.y, 'crosshair');
+      await dragConnection(page, leftOutput, middleInput);
 
       const connections = await waitForGraphConnections(
         graphId,
@@ -122,31 +119,33 @@ test(
         E2E_ASSERT_TIMEOUT_MS
       );
 
-      const annotationToInline = connections.find((connection) =>
-        connection.sourceNodeId === leftAnnotationId &&
-        connection.targetNodeId === inlineNodeId
+      const presentationConnection = connections.find((connection) =>
+        connection.sourceNodeId === leftInlineId &&
+        connection.targetNodeId === middleInlineId &&
+        connection.sourcePort === '__annotation__'
       );
-      assert.ok(annotationToInline, 'Expected a persisted annotation-to-inline arrow');
-      assert.equal(annotationToInline.sourcePort, '__annotation__');
-      assert.equal(annotationToInline.targetPort, 'input');
-      assert.equal(annotationToInline.sourceAnchor?.side, 'bottom');
+      assert.ok(presentationConnection, 'Expected a persisted inline-to-inline presentation arrow');
+      assert.equal(presentationConnection.targetPort, '__annotation__');
+      assert.equal(presentationConnection.sourceAnchor?.side, 'bottom');
       assert.ok(
-        Math.abs((annotationToInline.sourceAnchor?.offset ?? 0) - 0.25) < 0.05,
-        `Expected bottom-edge anchor near 0.25, received ${annotationToInline.sourceAnchor?.offset}`
+        Math.abs((presentationConnection.sourceAnchor?.offset ?? 0) - 0.25) < 0.05,
+        `Expected bottom-edge anchor near 0.25, received ${presentationConnection.sourceAnchor?.offset}`
+      );
+      assert.equal(presentationConnection.targetAnchor?.side, 'top');
+      assert.ok(
+        Math.abs((presentationConnection.targetAnchor?.offset ?? 0) - 0.5) < 0.05,
+        `Expected top-edge anchor near 0.5, received ${presentationConnection.targetAnchor?.offset}`
       );
 
-      const inlineToAnnotation = connections.find((connection) =>
-        connection.sourceNodeId === inlineNodeId &&
-        connection.targetNodeId === rightAnnotationId
+      const dataConnection = connections.find((connection) =>
+        connection.sourceNodeId === leftInlineId &&
+        connection.targetNodeId === middleInlineId &&
+        connection.sourcePort === 'output' &&
+        connection.targetPort === 'input'
       );
-      assert.ok(inlineToAnnotation, 'Expected a persisted inline-to-annotation arrow');
-      assert.equal(inlineToAnnotation.sourcePort, 'output');
-      assert.equal(inlineToAnnotation.targetPort, '__annotation__');
-      assert.equal(inlineToAnnotation.targetAnchor?.side, 'top');
-      assert.ok(
-        Math.abs((inlineToAnnotation.targetAnchor?.offset ?? 0) - 0.75) < 0.05,
-        `Expected top-edge anchor near 0.75, received ${inlineToAnnotation.targetAnchor?.offset}`
-      );
+      assert.ok(dataConnection, 'Expected a persisted port-to-port data connection');
+      assert.equal(dataConnection.sourceAnchor, undefined);
+      assert.equal(dataConnection.targetAnchor, undefined);
 
       await context.close();
     } finally {

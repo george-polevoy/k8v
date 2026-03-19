@@ -4,4 +4,5 @@ export {
   filterComputationalConnections,
   getConnectionSignature,
   isAnnotationLinkedConnection,
+  isPresentationConnection,
 } from '../../../domain/dist/index.js';

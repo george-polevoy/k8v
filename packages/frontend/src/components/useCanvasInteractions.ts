@@ -13,8 +13,7 @@ import type {
   GraphCommand,
   Position,
 } from '../types';
-import { NodeType } from '../types';
-import { resolveAnnotationEdgeDropTarget } from '../utils/annotationConnections';
+import { resolveCardEdgeDropTarget } from '../utils/annotationConnections';
 import {
   computeRectFromPoints,
   computeNodeResizeDraft,
@@ -873,7 +872,10 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
 
       if (viewport) {
         const worldPoint = viewport.toLocal(new Point(event.global.x, event.global.y));
-        const hoverRadius = (config.portRadius + 8) / Math.max(viewport.scale.x, 0.1);
+        const hoverRadius = Math.max(
+          config.portRadius + 8,
+          config.annotationEdgeHitWidth
+        ) / Math.max(viewport.scale.x, 0.1);
         let nextHoveredTarget: ConnectionDragState['hoveredTarget'] = null;
 
         for (const [portKey, portPosition] of inputPortPositionsRef.current.entries()) {
@@ -890,16 +892,12 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
 
         if (!nextHoveredTarget) {
           for (const [nodeId, nodeVisual] of nodeVisualsRef.current.entries()) {
-            if (nodeVisual.node.type !== NodeType.ANNOTATION) {
-              continue;
-            }
-
             const nodePosition = nodePositionsRef.current.get(nodeId);
             if (!nodePosition) {
               continue;
             }
 
-            const dropTarget = resolveAnnotationEdgeDropTarget(
+            const dropTarget = resolveCardEdgeDropTarget(
               nodePosition,
               nodeVisual.width,
               nodeVisual.height,
@@ -911,7 +909,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
             }
 
             nextHoveredTarget = {
-              type: 'annotation',
+              type: 'card-edge',
               nodeId,
               anchor: dropTarget.anchor,
               point: dropTarget.point,

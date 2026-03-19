@@ -1,8 +1,6 @@
-import type { GraphDrawing, GraphNode, GraphicsArtifact } from '../types';
-import { NodeType } from '../types';
+import type { Connection, GraphDrawing, GraphNode, GraphicsArtifact } from '../types';
 import {
-  buildGraphNodeMap,
-  isAnnotationConnection,
+  isPresentationArrowConnection,
 } from '../utils/annotationConnections';
 import { isRenderableGraphicsArtifact } from '../utils/graphics';
 
@@ -29,16 +27,8 @@ export function createsCycle(
   nodes: GraphNode[],
   sourceNodeId: string,
   targetNodeId: string,
-  connections: Array<{ sourceNodeId: string; targetNodeId: string }>
+  connections: Connection[]
 ): boolean {
-  const nodeById = buildGraphNodeMap(nodes);
-  if (
-    nodeById.get(sourceNodeId)?.type === NodeType.ANNOTATION ||
-    nodeById.get(targetNodeId)?.type === NodeType.ANNOTATION
-  ) {
-    return false;
-  }
-
   if (sourceNodeId === targetNodeId) {
     return true;
   }
@@ -49,18 +39,7 @@ export function createsCycle(
   }
 
   for (const connection of connections) {
-    if (
-      isAnnotationConnection(
-        {
-          id: '',
-          sourceNodeId: connection.sourceNodeId,
-          sourcePort: '',
-          targetNodeId: connection.targetNodeId,
-          targetPort: '',
-        },
-        nodeById
-      )
-    ) {
+    if (isPresentationArrowConnection(connection)) {
       continue;
     }
     const next = adjacency.get(connection.sourceNodeId);
