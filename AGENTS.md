@@ -92,6 +92,20 @@ When the user says: `test case: this should ...`
 4. If coverage does not exist, add a corresponding test case, then run it
 5. If behavior is broken, fix it and keep the new/updated test as regression coverage
 
+### MCP Feature Testing
+When testing MCP features:
+1. Use Codex CLI as an external consumer of the MCP, not an in-repo agent session that already knows k8v internals
+2. Before starting any external Codex run, execute `npm run codex:rate-limits -- --fail-above=50`
+3. Do not start a new external agent test if that command reports over-budget for any visible Codex limit; pause and ask the user before using more capacity
+4. Start a "new born" agent with a decent model (`gpt-5.4`) at `medium` reasoning effort
+5. Run that agent in a fresh environment and in a directory that is not associated with this project
+6. Use an isolated Codex config/home that exposes the MCP being tested without bringing along unrelated project context
+7. Give explicit instructions that the agent must use MCP features only and must not use shell commands, inspect local files, inspect source code, inspect runtime internals, or reverse-engineer k8v
+8. Capture the full Codex CLI outcome, including the final answer and the MCP call trace/log
+9. Capture the pre-run and post-run snapshots with `npm run codex:rate-limits -- --json` so external-agent testing stays under 50% of both windows
+10. Analyze how the agent actually used the MCP: number of requests, sequence of requests, validation/runtime errors, and any mistakes or wrong assumptions the agent made
+11. Use that analysis to judge the quality of the MCP documentation, naming, and API surface expressiveness
+
 ### Feature Requests
 When the user says: `feature: x should be working like y...`
 1. Check whether the feature is tracked in project documentation (for example `FUNCTIONALITY.md`, `BACKLOG.md`, `README.md`, `ARCHITECTURE.md`)
@@ -114,3 +128,4 @@ When the user says: `feature: x should be working like y...`
 10. Do not switch context to a new feature/bugfix while previous work is uncommitted; commit (or explicitly resolve with the user) before starting the next task
 11. After work is done and full verification has run successfully, commit the completed work
 12. Do not treat a narrower test command or a partially complete test run as "full verification"; if some automated tests were not run or did not finish, state that plainly and do not claim the repo is fully verified
+13. For MCP testing, use the external Codex CLI procedure above, enforce the 50% budget with `npm run codex:rate-limits`, and report the observed MCP usage pattern, not just whether the task eventually succeeded
