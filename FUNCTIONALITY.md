@@ -188,6 +188,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - MCP server package at `packages/mcp-server` forwards agent requests to the backend REST API.
 - `graph_create` is the only non-bulk mutator, creating an empty graph with defaults and no seeded nodes/connections.
 - `bulk_edit` is the single graph mutation surface: it accepts ordered backend/domain `GraphCommand[]` (including compute commands) and applies them sequentially through the backend command service.
+- `node_add_inline`, `node_add_numeric_input`, and `node_add_annotation` accept optional initial `cardWidth` and `cardHeight` values so agents can size cards before first render.
 - MCP exposes graph-scoped wasm algo injection tools: `algo_injection_register`, `algo_injection_list`, `algo_injection_delete`, and `algo_injection_run`.
 - Algo injections store module metadata on the graph while keeping wasm bytes in a dedicated backend artifact store.
 - Algo injections use a fixed JSON wasm ABI (`memory`, `alloc`, and `run` by default) plus a fixed capability-based host API: `graph_get`, `graph_query`, and staged `bulk_edit`.

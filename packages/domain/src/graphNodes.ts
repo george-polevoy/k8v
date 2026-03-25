@@ -36,6 +36,8 @@ interface GeneratedNodeOptions {
   nodeId?: string;
   name?: string;
   position: { x: number; y: number };
+  cardWidth?: number;
+  cardHeight?: number;
 }
 
 interface InlineCodeNodeOptions extends GeneratedNodeOptions {
@@ -205,6 +207,7 @@ export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode 
       ...(options.pythonEnv ? { pythonEnv: options.pythonEnv } : {}),
       config: {
         autoRecompute: options.autoRecompute ?? false,
+        ...resolveOptionalCardSizeConfig(options),
       },
     },
     version: ensureNodeVersion({ id: nodeId }),
@@ -355,6 +358,7 @@ export function normalizeAnnotationFontSize(
 
 export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode {
   const nodeId = options.nodeId?.trim() || createGeneratedId('node');
+  const sizeConfig = resolveOptionalCardSizeConfig(options);
 
   return {
     id: nodeId,
@@ -382,8 +386,8 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
           DEFAULT_ANNOTATION_FONT_COLOR
         ),
         fontSize: normalizeAnnotationFontSize(options.fontSize),
-        cardWidth: 320,
-        cardHeight: 200,
+        cardWidth: sizeConfig.cardWidth ?? 320,
+        cardHeight: sizeConfig.cardHeight ?? 200,
       },
     },
     version: ensureNodeVersion({ id: nodeId }),
@@ -508,8 +512,22 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
         ...(typeof options.autoRecompute === 'boolean'
           ? { autoRecompute: options.autoRecompute }
           : {}),
+        ...resolveOptionalCardSizeConfig(options),
       },
     },
     version: ensureNodeVersion({ id: nodeId }),
   };
+}
+
+function resolveOptionalCardSizeConfig(
+  options: Pick<GeneratedNodeOptions, 'cardWidth' | 'cardHeight'>
+): Partial<{ cardWidth: number; cardHeight: number }> {
+  const config: Partial<{ cardWidth: number; cardHeight: number }> = {};
+  if (typeof options.cardWidth === 'number' && Number.isFinite(options.cardWidth) && options.cardWidth > 0) {
+    config.cardWidth = options.cardWidth;
+  }
+  if (typeof options.cardHeight === 'number' && Number.isFinite(options.cardHeight) && options.cardHeight > 0) {
+    config.cardHeight = options.cardHeight;
+  }
+  return config;
 }

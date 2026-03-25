@@ -161,6 +161,7 @@ Last reviewed: March 25, 2026.
 - `A-BE-76` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` can project annotation-oriented node fields including `position`, `cardSize`, `annotationText`, and `config`.
 - `A-BE-77` `packages/backend/tests/algoInjections.test.ts`: backend algo injection registration/list/delete persist graph-scoped wasm metadata, validate wasm modules, and clean up wasm artifacts on delete.
 - `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: backend algo injection invocation can read via `graph_get`, query via `graph_query`, stage `bulk_edit`, reject compute commands, and leave the graph unchanged on timeout.
+- `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -382,6 +383,7 @@ Last reviewed: March 25, 2026.
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
 | MCP graph-create contract coverage | `A-MCP-01` | Automated |
 | MCP bulk-edit contract coverage | `A-MCP-02`, `A-MCP-03` | Automated |
+| MCP add-node commands can set initial card dimensions | `A-BE-79` | Automated |
 | MCP read/query helper coverage (`connections_list`, `graph_query`) | `A-MCP-04`, `A-MCP-05` | Automated |
 | MCP wasm algo injection coverage | `A-BE-77`, `A-BE-78`, `A-MCP-08` | Automated |
 | MCP documentation resource/template coverage | `A-MCP-07` | Automated |

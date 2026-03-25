@@ -75,6 +75,7 @@ function buildAnnotationWorkflowsText(): string {
     'When calling `bulk_edit`, pass commands as structured MCP objects in the tool arguments, not stringified JSON strings.',
     '',
     'Creation:',
+    'Optional `cardWidth` and `cardHeight` fields can be set on `node_add_annotation` so agents can avoid overlapping default card sizes on first placement.',
     '```json',
     JSON.stringify([
       {
@@ -83,6 +84,8 @@ function buildAnnotationWorkflowsText(): string {
         name: 'Idea',
         x: 120,
         y: 140,
+        cardWidth: 320,
+        cardHeight: 220,
         text: '# Idea\\n\\nFree-form notes',
         backgroundColor: '#fef3c7',
         borderColor: '#334155',
@@ -177,6 +180,8 @@ function buildExampleText(topic: ExampleTopic): string {
             name: 'A',
             x: 100,
             y: 120,
+            cardWidth: 280,
+            cardHeight: 180,
             text: 'Alpha',
           },
           {
@@ -185,6 +190,8 @@ function buildExampleText(topic: ExampleTopic): string {
             name: 'B',
             x: 420,
             y: 120,
+            cardWidth: 280,
+            cardHeight: 180,
             text: 'Beta',
           },
         ], null, 2),
@@ -287,6 +294,8 @@ function buildExampleText(topic: ExampleTopic): string {
               name: 'A',
               x: 100,
               y: 120,
+              cardWidth: 280,
+              cardHeight: 180,
               text: 'Alpha',
             },
             {

@@ -371,6 +371,80 @@ test('POST /api/graphs creates an empty graph and accepts only name payload', as
   }
 });
 
+test('POST /api/graphs/:id/commands accepts initial card dimensions on add-node commands', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const createResponse = await createGraph(ctx.baseUrl);
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const updateResponse = await submitGraphCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      createdGraph.revision ?? 0,
+      [
+        {
+          kind: 'node_add_inline',
+          nodeId: 'inline-1',
+          name: 'Inline Sized',
+          x: 80,
+          y: 120,
+          code: 'outputs.output = 1;',
+          cardWidth: 420,
+          cardHeight: 180,
+        },
+        {
+          kind: 'node_add_numeric_input',
+          nodeId: 'numeric-1',
+          name: 'Numeric Sized',
+          x: 360,
+          y: 120,
+          value: 7,
+          cardWidth: 340,
+          cardHeight: 150,
+        },
+        {
+          kind: 'node_add_annotation',
+          nodeId: 'annotation-1',
+          name: 'Annotation Sized',
+          x: 620,
+          y: 120,
+          text: 'Sized note',
+          cardWidth: 460,
+          cardHeight: 240,
+        },
+      ] as GraphCommand[]
+    );
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = (await updateResponse.json()).graph;
+
+    const inlineNode = updatedGraph.nodes.find((node: any) => node.id === 'inline-1');
+    const numericNode = updatedGraph.nodes.find((node: any) => node.id === 'numeric-1');
+    const annotationNode = updatedGraph.nodes.find((node: any) => node.id === 'annotation-1');
+    const defaultProjection = updatedGraph.projections.find((projection: any) => projection.id === 'default');
+
+    assert.ok(inlineNode);
+    assert.ok(numericNode);
+    assert.ok(annotationNode);
+    assert.ok(defaultProjection);
+    assert.equal(inlineNode.config?.config?.cardWidth, 420);
+    assert.equal(inlineNode.config?.config?.cardHeight, 180);
+    assert.equal(numericNode.config?.config?.cardWidth, 340);
+    assert.equal(numericNode.config?.config?.cardHeight, 150);
+    assert.equal(annotationNode.config?.config?.cardWidth, 460);
+    assert.equal(annotationNode.config?.config?.cardHeight, 240);
+    assert.equal(defaultProjection.nodeCardSizes['inline-1'].width, 420);
+    assert.equal(defaultProjection.nodeCardSizes['inline-1'].height, 180);
+    assert.equal(defaultProjection.nodeCardSizes['numeric-1'].width, 340);
+    assert.equal(defaultProjection.nodeCardSizes['numeric-1'].height, 150);
+    assert.equal(defaultProjection.nodeCardSizes['annotation-1'].width, 460);
+    assert.equal(defaultProjection.nodeCardSizes['annotation-1'].height, 240);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs accepts python_process runtime in node config', async () => {
   const ctx = await setupTestServer();
 

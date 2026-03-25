@@ -46,6 +46,8 @@ test('documentation resources register discoverability docs and schemas', async 
   const annotation = await server.resources.get('annotation-workflows')!.callback();
   const annotationText = (annotation as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
   assert.match(annotationText, /node_add_annotation/);
+  assert.match(annotationText, /cardWidth/);
+  assert.match(annotationText, /cardHeight/);
   assert.match(annotationText, /__annotation__/);
   assert.match(annotationText, /\(targetNodeId, targetPort, targetAnchor\)/);
   assert.match(annotationText, /distinct .*targetAnchor\.offset/i);
@@ -104,6 +106,8 @@ test('documentation resources register discoverability docs and schemas', async 
     (bulkEditExample as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
   assert.match(bulkEditExampleText, /structured objects/i);
   assert.match(bulkEditExampleText, /graphId/);
+  assert.match(bulkEditExampleText, /cardWidth/);
+  assert.match(bulkEditExampleText, /cardHeight/);
 
   const algoRunExample = await examplesResource.callback(new URL('k8v://docs/examples/algo-run'), {
     topic: 'algo-run',

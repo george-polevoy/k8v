@@ -8,6 +8,8 @@ import {
 export interface CreateNodeOptions {
   name?: string;
   position: { x: number; y: number };
+  cardWidth?: number;
+  cardHeight?: number;
   code?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;
@@ -33,6 +35,8 @@ export function createAnnotationNode(options: CreateNodeOptions): GraphNode {
     nodeId: undefined,
     name: options.name,
     position: options.position,
+    cardWidth: options.cardWidth,
+    cardHeight: options.cardHeight,
     text: options.annotationText,
     backgroundColor: options.annotationBackgroundColor,
     borderColor: options.annotationBorderColor,
