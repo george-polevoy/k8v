@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 16, 2026.
+This file tracks what is currently implemented in the codebase as of March 25, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -188,7 +188,12 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - MCP server package at `packages/mcp-server` forwards agent requests to the backend REST API.
 - `graph_create` is the only non-bulk mutator, creating an empty graph with defaults and no seeded nodes/connections.
 - `bulk_edit` is the single graph mutation surface: it accepts ordered backend/domain `GraphCommand[]` (including compute commands) and applies them sequentially through the backend command service.
+- MCP exposes graph-scoped wasm algo injection tools: `algo_injection_register`, `algo_injection_list`, `algo_injection_delete`, and `algo_injection_run`.
+- Algo injections store module metadata on the graph while keeping wasm bytes in a dedicated backend artifact store.
+- Algo injections use a fixed JSON wasm ABI (`memory`, `alloc`, and `run` by default) plus a fixed capability-based host API: `graph_get`, `graph_query`, and staged `bulk_edit`.
+- Algo-hosted `bulk_edit` batches are staged during wasm execution and committed once on success; `compute_graph` and `compute_node` are rejected from inside the sandbox.
+- Algo injections run in an isolated child-process sandbox with no generic filesystem or outbound network access.
 - Read/query helpers remain available: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`.
-- MCP exposes discoverability resources/templates for command schemas, query schemas, and annotation workflow examples.
+- MCP exposes discoverability resources/templates for command schemas, query schemas, annotation workflow examples, and algo-injection docs/examples.
 - `graph_query` can project annotation-oriented fields such as `position`, `cardSize`, `annotationText`, and `config` for lightweight board inspection.
 - Internal Playwright screenshot tool (`graph_screenshot_region`) renders a dedicated screenshot harness built from the frontend canvas renderer, avoids the interactive app shell, and captures fixed-size bitmaps from explicit world rectangles (`x`, `y`, `width`, `height`), including drawing paths and handles.

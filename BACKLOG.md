@@ -137,6 +137,15 @@ Status: DONE
   - `npx tsx --test packages/frontend/tests/e2e/annotationCard.test.ts`
   - `npx tsx --test packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`
 
+### B-014 MCP Wasm Algo Injections
+Status: DONE
+
+- Add graph-scoped wasm algo registration/list/delete/invoke endpoints and MCP tools. (DONE)
+- Run wasm algos in an isolated capability-based sandbox with fixed host APIs for `graph_get`, `graph_query`, and staged `bulk_edit`. (DONE)
+- Keep wasm binaries in dedicated backend artifact storage instead of embedding them in graph JSON. (DONE)
+- Publish MCP discoverability docs/examples for wasm algo registration and invocation. (DONE)
+- Add backend/MCP regression coverage for wasm validation, invocation, staged edits, timeout behavior, and artifact cleanup. (DONE)
+
 ## Untriaged Future Roadmap
 
 These items are intentionally not prioritized yet and should not be treated as active or queued delivery work.

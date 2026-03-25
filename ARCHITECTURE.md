@@ -58,11 +58,20 @@ k8v is a flow-based modeling software that enables visual programming through an
 #### MCP Server (`packages/mcp-server/src/index.ts`)
 - Exposes the agent-facing MCP transport backed by the backend REST API (`/api/graphs/*`)
 - Allows agents to create empty graphs via `graph_create` and to mutate any existing graph through `bulk_edit`, which forwards ordered backend `GraphCommand[]`
+- Adds dedicated graph-scoped wasm algo injection tools (`algo_injection_register`, `algo_injection_list`, `algo_injection_delete`, `algo_injection_run`) instead of overloading `bulk_edit` for binary/module management
 - Removes MCP-local mutation registries/operation schemas so agents share the backend/domain `GraphCommand` language
 - Keeps only read/query/runtime helpers: `graph_list`, `graph_get`, `graph_query`, `connections_list`, `graphics_get`, and `graph_screenshot_region`
 - Publishes MCP resources/templates for command/query schema discovery and annotation workflow examples
+- Publishes dedicated algo-injection docs/examples that describe the fixed wasm host API (`graph_get`, `graph_query`, staged `bulk_edit`)
 - Renders internal screenshots through a dedicated screenshot harness page that reuses the frontend canvas renderer without booting the interactive app shell
 - Screenshot API captures explicit world rectangles into fixed bitmap dimensions, reusing the shared frontend canvas render path while avoiding toolbar/sidebar/localStorage app boot concerns
+
+#### Algo Injection Service (`packages/backend/src/core/AlgoInjectionService.ts`)
+- Stores graph-scoped wasm module metadata on the graph document while keeping wasm bytes in a dedicated artifact store
+- Validates wasm registration against the fixed JSON ABI (`memory`, `alloc`, `run` by default) and an allowlisted import namespace
+- Invokes wasm modules in an isolated child process rather than directly on the HTTP handler path
+- Exposes only capability-style host calls: `graph_get`, `graph_query`, and staged `bulk_edit`
+- Rejects recompute commands during wasm-hosted `bulk_edit` and commits staged graph commands once after successful completion
 
 ### Frontend
 

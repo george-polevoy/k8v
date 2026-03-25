@@ -2,6 +2,8 @@
 
 This document describes the pluggable execution engine architecture for k8v, enabling support for multiple runtimes (V8 isolates, containers, WASM/WASI) and multiple languages.
 
+Current scope note: graph-scoped wasm algo injections now exist for MCP-driven graph tooling, but they are not part of the node execution engine yet. They use a separate capability-based host API and should not be treated as the delivery of the planned graph node wasm runtime described below.
+
 ## Vision
 
 Build a **pluggable, secure, multi-language execution framework** that:

@@ -27,12 +27,15 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.ok(server.resources.has('graph-command-schema'));
   assert.ok(server.resources.has('graph-query-schema'));
   assert.ok(server.resources.has('annotation-workflows'));
+  assert.ok(server.resources.has('algo-injections'));
   assert.ok(server.resources.has('workflow-examples'));
 
   const overview = await server.resources.get('mcp-overview')!.callback();
   const overviewText = (overview as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
   assert.match(overviewText, /graph_create/);
   assert.match(overviewText, /bulk_edit/);
+  assert.match(overviewText, /algo_injection_register/);
+  assert.match(overviewText, /algo_injection_run/);
   assert.match(overviewText, /structured MCP objects/i);
   assert.match(overviewText, /do not stringify/i);
   assert.ok(
@@ -48,6 +51,14 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.match(annotationText, /distinct .*targetAnchor\.offset/i);
   assert.match(annotationText, /connection_set/);
 
+  const algoDocs = await server.resources.get('algo-injections')!.callback();
+  const algoDocsText = (algoDocs as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  assert.match(algoDocsText, /graph-scoped wasm modules/i);
+  assert.match(algoDocsText, /graph_get/);
+  assert.match(algoDocsText, /graph_query/);
+  assert.match(algoDocsText, /bulk_edit/);
+  assert.match(algoDocsText, /no generic filesystem or network access/i);
+
   const examplesResource = server.resources.get('workflow-examples');
   assert.ok(examplesResource);
   const template = examplesResource.uriOrTemplate as {
@@ -62,6 +73,8 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.ok(listedExamples);
   assert.ok(listedExamples?.resources.some((resource) => resource.uri === 'k8v://docs/examples/bulk-edit-call'));
   assert.ok(listedExamples?.resources.some((resource) => resource.uri === 'k8v://docs/examples/annotation-multi-arrows'));
+  assert.ok(listedExamples?.resources.some((resource) => resource.uri === 'k8v://docs/examples/algo-register'));
+  assert.ok(listedExamples?.resources.some((resource) => resource.uri === 'k8v://docs/examples/algo-run'));
   const completedTopics = await template._callbacks?.complete?.topic?.();
   assert.deepEqual(
     completedTopics,
@@ -69,6 +82,8 @@ test('documentation resources register discoverability docs and schemas', async 
       'annotation-board',
       'annotation-arrows',
       'annotation-multi-arrows',
+      'algo-register',
+      'algo-run',
       'bulk-edit-call',
       'bulk-edit-retry',
       'graph-query',
@@ -89,6 +104,14 @@ test('documentation resources register discoverability docs and schemas', async 
     (bulkEditExample as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
   assert.match(bulkEditExampleText, /structured objects/i);
   assert.match(bulkEditExampleText, /graphId/);
+
+  const algoRunExample = await examplesResource.callback(new URL('k8v://docs/examples/algo-run'), {
+    topic: 'algo-run',
+  });
+  const algoRunExampleText =
+    (algoRunExample as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  assert.match(algoRunExampleText, /algoName/);
+  assert.match(algoRunExampleText, /Renamed by wasm/);
 
   const multiArrowExample = await examplesResource.callback(
     new URL('k8v://docs/examples/annotation-multi-arrows'),

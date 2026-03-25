@@ -11,6 +11,7 @@ import {
   type DataSchema,
   type DrawingPath,
   type DrawingPoint,
+  type GraphAlgoInjection,
   type Graph,
   type GraphConnectionStroke,
   type GraphDrawing,
@@ -42,6 +43,7 @@ export type {
   DataSchema,
   DrawingPath,
   DrawingPoint,
+  GraphAlgoInjection,
   Graph,
   GraphDrawing,
   GraphNode,
@@ -85,5 +87,6 @@ export function normalizeGraph(graph: Graph): Graph {
     cameras: Array.isArray(graph.cameras) ? graph.cameras : [],
     drawings: normalizeGraphDrawings(graph.drawings),
     pythonEnvs: Array.isArray(graph.pythonEnvs) ? graph.pythonEnvs : [],
+    algoInjections: Array.isArray(graph.algoInjections) ? graph.algoInjections : [],
   };
 }

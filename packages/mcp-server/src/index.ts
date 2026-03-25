@@ -3,6 +3,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { registerAlgoTools } from './mcpAlgoTools.js';
 import { registerConnectionTools } from './mcpConnectionTools.js';
 import { registerDocumentationResources } from './mcpDocumentationResources.js';
 import { registerGraphTools } from './mcpGraphTools.js';
@@ -28,6 +29,10 @@ const server: any = new McpServer({
 });
 
 registerDocumentationResources(server);
+
+registerAlgoTools(server, {
+  resolveBackendUrl,
+});
 
 registerConnectionTools(server, {
   resolveBackendUrl,

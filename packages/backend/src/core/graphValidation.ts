@@ -49,6 +49,8 @@ export function validateGraphStructure(graph: Graph): string | null {
   const nodeIds = new Set<string>();
   const drawingIds = new Set<string>();
   const pythonEnvNames = new Set<string>();
+  const algoInjectionIds = new Set<string>();
+  const algoInjectionNames = new Set<string>();
   const projectionIds = new Set<string>();
   const cameraIds = new Set<string>();
 
@@ -98,6 +100,18 @@ export function validateGraphStructure(graph: Graph): string | null {
       return `Graph python environment names must be unique. Duplicate name: ${pythonEnv.name}`;
     }
     pythonEnvNames.add(pythonEnv.name);
+  }
+
+  for (const algoInjection of graph.algoInjections ?? []) {
+    if (algoInjectionIds.has(algoInjection.id)) {
+      return `Graph algo injection ids must be unique. Duplicate id: ${algoInjection.id}`;
+    }
+    algoInjectionIds.add(algoInjection.id);
+
+    if (algoInjectionNames.has(algoInjection.name)) {
+      return `Graph algo injection names must be unique. Duplicate name: ${algoInjection.name}`;
+    }
+    algoInjectionNames.add(algoInjection.name);
   }
 
   for (const drawing of graph.drawings ?? []) {

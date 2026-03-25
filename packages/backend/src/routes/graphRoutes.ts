@@ -1,5 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import {
+  AlgoInjectionExecutionError,
+  AlgoInjectionService,
+  AlgoInjectionValidationError,
+} from '../core/AlgoInjectionService.js';
 import { DataStore } from '../core/DataStore.js';
 import { GraphCommandService, GraphCommandValidationError, GraphRevisionConflictError } from '../core/GraphCommandService.js';
 import { GraphEventBroker } from '../core/GraphEventBroker.js';
@@ -30,6 +35,17 @@ const CreateGraphSchema = z.object({
   name: z.string().optional().default('Untitled Graph'),
 }).strict();
 
+const RegisterAlgoInjectionSchema = z.object({
+  name: z.string().trim().min(1),
+  wasmBase64: z.string().min(1),
+  entrypoint: z.string().trim().min(1).optional(),
+}).strict();
+
+const InvokeAlgoInjectionSchema = z.object({
+  input: z.unknown().optional(),
+  noRecompute: z.boolean().optional(),
+}).strict();
+
 function isTruthyQueryFlag(value: unknown): boolean {
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
@@ -46,6 +62,7 @@ function isTruthyQueryFlag(value: unknown): boolean {
 export function createGraphRouter(deps: GraphRoutesDependencies): Router {
   const { dataStore, recomputeManager, eventBroker } = deps;
   const graphCommandService = new GraphCommandService(dataStore, recomputeManager, eventBroker);
+  const algoInjectionService = new AlgoInjectionService(dataStore, graphCommandService, eventBroker);
   const router = Router();
 
   router.get('/', async (_req, res) => {
@@ -78,6 +95,84 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       res.json(graph);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/:id/algos', async (req, res) => {
+    try {
+      return res.json({
+        algoInjections: await algoInjectionService.listAlgoInjections(req.params.id),
+      });
+    } catch (error: unknown) {
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        return res.status(404).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  router.post('/:id/algos', validate(RegisterAlgoInjectionSchema), async (req, res) => {
+    try {
+      return res.json(await algoInjectionService.registerAlgoInjection({
+        graphId: req.params.id,
+        name: req.body.name,
+        wasmBase64: req.body.wasmBase64,
+        entrypoint: req.body.entrypoint,
+      }));
+    } catch (error: unknown) {
+      if (error instanceof AlgoInjectionValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        return res.status(404).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  router.delete('/:id/algos/:algoId', async (req, res) => {
+    try {
+      return res.json(await algoInjectionService.deleteAlgoInjection({
+        graphId: req.params.id,
+        algoId: req.params.algoId,
+      }));
+    } catch (error: unknown) {
+      if (error instanceof AlgoInjectionValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        return res.status(404).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  router.post('/:id/algos/:algoId/invoke', validate(InvokeAlgoInjectionSchema), async (req, res) => {
+    try {
+      return res.json(await algoInjectionService.invokeAlgoInjection({
+        graphId: req.params.id,
+        algoId: req.params.algoId,
+        input: req.body.input,
+        noRecompute: req.body.noRecompute,
+      }));
+    } catch (error: unknown) {
+      if (error instanceof GraphRevisionConflictError) {
+        return res.status(409).json({
+          error: error.message,
+          currentRevision: error.currentRevision,
+        });
+      }
+      if (error instanceof AlgoInjectionValidationError || error instanceof AlgoInjectionExecutionError) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        return res.status(404).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: message });
     }
   });
 

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const STORAGE_SCHEMA_VERSION = 1;
+export const STORAGE_SCHEMA_VERSION = 2;
 export const STORAGE_DB_FILE_NAME = 'k8v.sqlite';
 export const STORAGE_ARTIFACTS_DIR_NAME = 'artifacts';
 
@@ -91,6 +91,14 @@ export function initializeDataStoreDatabase(db: Database.Database): void {
       mime_type TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       levels_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS wasm_artifacts (
+      id TEXT PRIMARY KEY,
+      sha256 TEXT NOT NULL,
+      byte_length INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      wasm_blob BLOB NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS node_results (
