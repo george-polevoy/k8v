@@ -23,7 +23,7 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Error-State Smoke Cue**: Error nodes emit subtle black smoke on the canvas
 - **Auto Recompute Toggle**: Opt-in downstream recompute when upstream nodes change
 - **Persistent Drawings**: Create named drawing objects, draw paths into selected drawing, drag by handle, rename, and delete
-- **MCP Agent API**: Backend MCP server exposes empty-graph creation, ordered `GraphCommand[]` mutations via `bulk_edit`, graph-scoped wasm algo injections, and internal rectangular screenshots
+- **MCP Agent API**: Backend MCP server exposes empty-graph creation, ordered `GraphCommand[]` mutations via `bulk_edit`, transient wasm algo invocation by absolute path, and internal rectangular screenshots
 - **Python Runtime**: Inline nodes can execute with backend `python_process` runtime
 - **Graph Python Envs**: Graphs can define named Python envs (`name`, `pythonPath`, `cwd`) and Python nodes can bind to them via `pythonEnv`
 - **Python PNG Outputs**: Python nodes can render PNG graphics from data URLs, raw base64, or raw bytes via output helpers
@@ -88,9 +88,9 @@ npm run dev:mcp
 The MCP server exposes:
 - `graph_create` for empty graph creation (name optional, no seeded nodes/connections)
 - `bulk_edit`, which sends ordered backend `GraphCommand[]` batches and is the sole graph mutation surface (compute now flows through command variants instead of a dedicated `graph_compute`)
-- graph-scoped wasm algo injection tools: `algo_injection_register`, `algo_injection_list`, `algo_injection_delete`, and `algo_injection_run`
+- transient wasm algo invocation via `algo_injection_run`, which accepts an absolute `wasmPath` readable by the backend host plus optional `entrypoint` and `input`
 - read/query helpers: `graph_list`, `graph_get`, `graph_query` (`overview`, `traverse_bfs`, `traverse_dfs`, `starting_vertices`), and `connections_list`
-- discoverability resources/templates for MCP schema/docs, including command/query schema JSON, annotation workflow examples, and algo-injection docs/examples
+- discoverability resources/templates for MCP schema/docs, including command/query schema JSON, annotation workflow examples, and wasm-invocation docs/examples
 - internal screenshot tool `graph_screenshot_region`:
   - renders a dedicated screenshot harness built from the frontend canvas renderer
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)

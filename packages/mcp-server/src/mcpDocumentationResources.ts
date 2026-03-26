@@ -11,13 +11,12 @@ const MCP_OVERVIEW_URI = 'k8v://docs/mcp-overview.md';
 const GRAPH_COMMAND_SCHEMA_URI = 'k8v://docs/graph-command-schema.json';
 const GRAPH_QUERY_SCHEMA_URI = 'k8v://docs/graph-query-schema.json';
 const ANNOTATION_WORKFLOWS_URI = 'k8v://docs/annotation-workflows.md';
-const ALGO_INJECTIONS_URI = 'k8v://docs/algo-injections.md';
+const WASM_ALGO_INVOCATION_URI = 'k8v://docs/wasm-algo-invocation.md';
 
 type ExampleTopic =
   | 'annotation-board'
   | 'annotation-arrows'
   | 'annotation-multi-arrows'
-  | 'algo-register'
   | 'algo-run'
   | 'bulk-edit-call'
   | 'bulk-edit-retry'
@@ -34,7 +33,7 @@ function buildMcpOverviewText(): string {
     '- `graph_create` is the only non-bulk exception and creates an empty graph only.',
     '- `bulk_edit` is the only graph mutation tool and accepts ordered `GraphCommand[]`.',
     '- Pass `bulk_edit.commands` as structured MCP objects in the tool arguments; do not stringify each command as JSON text.',
-    '- `algo_injection_register`, `algo_injection_list`, `algo_injection_delete`, and `algo_injection_run` manage graph-scoped wasm algo injections.',
+    '- `algo_injection_run` invokes a wasm module transiently from an absolute filesystem path accessible to the backend host.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
     '- `connections_list` is for filtered connection inspection.',
     '- `graph_screenshot_region` renders through the dedicated screenshot harness and can start its own harness server when no explicit frontend URL override is provided.',
@@ -55,12 +54,11 @@ function buildMcpOverviewText(): string {
     '- `k8v://docs/examples/annotation-board`',
     '- `k8v://docs/examples/annotation-arrows`',
     '- `k8v://docs/examples/annotation-multi-arrows`',
-    '- `k8v://docs/examples/algo-register`',
     '- `k8v://docs/examples/algo-run`',
     '- `k8v://docs/examples/bulk-edit-call`',
     '- `k8v://docs/examples/bulk-edit-retry`',
     '- `k8v://docs/examples/graph-query`',
-    `- \`${ALGO_INJECTIONS_URI}\``,
+    `- \`${WASM_ALGO_INVOCATION_URI}\``,
     '',
     'Revision conflicts:',
     '- `bulk_edit` errors include `currentRevision` in backend responses; retry with that revision after reloading graph state.',
@@ -144,18 +142,16 @@ function buildAnnotationWorkflowsText(): string {
 
 function buildAlgoInjectionsText(): string {
   return [
-    '# Algo Injections',
+    '# Wasm Algo Invocation',
     '',
-    'Algo injections are graph-scoped wasm modules managed through dedicated MCP tools.',
+    'Wasm algos are invoked transiently through a dedicated MCP tool.',
     'All modules use the same fixed host API in v1: `graph_get`, `graph_query`, and staged `bulk_edit`.',
-    'There is no generic filesystem or network access.',
-    '',
-    'Registration:',
-    '- Call `algo_injection_register` with `graphId`, `name`, `wasmBase64`, and optional `entrypoint`.',
-    '- The wasm module must export `memory`, `alloc`, and a JSON entrypoint (default `run`).',
+    'There is no generic filesystem or outbound network access from inside the sandbox.',
     '',
     'Invocation:',
-    '- Call `algo_injection_run` with `graphId`, `algoId` or `algoName`, and arbitrary JSON `input`.',
+    '- Call `algo_injection_run` with `graphId`, an absolute `wasmPath`, and optional `entrypoint`/`input`.',
+    '- The `wasmPath` must be readable by the backend host process. This flow assumes the MCP server and backend share filesystem access.',
+    '- The wasm module must export `memory`, `alloc`, and a JSON entrypoint (default `run`).',
     '- `bulk_edit` calls made by the module are staged during execution and committed once after successful completion.',
     '- `compute_graph` and `compute_node` are rejected inside algo-hosted `bulk_edit`.',
   ].join('\n');
@@ -250,27 +246,15 @@ function buildExampleText(topic: ExampleTopic): string {
         ], null, 2),
         '```',
       ].join('\n');
-    case 'algo-register':
-      return [
-        '# Example: Register a Wasm Algo Injection',
-        '',
-        '```json',
-        JSON.stringify({
-          graphId: 'graph-123',
-          name: 'rename-graph',
-          entrypoint: 'run',
-          wasmBase64: 'AGFzbQEAAA...',
-        }, null, 2),
-        '```',
-      ].join('\n');
     case 'algo-run':
       return [
-        '# Example: Run a Wasm Algo Injection',
+        '# Example: Run a Wasm Algo',
         '',
         '```json',
         JSON.stringify({
           graphId: 'graph-123',
-          algoName: 'rename-graph',
+          wasmPath: '/absolute/path/to/rename-graph.wasm',
+          entrypoint: 'run',
           input: {
             nextName: 'Renamed by wasm',
           },
@@ -416,14 +400,14 @@ export function registerDocumentationResources(server: any): void {
   );
 
   server.registerResource(
-    'algo-injections',
-    ALGO_INJECTIONS_URI,
+    'wasm-algo-invocation',
+    WASM_ALGO_INVOCATION_URI,
     {
-      title: 'Algo Injections',
-      description: 'ABI and workflow guidance for graph-scoped wasm algo injections.',
+      title: 'Wasm Algo Invocation',
+      description: 'ABI and workflow guidance for transient wasm algo invocation.',
       mimeType: 'text/markdown',
     },
-    async () => createTextResource(ALGO_INJECTIONS_URI, buildAlgoInjectionsText())
+    async () => createTextResource(WASM_ALGO_INVOCATION_URI, buildAlgoInjectionsText())
   );
 
   const examplesTemplate = new ResourceTemplate('k8v://docs/examples/{topic}', {
@@ -432,7 +416,6 @@ export function registerDocumentationResources(server: any): void {
         { uri: 'k8v://docs/examples/annotation-board', name: 'annotation-board' },
         { uri: 'k8v://docs/examples/annotation-arrows', name: 'annotation-arrows' },
         { uri: 'k8v://docs/examples/annotation-multi-arrows', name: 'annotation-multi-arrows' },
-        { uri: 'k8v://docs/examples/algo-register', name: 'algo-register' },
         { uri: 'k8v://docs/examples/algo-run', name: 'algo-run' },
         { uri: 'k8v://docs/examples/bulk-edit-call', name: 'bulk-edit-call' },
         { uri: 'k8v://docs/examples/bulk-edit-retry', name: 'bulk-edit-retry' },
@@ -444,7 +427,6 @@ export function registerDocumentationResources(server: any): void {
         'annotation-board',
         'annotation-arrows',
         'annotation-multi-arrows',
-        'algo-register',
         'algo-run',
         'bulk-edit-call',
         'bulk-edit-retry',

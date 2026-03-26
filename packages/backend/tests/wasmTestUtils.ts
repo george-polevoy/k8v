@@ -10,12 +10,12 @@ function getWabt(): Promise<any> {
   return wabtPromise;
 }
 
-async function compileWatToBase64(watSource: string): Promise<string> {
+async function compileWatToBuffer(watSource: string): Promise<Buffer> {
   const wabt = await getWabt();
   const parsed = wabt.parseWat('inline-test-module.wat', watSource);
   try {
     const { buffer } = parsed.toBinary({});
-    return Buffer.from(buffer).toString('base64');
+    return Buffer.from(buffer);
   } finally {
     parsed.destroy();
   }
@@ -51,8 +51,8 @@ function dataSegment(offset: number, text: string): string {
   return `(data (i32.const ${offset}) ${JSON.stringify(text)})`;
 }
 
-export async function buildEchoAlgoWasmBase64(): Promise<string> {
-  return await compileWatToBase64(`
+export async function buildEchoAlgoWasmBuffer(): Promise<Buffer> {
+  return await compileWatToBuffer(`
     (module
       ${allocAndPackPrelude()}
       (func (export "run") (param $ptr i32) (param $len i32) (result i64)
@@ -64,8 +64,8 @@ export async function buildEchoAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildGraphGetAlgoWasmBase64(): Promise<string> {
-  return await compileWatToBase64(`
+export async function buildGraphGetAlgoWasmBuffer(): Promise<Buffer> {
+  return await compileWatToBuffer(`
     (module
       (import "k8v" "graph_get" (func $graph_get (result i64)))
       ${allocAndPackPrelude()}
@@ -76,13 +76,13 @@ export async function buildGraphGetAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildGraphQueryAlgoWasmBase64(): Promise<string> {
+export async function buildGraphQueryAlgoWasmBuffer(): Promise<Buffer> {
   const query = JSON.stringify({
     operation: 'overview',
     nodeFields: ['id', 'name'],
   });
   const queryLength = encoder.encode(query).length;
-  return await compileWatToBase64(`
+  return await compileWatToBuffer(`
     (module
       (import "k8v" "graph_query" (func $graph_query (param i32 i32) (result i64)))
       ${allocAndPackPrelude()}
@@ -96,7 +96,7 @@ export async function buildGraphQueryAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildBulkEditAlgoWasmBase64(nextName: string): Promise<string> {
+export async function buildBulkEditAlgoWasmBuffer(nextName: string): Promise<Buffer> {
   const commandPayload = JSON.stringify([
     {
       kind: 'set_graph_name',
@@ -104,7 +104,7 @@ export async function buildBulkEditAlgoWasmBase64(nextName: string): Promise<str
     },
   ]);
   const commandLength = encoder.encode(commandPayload).length;
-  return await compileWatToBase64(`
+  return await compileWatToBuffer(`
     (module
       (import "k8v" "bulk_edit" (func $bulk_edit (param i32 i32) (result i64)))
       ${allocAndPackPrelude()}
@@ -118,10 +118,10 @@ export async function buildBulkEditAlgoWasmBase64(nextName: string): Promise<str
   `);
 }
 
-export async function buildComputeRejectAlgoWasmBase64(): Promise<string> {
+export async function buildComputeRejectAlgoWasmBuffer(): Promise<Buffer> {
   const commandPayload = JSON.stringify([{ kind: 'compute_graph' }]);
   const commandLength = encoder.encode(commandPayload).length;
-  return await compileWatToBase64(`
+  return await compileWatToBuffer(`
     (module
       (import "k8v" "bulk_edit" (func $bulk_edit (param i32 i32) (result i64)))
       ${allocAndPackPrelude()}
@@ -135,8 +135,8 @@ export async function buildComputeRejectAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildTrapAlgoWasmBase64(): Promise<string> {
-  return await compileWatToBase64(`
+export async function buildTrapAlgoWasmBuffer(): Promise<Buffer> {
+  return await compileWatToBuffer(`
     (module
       ${allocAndPackPrelude()}
       (func (export "run") (param $ptr i32) (param $len i32) (result i64)
@@ -146,8 +146,8 @@ export async function buildTrapAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildInfiniteLoopAlgoWasmBase64(): Promise<string> {
-  return await compileWatToBase64(`
+export async function buildInfiniteLoopAlgoWasmBuffer(): Promise<Buffer> {
+  return await compileWatToBuffer(`
     (module
       ${allocAndPackPrelude()}
       (func (export "run") (param $ptr i32) (param $len i32) (result i64)
@@ -160,8 +160,8 @@ export async function buildInfiniteLoopAlgoWasmBase64(): Promise<string> {
   `);
 }
 
-export async function buildMissingRunAlgoWasmBase64(): Promise<string> {
-  return await compileWatToBase64(`
+export async function buildMissingRunAlgoWasmBuffer(): Promise<Buffer> {
+  return await compileWatToBuffer(`
     (module
       ${allocAndPackPrelude()}
     )

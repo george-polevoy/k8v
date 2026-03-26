@@ -47,21 +47,6 @@ export const PythonEnvironment = z.object({
 
 export type PythonEnvironment = z.infer<typeof PythonEnvironment>;
 
-export const GraphAlgoInjectionAbi = z.literal('json_v1');
-export type GraphAlgoInjectionAbi = z.infer<typeof GraphAlgoInjectionAbi>;
-
-export const GraphAlgoInjection = z.object({
-  id: z.string().trim().min(1),
-  name: z.string().trim().min(1),
-  artifactId: z.string().trim().min(1),
-  entrypoint: z.string().trim().min(1),
-  abi: GraphAlgoInjectionAbi,
-  createdAt: z.number().int().nonnegative(),
-  updatedAt: z.number().int().nonnegative(),
-});
-
-export type GraphAlgoInjection = z.infer<typeof GraphAlgoInjection>;
-
 export const DrawingColor = z
   .string()
   .trim()
@@ -240,7 +225,6 @@ export const Graph = z.object({
   activeProjectionId: z.string().trim().min(1).optional(),
   cameras: z.array(GraphCamera).optional(),
   pythonEnvs: z.array(PythonEnvironment).default([]),
-  algoInjections: z.array(GraphAlgoInjection).default([]),
   drawings: z.array(GraphDrawing).default([]),
   createdAt: z.number(),
   updatedAt: z.number(),

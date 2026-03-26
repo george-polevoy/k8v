@@ -144,7 +144,6 @@ export class GraphCommandService {
       connectionStroke: normalizeConnectionStrokeValue(candidateGraph.connectionStroke),
       cameras: normalizeGraphCameras(candidateGraph.cameras),
       pythonEnvs: candidateGraph.pythonEnvs ?? [],
-      algoInjections: candidateGraph.algoInjections ?? [],
       drawings: candidateGraph.drawings ?? [],
       recomputeConcurrency: candidateGraph.recomputeConcurrency ?? 1,
       executionTimeoutMs:

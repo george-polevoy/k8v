@@ -7,8 +7,6 @@ import { ArtifactRepository } from './storage/ArtifactRepository.js';
 import { ComputationResultRepository } from './storage/ComputationResultRepository.js';
 import { GraphRepository } from './storage/GraphRepository.js';
 import { GraphicsArtifactStore } from './storage/GraphicsArtifactStore.js';
-import { WasmArtifactRepository } from './storage/WasmArtifactRepository.js';
-import { buildStoredWasmArtifact, type StoredWasmArtifact, type StoredWasmArtifactRecord } from './wasmArtifacts.js';
 
 export class DataStore {
   private readonly db: Database.Database;
@@ -16,7 +14,6 @@ export class DataStore {
   private readonly resultRepository: ComputationResultRepository;
   private readonly artifactRepository: ArtifactRepository;
   private readonly graphicsStore: GraphicsArtifactStore;
-  private readonly wasmArtifactRepository: WasmArtifactRepository;
 
   constructor(dbPath?: string, artifactsDir?: string) {
     const resolvedDbPath = dbPath ?? prepareVersionedStorageLayout('./storage').dbPath;
@@ -35,7 +32,6 @@ export class DataStore {
     initializeDataStoreDatabase(this.db);
     this.artifactRepository = new ArtifactRepository(this.db);
     this.graphRepository = new GraphRepository(this.db);
-    this.wasmArtifactRepository = new WasmArtifactRepository(this.db);
     this.resultRepository = new ComputationResultRepository(
       this.db,
       this.artifactRepository,
@@ -92,15 +88,6 @@ export class DataStore {
   }
 
   async deleteGraph(graphId: string): Promise<boolean> {
-    const graph = await this.graphRepository.getGraph(graphId);
-    if (!graph) {
-      return false;
-    }
-
-    for (const artifactId of new Set((graph.algoInjections ?? []).map((algoInjection) => algoInjection.artifactId))) {
-      this.wasmArtifactRepository.deleteArtifact(artifactId);
-    }
-
     return await this.graphRepository.deleteGraph(graphId);
   }
 
@@ -110,26 +97,6 @@ export class DataStore {
 
   async getLatestGraph(): Promise<Graph | null> {
     return await this.graphRepository.getLatestGraph();
-  }
-
-  async storeWasmArtifact(buffer: Buffer): Promise<StoredWasmArtifact> {
-    const artifact = buildStoredWasmArtifact(buffer);
-    this.wasmArtifactRepository.storeArtifact(artifact);
-    const { id, sha256, byteLength, createdAt } = artifact;
-    return {
-      id,
-      sha256,
-      byteLength,
-      createdAt,
-    };
-  }
-
-  async getWasmArtifact(artifactId: string): Promise<StoredWasmArtifactRecord | null> {
-    return this.wasmArtifactRepository.getArtifact(artifactId);
-  }
-
-  async deleteWasmArtifact(artifactId: string): Promise<boolean> {
-    return this.wasmArtifactRepository.deleteArtifact(artifactId);
   }
 
   close(): void {

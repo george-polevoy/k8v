@@ -159,8 +159,8 @@ Last reviewed: March 25, 2026.
 - `A-BE-74` `packages/backend/tests/app.test.ts`: `POST /api/graphs` initializes default camera metadata when cameras are omitted.
 - `A-BE-75` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` preserves the default camera when a camera update would otherwise remove all cameras.
 - `A-BE-76` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` can project annotation-oriented node fields including `position`, `cardSize`, `annotationText`, and `config`.
-- `A-BE-77` `packages/backend/tests/algoInjections.test.ts`: backend algo injection registration/list/delete persist graph-scoped wasm metadata, validate wasm modules, and clean up wasm artifacts on delete.
-- `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: backend algo injection invocation can read via `graph_get`, query via `graph_query`, stage `bulk_edit`, reject compute commands, and leave the graph unchanged on timeout.
+- `A-BE-77` `packages/backend/tests/algoInjections.test.ts`: backend transient wasm invocation requires an absolute file path and validates the requested entrypoint before execution.
+- `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: backend transient wasm invocation can read via `graph_get`, query via `graph_query`, stage `bulk_edit`, reject compute commands, and leave the graph unchanged on timeout.
 - `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
@@ -168,11 +168,11 @@ Last reviewed: March 25, 2026.
 - `A-MCP-04` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `connections_list` and `filterConnections` narrow graph connections by `nodeId` and `targetPort`.
 - `A-MCP-05` `packages/mcp-server/tests/graphBulkEditRegistry.test.ts`: MCP `graph_query` validates requests with the shared `GraphQueryRequestSchema` and forwards the normalized payload to backend.
 - `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP `graph_screenshot_region` matches direct frontend canvas capture, respects requested bitmap dimensions, and works when loading the graph from backend.
-- `A-MCP-07` `packages/mcp-server/tests/mcpDocumentationResources.test.ts`: MCP publishes documentation resources/templates for command schema, query schema, annotation workflow examples, and algo-injection docs/examples.
-- `A-MCP-08` `packages/mcp-server/tests/algoInjectionTools.test.ts`: MCP algo injection tools register correctly, forward registration payloads, and resolve `algoName` before delete/run calls.
+- `A-MCP-07` `packages/mcp-server/tests/mcpDocumentationResources.test.ts`: MCP publishes documentation resources/templates for command schema, query schema, annotation workflow examples, and transient wasm-invocation docs/examples.
+- `A-MCP-08` `packages/mcp-server/tests/algoInjectionTools.test.ts`: MCP exposes only transient `algo_injection_run` and forwards the absolute-path invocation payload to the backend.
 ## MCP Coverage Notes
 - Backend/MCP tests cover `graph_create` producing an empty graph and `bulk_edit` forwarding ordered `GraphCommand[]` batches (including compute commands) to the backend command service.
-- Backend/MCP tests cover graph-scoped wasm algo injection registration, invocation, name resolution, and documentation discoverability.
+- Backend/MCP tests cover transient wasm invocation by absolute path, wasm validation, staged edits, timeout behavior, and documentation discoverability.
 - `packages/mcp-server/tests/screenshotParity.test.ts` ensures `graph_screenshot_region` matches direct frontend canvas captures and respects requested bitmap dimensions.
 
 ## Manual Regression Test Cases
@@ -385,7 +385,7 @@ Last reviewed: March 25, 2026.
 | MCP bulk-edit contract coverage | `A-MCP-02`, `A-MCP-03` | Automated |
 | MCP add-node commands can set initial card dimensions | `A-BE-79` | Automated |
 | MCP read/query helper coverage (`connections_list`, `graph_query`) | `A-MCP-04`, `A-MCP-05` | Automated |
-| MCP wasm algo injection coverage | `A-BE-77`, `A-BE-78`, `A-MCP-08` | Automated |
+| MCP wasm invocation coverage | `A-BE-77`, `A-BE-78`, `A-MCP-08` | Automated |
 | MCP documentation resource/template coverage | `A-MCP-07` | Automated |
 | MCP internal rectangle screenshot (`graph_screenshot_region`) | `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 

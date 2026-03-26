@@ -40,7 +40,6 @@ export function createGraphDocument(input: CreateGraphDocumentInput): GraphType 
     activeProjectionId: projectionState.activeProjectionId,
     cameras: normalizeGraphCameras(undefined),
     pythonEnvs: [],
-    algoInjections: [],
     drawings: [],
     createdAt: now,
     updatedAt: now,

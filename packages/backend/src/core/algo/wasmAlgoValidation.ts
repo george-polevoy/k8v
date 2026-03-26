@@ -1,4 +1,3 @@
-import { isWasmBinary } from '../wasmArtifacts.js';
 import {
   isWasmMemory,
   requireWasmApi,
@@ -23,6 +22,14 @@ export class WasmAlgoValidationError extends Error {
     super(message);
     this.name = 'WasmAlgoValidationError';
   }
+}
+
+function isWasmBinary(buffer: Buffer): boolean {
+  return buffer.byteLength >= 4 &&
+    buffer[0] === 0x00 &&
+    buffer[1] === 0x61 &&
+    buffer[2] === 0x73 &&
+    buffer[3] === 0x6d;
 }
 
 export function createStubAlgoImports(): WasmImports {

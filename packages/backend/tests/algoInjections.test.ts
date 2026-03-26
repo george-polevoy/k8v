@@ -10,18 +10,18 @@ import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { GraphEngine } from '../src/core/GraphEngine.ts';
 import { buildGraphCommandsFromGraphUpdate, type GraphCommand } from '../../domain/dist/index.js';
 import {
-  buildBulkEditAlgoWasmBase64,
-  buildComputeRejectAlgoWasmBase64,
-  buildEchoAlgoWasmBase64,
-  buildGraphGetAlgoWasmBase64,
-  buildGraphQueryAlgoWasmBase64,
-  buildInfiniteLoopAlgoWasmBase64,
-  buildMissingRunAlgoWasmBase64,
+  buildBulkEditAlgoWasmBuffer,
+  buildComputeRejectAlgoWasmBuffer,
+  buildGraphGetAlgoWasmBuffer,
+  buildGraphQueryAlgoWasmBuffer,
+  buildInfiniteLoopAlgoWasmBuffer,
+  buildMissingRunAlgoWasmBuffer,
 } from './wasmTestUtils.ts';
 
 interface AppTestContext {
   baseUrl: string;
   dataStore: DataStore;
+  tmpDir: string;
   close: () => Promise<void>;
 }
 
@@ -49,7 +49,7 @@ function createNumericInputNode(id: string, value: number) {
 }
 
 async function setupTestServer(): Promise<AppTestContext> {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-algo-injection-test-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-algo-invocation-test-'));
   const dataStore = new DataStore(':memory:', tmpDir);
   const nodeExecutor = new NodeExecutor(dataStore);
   const graphEngine = new GraphEngine(dataStore, nodeExecutor);
@@ -60,12 +60,19 @@ async function setupTestServer(): Promise<AppTestContext> {
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     dataStore,
+    tmpDir,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       dataStore.close();
       await fs.rm(tmpDir, { recursive: true, force: true });
     },
   };
+}
+
+async function writeWasmFile(tmpDir: string, fileName: string, buffer: Buffer): Promise<string> {
+  const wasmPath = path.join(tmpDir, fileName);
+  await fs.writeFile(wasmPath, buffer);
+  return wasmPath;
 }
 
 async function fetchGraph(baseUrl: string, graphId: string) {
@@ -120,128 +127,80 @@ async function createGraph(
   return await fetchGraph(baseUrl, created.id);
 }
 
-async function registerAlgoInjection(params: {
-  baseUrl: string;
-  graphId: string;
-  name: string;
-  wasmBase64: string;
-  entrypoint?: string;
-}) {
-  return await fetch(`${params.baseUrl}/api/graphs/${params.graphId}/algos`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: params.name,
-      wasmBase64: params.wasmBase64,
-      entrypoint: params.entrypoint,
-    }),
-  });
-}
-
 async function invokeAlgoInjection(params: {
   baseUrl: string;
   graphId: string;
-  algoId: string;
+  wasmPath: string;
+  entrypoint?: string;
   input?: unknown;
   noRecompute?: boolean;
 }) {
-  return await fetch(`${params.baseUrl}/api/graphs/${params.graphId}/algos/${params.algoId}/invoke`, {
+  return await fetch(`${params.baseUrl}/api/graphs/${params.graphId}/algo/invoke`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      wasmPath: params.wasmPath,
+      entrypoint: params.entrypoint,
       input: params.input,
       noRecompute: params.noRecompute,
     }),
   });
 }
 
-test('algo injection registration, listing, and deletion manage graph-scoped wasm metadata', async () => {
+test('algo invoke requires an absolute wasm path and validates the requested entrypoint', async () => {
   const context = await setupTestServer();
   try {
-    const graph = await createGraph(context.baseUrl, 'algo-registration');
-    const wasmBase64 = await buildEchoAlgoWasmBase64();
+    const graph = await createGraph(context.baseUrl, 'algo-invalid-invoke');
 
-    const registerResponse = await registerAlgoInjection({
+    const relativePath = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: graph.id,
-      name: 'echo',
-      wasmBase64,
+      wasmPath: 'relative/module.wasm',
     });
-    assert.equal(registerResponse.status, 200);
-    const registered = await registerResponse.json();
-    assert.equal(registered.algoInjection.name, 'echo');
+    assert.equal(relativePath.status, 400);
+    const relativePayload = await relativePath.json();
+    assert.match(relativePayload.error, /absolute filesystem path/i);
 
-    const listResponse = await fetch(`${context.baseUrl}/api/graphs/${graph.id}/algos`);
-    assert.equal(listResponse.status, 200);
-    const listed = await listResponse.json();
-    assert.equal(listed.algoInjections.length, 1);
-    assert.equal(listed.algoInjections[0].entrypoint, 'run');
-
-    const deleteResponse = await fetch(
-      `${context.baseUrl}/api/graphs/${graph.id}/algos/${registered.algoInjection.id}`,
-      { method: 'DELETE' }
+    const missingRunPath = await writeWasmFile(
+      context.tmpDir,
+      'missing-run.wasm',
+      await buildMissingRunAlgoWasmBuffer()
     );
-    assert.equal(deleteResponse.status, 200);
-    const deleted = await deleteResponse.json();
-    assert.equal(deleted.deletedAlgoInjection.id, registered.algoInjection.id);
-
-    const afterDelete = await fetch(`${context.baseUrl}/api/graphs/${graph.id}/algos`).then((response) => response.json());
-    assert.deepEqual(afterDelete.algoInjections, []);
-    assert.equal(await context.dataStore.getWasmArtifact(registered.algoInjection.artifactId), null);
-  } finally {
-    await context.close();
-  }
-});
-
-test('algo injection registration rejects malformed base64 and missing run export', async () => {
-  const context = await setupTestServer();
-  try {
-    const graph = await createGraph(context.baseUrl, 'algo-invalid-registration');
-
-    const badBase64 = await registerAlgoInjection({
+    const missingRun = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: graph.id,
-      name: 'bad-base64',
-      wasmBase64: 'not-base64!',
-    });
-    assert.equal(badBase64.status, 400);
-
-    const missingRun = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      name: 'missing-run',
-      wasmBase64: await buildMissingRunAlgoWasmBase64(),
+      wasmPath: missingRunPath,
     });
     assert.equal(missingRun.status, 400);
-    const payload = await missingRun.json();
-    assert.match(payload.error, /must export run/i);
+    const missingRunPayload = await missingRun.json();
+    assert.match(missingRunPayload.error, /must export run/i);
   } finally {
     await context.close();
   }
 });
 
-test('algo injection invoke returns JSON output and can read graph state through graph_get', async () => {
+test('algo invoke returns JSON output and can read graph state through graph_get', async () => {
   const context = await setupTestServer();
   try {
     const graph = await createGraph(context.baseUrl, 'algo-graph-get', {
       nodes: [createNumericInputNode('n-1', 7)],
     });
-    const registerResponse = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      name: 'graph-get',
-      wasmBase64: await buildGraphGetAlgoWasmBase64(),
-    });
-    const registered = await registerResponse.json();
+    const wasmPath = await writeWasmFile(
+      context.tmpDir,
+      'graph-get.wasm',
+      await buildGraphGetAlgoWasmBuffer()
+    );
 
     const invokeResponse = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: graph.id,
-      algoId: registered.algoInjection.id,
+      wasmPath,
       input: { ignored: true },
     });
     assert.equal(invokeResponse.status, 200);
     const invoked = await invokeResponse.json();
+    assert.equal(invoked.wasmPath, wasmPath);
+    assert.equal(invoked.entrypoint, 'run');
     assert.equal(invoked.result.id, graph.id);
     assert.equal(invoked.result.nodes.length, 1);
     assert.deepEqual(invoked.stagedCommands, []);
@@ -250,40 +209,34 @@ test('algo injection invoke returns JSON output and can read graph state through
   }
 });
 
-test('algo injection invoke can call graph_query and bulk_edit stages are committed once', async () => {
+test('algo invoke can call graph_query and bulk_edit stages are committed once', async () => {
   const context = await setupTestServer();
   try {
     const graph = await createGraph(context.baseUrl, 'algo-query-edit', {
       nodes: [createNumericInputNode('n-1', 9)],
     });
 
-    const queryRegister = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      name: 'query',
-      wasmBase64: await buildGraphQueryAlgoWasmBase64(),
-    });
-    const queryAlgo = await queryRegister.json();
     const queryInvoke = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: graph.id,
-      algoId: queryAlgo.algoInjection.id,
+      wasmPath: await writeWasmFile(
+        context.tmpDir,
+        'graph-query.wasm',
+        await buildGraphQueryAlgoWasmBuffer()
+      ),
     });
     assert.equal(queryInvoke.status, 200);
     const queryPayload = await queryInvoke.json();
     assert.equal(queryPayload.result.nodes[0].id, 'n-1');
 
-    const editRegister = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      name: 'rename',
-      wasmBase64: await buildBulkEditAlgoWasmBase64('Renamed by algo'),
-    });
-    const editAlgo = await editRegister.json();
     const editInvoke = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: graph.id,
-      algoId: editAlgo.algoInjection.id,
+      wasmPath: await writeWasmFile(
+        context.tmpDir,
+        'rename.wasm',
+        await buildBulkEditAlgoWasmBuffer('Renamed by algo')
+      ),
       input: { anything: true },
       noRecompute: true,
     });
@@ -299,22 +252,19 @@ test('algo injection invoke can call graph_query and bulk_edit stages are commit
   }
 });
 
-test('algo injection invoke rejects compute commands and preserves graph state on timeout', async () => {
+test('algo invoke rejects compute commands and preserves graph state on timeout', async () => {
   const context = await setupTestServer();
   try {
     const rejectGraph = await createGraph(context.baseUrl, 'algo-reject-timeout');
 
-    const rejectRegister = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: rejectGraph.id,
-      name: 'reject-compute',
-      wasmBase64: await buildComputeRejectAlgoWasmBase64(),
-    });
-    const rejectAlgo = await rejectRegister.json();
     const rejectInvoke = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: rejectGraph.id,
-      algoId: rejectAlgo.algoInjection.id,
+      wasmPath: await writeWasmFile(
+        context.tmpDir,
+        'reject-compute.wasm',
+        await buildComputeRejectAlgoWasmBuffer()
+      ),
     });
     assert.equal(rejectInvoke.status, 400);
     const rejectPayload = await rejectInvoke.json();
@@ -323,17 +273,14 @@ test('algo injection invoke rejects compute commands and preserves graph state o
     const timeoutGraph = await createGraph(context.baseUrl, 'algo-timeout', {
       executionTimeoutMs: 25,
     });
-    const timeoutRegister = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: timeoutGraph.id,
-      name: 'timeout',
-      wasmBase64: await buildInfiniteLoopAlgoWasmBase64(),
-    });
-    const timeoutAlgo = await timeoutRegister.json();
     const timeoutInvoke = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
       graphId: timeoutGraph.id,
-      algoId: timeoutAlgo.algoInjection.id,
+      wasmPath: await writeWasmFile(
+        context.tmpDir,
+        'timeout.wasm',
+        await buildInfiniteLoopAlgoWasmBuffer()
+      ),
     });
     assert.equal(timeoutInvoke.status, 400);
     const timeoutPayload = await timeoutInvoke.json();
@@ -341,29 +288,6 @@ test('algo injection invoke rejects compute commands and preserves graph state o
 
     const afterTimeout = await fetchGraph(context.baseUrl, timeoutGraph.id);
     assert.equal(afterTimeout.name, timeoutGraph.name);
-  } finally {
-    await context.close();
-  }
-});
-
-test('deleting a graph removes associated algo injection artifacts', async () => {
-  const context = await setupTestServer();
-  try {
-    const graph = await createGraph(context.baseUrl, 'algo-graph-delete');
-    const registerResponse = await registerAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      name: 'echo',
-      wasmBase64: await buildEchoAlgoWasmBase64(),
-    });
-    const registered = await registerResponse.json();
-    assert.ok(await context.dataStore.getWasmArtifact(registered.algoInjection.artifactId));
-
-    const deleteResponse = await fetch(`${context.baseUrl}/api/graphs/${graph.id}`, {
-      method: 'DELETE',
-    });
-    assert.equal(deleteResponse.status, 204);
-    assert.equal(await context.dataStore.getWasmArtifact(registered.algoInjection.artifactId), null);
   } finally {
     await context.close();
   }
