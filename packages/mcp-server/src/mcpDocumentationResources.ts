@@ -152,6 +152,7 @@ function buildAlgoInjectionsText(): string {
     '- Call `algo_injection_run` with `graphId`, an absolute `wasmPath`, and optional `entrypoint`/`input`.',
     '- The `wasmPath` must be readable by the backend host process. This flow assumes the MCP server and backend share filesystem access.',
     '- The wasm module must export `memory`, `alloc`, and a JSON entrypoint (default `run`).',
+    '- Successful invocation responses are intentionally minimal: `status` and `commandCount` only.',
     '- `bulk_edit` calls made by the module are staged during execution and committed once after successful completion.',
     '- `compute_graph` and `compute_node` are rejected inside algo-hosted `bulk_edit`.',
   ].join('\n');

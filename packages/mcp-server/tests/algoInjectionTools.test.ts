@@ -61,8 +61,8 @@ test('algo_injection_run is the only MCP algo tool and forwards the transient in
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
     return new Response(JSON.stringify({
-      result: { ok: true },
-      stagedCommands: [],
+      status: 'ok',
+      commandCount: 1,
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -78,7 +78,7 @@ test('algo_injection_run is the only MCP algo tool and forwards the transient in
       noRecompute: true,
       backendUrl: 'http://backend.test',
     });
-    const parsed = parseToolJson(result) as { result: { ok: boolean } };
+    const parsed = parseToolJson(result) as { status: string; commandCount: number };
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/algo/invoke');
@@ -89,7 +89,8 @@ test('algo_injection_run is the only MCP algo tool and forwards the transient in
       input: { nextName: 'Renamed by wasm' },
       noRecompute: true,
     });
-    assert.equal(parsed.result.ok, true);
+    assert.equal(parsed.status, 'ok');
+    assert.equal(parsed.commandCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

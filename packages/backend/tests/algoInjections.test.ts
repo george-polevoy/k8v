@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { AddressInfo } from 'node:net';
 import { createApp } from '../src/app.ts';
+import { runWasmAlgoSandbox } from '../src/core/algo/WasmAlgoSandbox.ts';
 import { DataStore } from '../src/core/DataStore.ts';
 import { NodeExecutor } from '../src/core/NodeExecutor.ts';
 import { GraphEngine } from '../src/core/GraphEngine.ts';
@@ -179,7 +180,7 @@ test('algo invoke requires an absolute wasm path and validates the requested ent
   }
 });
 
-test('algo invoke returns JSON output and can read graph state through graph_get', async () => {
+test('sandboxed algo can read graph state through graph_get without exposing it in HTTP responses', async () => {
   const context = await setupTestServer();
   try {
     const graph = await createGraph(context.baseUrl, 'algo-graph-get', {
@@ -190,6 +191,19 @@ test('algo invoke returns JSON output and can read graph state through graph_get
       'graph-get.wasm',
       await buildGraphGetAlgoWasmBuffer()
     );
+    const sandboxGraph = await context.dataStore.getGraph(graph.id);
+    assert.ok(sandboxGraph);
+
+    const result = await runWasmAlgoSandbox({
+      graph: sandboxGraph,
+      wasm: await fs.readFile(wasmPath),
+      entrypoint: 'run',
+      input: { ignored: true },
+      timeoutMs: sandboxGraph.executionTimeoutMs ?? 30_000,
+    });
+    assert.equal((result.result as { id: string }).id, graph.id);
+    assert.equal((result.result as { nodes: unknown[] }).nodes.length, 1);
+    assert.deepEqual(result.stagedCommands, []);
 
     const invokeResponse = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
@@ -198,36 +212,33 @@ test('algo invoke returns JSON output and can read graph state through graph_get
       input: { ignored: true },
     });
     assert.equal(invokeResponse.status, 200);
-    const invoked = await invokeResponse.json();
-    assert.equal(invoked.wasmPath, wasmPath);
-    assert.equal(invoked.entrypoint, 'run');
-    assert.equal(invoked.result.id, graph.id);
-    assert.equal(invoked.result.nodes.length, 1);
-    assert.deepEqual(invoked.stagedCommands, []);
+    const invokePayload = await invokeResponse.json();
+    assert.deepEqual(invokePayload, {
+      status: 'ok',
+      commandCount: 0,
+    });
   } finally {
     await context.close();
   }
 });
 
-test('algo invoke can call graph_query and bulk_edit stages are committed once', async () => {
+test('sandboxed algo can call graph_query and HTTP invoke returns only status and command count', async () => {
   const context = await setupTestServer();
   try {
     const graph = await createGraph(context.baseUrl, 'algo-query-edit', {
       nodes: [createNumericInputNode('n-1', 9)],
     });
 
-    const queryInvoke = await invokeAlgoInjection({
-      baseUrl: context.baseUrl,
-      graphId: graph.id,
-      wasmPath: await writeWasmFile(
-        context.tmpDir,
-        'graph-query.wasm',
-        await buildGraphQueryAlgoWasmBuffer()
-      ),
+    const sandboxGraph = await context.dataStore.getGraph(graph.id);
+    assert.ok(sandboxGraph);
+    const queryResult = await runWasmAlgoSandbox({
+      graph: sandboxGraph,
+      wasm: await buildGraphQueryAlgoWasmBuffer(),
+      entrypoint: 'run',
+      input: undefined,
+      timeoutMs: sandboxGraph.executionTimeoutMs ?? 30_000,
     });
-    assert.equal(queryInvoke.status, 200);
-    const queryPayload = await queryInvoke.json();
-    assert.equal(queryPayload.result.nodes[0].id, 'n-1');
+    assert.equal((queryResult.result as { nodes: Array<{ id: string }> }).nodes[0]?.id, 'n-1');
 
     const editInvoke = await invokeAlgoInjection({
       baseUrl: context.baseUrl,
@@ -242,10 +253,13 @@ test('algo invoke can call graph_query and bulk_edit stages are committed once',
     });
     assert.equal(editInvoke.status, 200);
     const editPayload = await editInvoke.json();
-    assert.equal(editPayload.stagedCommands.length, 1);
-    assert.equal(editPayload.graph.name, 'Renamed by algo');
+    assert.deepEqual(editPayload, {
+      status: 'ok',
+      commandCount: 1,
+    });
 
     const renamedGraph = await fetchGraph(context.baseUrl, graph.id);
+    assert.equal(renamedGraph.revision, graph.revision + 1);
     assert.equal(renamedGraph.name, 'Renamed by algo');
   } finally {
     await context.close();

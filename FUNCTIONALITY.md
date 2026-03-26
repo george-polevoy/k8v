@@ -189,7 +189,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `graph_create` is the only non-bulk mutator, creating an empty graph with defaults and no seeded nodes/connections.
 - `bulk_edit` is the single graph mutation surface: it accepts ordered backend/domain `GraphCommand[]` (including compute commands) and applies them sequentially through the backend command service.
 - `node_add_inline`, `node_add_numeric_input`, and `node_add_annotation` accept optional initial `cardWidth` and `cardHeight` values so agents can size cards before first render.
-- MCP exposes transient wasm algo invocation via `algo_injection_run`, which accepts an absolute `wasmPath` plus optional `entrypoint` and `input`.
+- MCP exposes transient wasm algo invocation via `algo_injection_run`, which accepts an absolute `wasmPath` plus optional `entrypoint` and `input`, and returns only `status` and `commandCount`.
 - The backend validates the wasm module on each invocation using a fixed JSON wasm ABI (`memory`, `alloc`, and `run` by default) plus a fixed capability-based host API: `graph_get`, `graph_query`, and staged `bulk_edit`.
 - Algo-hosted `bulk_edit` batches are staged during wasm execution and committed once on success; `compute_graph` and `compute_node` are rejected from inside the sandbox.
 - The invoked wasm runs in an isolated child-process sandbox with no generic filesystem or outbound network access.

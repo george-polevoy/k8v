@@ -160,7 +160,7 @@ Last reviewed: March 25, 2026.
 - `A-BE-75` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` preserves the default camera when a camera update would otherwise remove all cameras.
 - `A-BE-76` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/query` can project annotation-oriented node fields including `position`, `cardSize`, `annotationText`, and `config`.
 - `A-BE-77` `packages/backend/tests/algoInjections.test.ts`: backend transient wasm invocation requires an absolute file path and validates the requested entrypoint before execution.
-- `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: backend transient wasm invocation can read via `graph_get`, query via `graph_query`, stage `bulk_edit`, reject compute commands, and leave the graph unchanged on timeout.
+- `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: sandboxed wasm can read via `graph_get`/`graph_query`, while backend transient wasm invocation returns only minimal execution status and command count, stages `bulk_edit`, rejects compute commands, and leaves the graph unchanged on timeout.
 - `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.

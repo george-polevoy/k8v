@@ -1,10 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  type GraphCommand,
-  type GraphRuntimeState,
   normalizeGraphExecutionTimeoutMs,
-  type Graph as GraphType,
 } from '../types/index.js';
 import { GraphCommandService } from './GraphCommandService.js';
 import { DataStore } from './DataStore.js';
@@ -42,12 +39,8 @@ export class WasmAlgoService {
     input: unknown;
     noRecompute?: boolean;
   }): Promise<{
-    wasmPath: string;
-    entrypoint: string;
-    result: unknown;
-    stagedCommands: GraphCommand[];
-    graph: GraphType;
-    runtimeState: GraphRuntimeState;
+    status: 'ok';
+    commandCount: number;
   }> {
     const graph = await this.requireGraph(params.graphId);
     const resolvedWasmPath = await resolveWasmPath(params.wasmPath);
@@ -91,16 +84,12 @@ export class WasmAlgoService {
 
     if (sandboxResult.stagedCommands.length === 0) {
       return {
-        wasmPath: resolvedWasmPath,
-        entrypoint,
-        result: sandboxResult.result,
-        stagedCommands: sandboxResult.stagedCommands,
-        graph,
-        runtimeState: await this.graphCommandService.buildRuntimeState(graph),
+        status: 'ok',
+        commandCount: 0,
       };
     }
 
-    const commandResponse = await this.graphCommandService.executeCommands(
+    await this.graphCommandService.executeCommands(
       graph.id,
       graph.revision,
       sandboxResult.stagedCommands,
@@ -110,16 +99,12 @@ export class WasmAlgoService {
     );
 
     return {
-      wasmPath: resolvedWasmPath,
-      entrypoint,
-      result: sandboxResult.result,
-      stagedCommands: sandboxResult.stagedCommands,
-      graph: commandResponse.graph,
-      runtimeState: commandResponse.runtimeState,
+      status: 'ok',
+      commandCount: sandboxResult.stagedCommands.length,
     };
   }
 
-  private async requireGraph(graphId: string): Promise<GraphType> {
+  private async requireGraph(graphId: string) {
     const graph = await this.dataStore.getGraph(graphId);
     if (!graph) {
       throw new Error(`Graph ${graphId} not found`);
