@@ -4,6 +4,8 @@ export interface ExecutionRequest {
   timeoutMs?: number;
   pythonBin?: string;
   cwd?: string;
+  graphId?: string;
+  workerConcurrencyHint?: number;
 }
 
 export interface ExecutionResult {

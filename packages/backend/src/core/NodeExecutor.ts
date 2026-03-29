@@ -11,6 +11,7 @@ import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
 import { PythonProcessRuntime } from './execution/PythonProcessRuntime.js';
+import { clampRecomputeConcurrency } from './recompute/recomputePlanning.js';
 
 /**
  * Executes nodes and produces computation results
@@ -98,6 +99,8 @@ export class NodeExecutor {
       code: node.config.code,
       inputs,
       timeoutMs: this.resolveTimeoutMs(graph),
+      graphId: graph?.id,
+      workerConcurrencyHint: clampRecomputeConcurrency(graph?.recomputeConcurrency),
       ...pythonExecutionContext,
     });
 
@@ -218,9 +221,10 @@ export class NodeExecutor {
   private initializeRuntimes(
     runtimeOrRegistry?: ExecutionRuntime | Record<string, ExecutionRuntime>
   ): Map<string, ExecutionRuntime> {
+    const pythonRuntime = new PythonProcessRuntime();
     const builtInRuntimes: Record<string, ExecutionRuntime> = {
       [DEFAULT_RUNTIME_ID]: new JavaScriptVmRuntime(),
-      [PYTHON_RUNTIME_ID]: new PythonProcessRuntime(),
+      [PYTHON_RUNTIME_ID]: pythonRuntime,
     };
 
     if (!runtimeOrRegistry) {
@@ -241,6 +245,20 @@ export class NodeExecutor {
       ...runtimeOrRegistry,
     };
     return new Map(Object.entries(runtimeRegistry));
+  }
+
+  async disposeGraphExecutionResources(graphId: string): Promise<void> {
+    const pythonRuntime = this.runtimes.get(PYTHON_RUNTIME_ID);
+    if (pythonRuntime instanceof PythonProcessRuntime) {
+      await pythonRuntime.dropGraph(graphId);
+    }
+  }
+
+  async dispose(): Promise<void> {
+    const pythonRuntime = this.runtimes.get(PYTHON_RUNTIME_ID);
+    if (pythonRuntime instanceof PythonProcessRuntime) {
+      await pythonRuntime.dispose();
+    }
   }
 
   private isExecutionRuntime(

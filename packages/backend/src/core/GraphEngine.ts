@@ -202,6 +202,14 @@ export class GraphEngine {
     this.manualRecomputeVersionByNodeId.clear();
   }
 
+  async disposeGraphExecutionResources(graphId: string): Promise<void> {
+    await this.nodeExecutor.disposeGraphExecutionResources(graphId);
+  }
+
+  async dispose(): Promise<void> {
+    await this.nodeExecutor.dispose();
+  }
+
   private async getCachedOrStoredResult(graphId: string, nodeId: string): Promise<ComputationResult | null> {
     const cacheKey = this.makeCacheKey(graphId, nodeId);
     const cached = this.computationCache.get(cacheKey);

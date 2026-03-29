@@ -64,6 +64,7 @@ async function setupTestServer(): Promise<AppTestContext> {
     tmpDir,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await graphEngine.dispose();
       dataStore.close();
       await fs.rm(tmpDir, { recursive: true, force: true });
     },

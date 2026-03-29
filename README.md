@@ -24,7 +24,7 @@ k8v is an infinite canvas flow-based modeling software similar to Miro, but desi
 - **Auto Recompute Toggle**: Opt-in downstream recompute when upstream nodes change
 - **Persistent Drawings**: Create named drawing objects, draw paths into selected drawing, drag by handle, rename, and delete
 - **MCP Agent API**: Backend MCP server exposes empty-graph creation, ordered `GraphCommand[]` mutations via `bulk_edit`, transient wasm algo invocation by absolute path, and internal rectangular screenshots
-- **Python Runtime**: Inline nodes can execute with backend `python_process` runtime
+- **Python Runtime**: Inline nodes can execute with backend `python_process` runtime backed by warm per-graph/per-env Python services
 - **Graph Python Envs**: Graphs can define named Python envs (`name`, `pythonPath`, `cwd`) and Python nodes can bind to them via `pythonEnv`
 - **Python PNG Outputs**: Python nodes can render PNG graphics from data URLs, raw base64, or raw bytes via output helpers
 - **Canvas Output Projection**: `python_process` nodes project latest graphics output directly below the node card on canvas

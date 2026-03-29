@@ -169,12 +169,13 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - NodeExecutor supports inline code, numeric input, and annotation node types.
 - `annotation` nodes are presentation-only and excluded from backend recompute execution.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`) retained as an interim runtime, not a production isolation boundary.
-- Additional inline runtime: Python subprocess runtime (`python_process`) for backend execution.
+- Additional inline runtime: Python warm-service runtime (`python_process`) for backend execution.
 - Graph-level script execution timeout (`executionTimeoutMs`) defaults to 30 seconds and is editable in graph settings.
 - Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.
 - Python runtime supports `inputs`, `outputs`, `print`/`log`, `outputGraphics`/`outputImage`, timeout, and error capture.
 - Python runtime normalizes PNG outputs from bytes/base64 and provides `outputPng`/`outputPNG` helpers for image rendering.
 - Python runtime accepts per-execution `pythonBin` and `cwd` overrides, enabling node-level env selection.
+- Python execution reuses warm graph/env-scoped worker pools and sizes pool capacity from graph `recomputeConcurrency`.
 - Pluggable runtime architecture is in place for future runtimes.
 - Reusable library nodes are not implemented and are not currently triaged.
 - Reusable subgraph packaging remains future roadmap work, not current functionality.

@@ -9,8 +9,8 @@ import { RecomputeManager } from './core/RecomputeManager.js';
 import { createGraphRouter } from './routes/graphRoutes.js';
 
 interface AppDependencies {
-  dataStore: DataStore;
-  graphEngine: GraphEngine;
+  dataStore?: DataStore;
+  graphEngine?: GraphEngine;
 }
 
 const JSON_BODY_LIMIT = '10mb';
@@ -29,7 +29,7 @@ export function createApp(deps?: AppDependencies) {
     deps?.graphEngine ?? new GraphEngine(dataStore, new NodeExecutor(dataStore));
   const eventBroker = new GraphEventBroker();
   const recomputeManager = new RecomputeManager(dataStore, graphEngine, eventBroker);
-  app.use('/api/graphs', createGraphRouter({ dataStore, recomputeManager, eventBroker }));
+  app.use('/api/graphs', createGraphRouter({ dataStore, recomputeManager, eventBroker, graphEngine }));
 
   app.get('/api/graphics/:id', async (req, res) => {
     try {

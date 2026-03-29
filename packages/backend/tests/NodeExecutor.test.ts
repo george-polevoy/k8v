@@ -170,6 +170,7 @@ test('NodeExecutor uses graph-level execution timeout for inline code', async ()
     name: 'Graph timeout',
     nodes: [node],
     connections: [],
+    recomputeConcurrency: 3,
     executionTimeoutMs: 45_000,
     pythonEnvs: [],
     drawings: [],
@@ -181,7 +182,10 @@ test('NodeExecutor uses graph-level execution timeout for inline code', async ()
     await executor.execute(node, { input: 5 }, graph);
     assert.equal(runtime.calls, 1);
     assert.equal(runtime.lastRequest?.timeoutMs, 45_000);
+    assert.equal(runtime.lastRequest?.graphId, 'graph-timeout');
+    assert.equal(runtime.lastRequest?.workerConcurrencyHint, 3);
   } finally {
+    await executor.dispose();
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -219,6 +223,7 @@ test('NodeExecutor can execute inline node with python_process runtime', { skip:
     const result = await executor.execute(pythonNode, { input: 7 });
     assert.equal(result.outputs.output, 21);
   } finally {
+    await executor.dispose();
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -248,7 +253,10 @@ test('NodeExecutor passes graph-scoped python env pythonPath and cwd to runtime'
     assert.equal(pythonRuntime.calls, 1);
     assert.equal(pythonRuntime.lastRequest?.pythonBin, '/tmp/fake-python');
     assert.equal(pythonRuntime.lastRequest?.cwd, '/tmp/fake-workdir');
+    assert.equal(pythonRuntime.lastRequest?.graphId, 'graph-1');
+    assert.equal(pythonRuntime.lastRequest?.workerConcurrencyHint, 1);
   } finally {
+    await executor.dispose();
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -278,6 +286,7 @@ test('NodeExecutor throws when python env name is missing from graph', async () 
       /unknown python environment/i
     );
   } finally {
+    await executor.dispose();
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -301,6 +310,7 @@ test('NodeExecutor throws when python env is set on non-python runtime node', as
       /runtime .* is not 'python_process'/i
     );
   } finally {
+    await executor.dispose();
     dataStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

@@ -24,11 +24,13 @@ import {
   GraphQueryRequest,
   GraphQueryRequestSchema,
 } from '../types/index.js';
+import { GraphEngine } from '../core/GraphEngine.js';
 
 interface GraphRoutesDependencies {
   dataStore: DataStore;
   recomputeManager: RecomputeManager;
   eventBroker: GraphEventBroker;
+  graphEngine: GraphEngine;
 }
 
 const CreateGraphSchema = z.object({
@@ -56,7 +58,7 @@ function isTruthyQueryFlag(value: unknown): boolean {
 }
 
 export function createGraphRouter(deps: GraphRoutesDependencies): Router {
-  const { dataStore, recomputeManager, eventBroker } = deps;
+  const { dataStore, recomputeManager, eventBroker, graphEngine } = deps;
   const graphCommandService = new GraphCommandService(dataStore, recomputeManager, eventBroker);
   const wasmAlgoService = new WasmAlgoService(dataStore, graphCommandService);
   const router = Router();
@@ -258,6 +260,7 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
       if (!deleted) {
         return res.status(404).json({ error: 'Graph not found' });
       }
+      await graphEngine.disposeGraphExecutionResources(req.params.id);
       recomputeManager.dropGraphState(req.params.id);
       res.status(204).send();
     } catch (error: any) {

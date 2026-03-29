@@ -242,10 +242,11 @@ interface NodeConfig {
 Current implementation status:
 - `ExecutionRuntime` interface is wired into `NodeExecutor`
 - `JavaScriptVmRuntime` (`node:vm`) provides interim execution with timeout support and should be treated as a development/intermediate runtime rather than a production isolation boundary
-- `PythonProcessRuntime` (`python_process`) provides interim Python execution via spawned process with timeout support
+- `PythonProcessRuntime` (`python_process`) provides interim Python execution via warm graph/env-scoped Python services with timeout-enforced worker recycling
 - Runtime timeout is graph-scoped via `graph.executionTimeoutMs` (default: `30000`)
 - Runtime can be selected per node via `node.config.runtime` (defaults to `javascript_vm`)
 - Python execution can resolve per-node graph env bindings via `graph.pythonEnvs[]` + `node.config.pythonEnv` (`pythonPath` and `cwd`)
+- Warm Python pool size follows graph `recomputeConcurrency`
 - Backend rejects unregistered runtime identifiers during execution
 - Next security milestone is `isolated-vm` or stronger isolation runtime
 
