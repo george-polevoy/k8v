@@ -1,10 +1,14 @@
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const STORAGE_SCHEMA_VERSION = 3;
 export const STORAGE_DB_FILE_NAME = 'k8v.sqlite';
 export const STORAGE_ARTIFACTS_DIR_NAME = 'artifacts';
+
+const STORAGE_MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+export const DEFAULT_STORAGE_BASE_DIR = path.resolve(STORAGE_MODULE_DIR, '../../../../../storage');
 
 export interface VersionedStorageLayout {
   storageRoot: string;
@@ -40,7 +44,9 @@ function readSchemaVersion(dbPath: string): number | null {
   }
 }
 
-export function resolveVersionedStorageLayout(baseDir = './storage'): VersionedStorageLayout {
+export function resolveVersionedStorageLayout(
+  baseDir = DEFAULT_STORAGE_BASE_DIR
+): VersionedStorageLayout {
   const storageRoot = path.resolve(baseDir, `v${STORAGE_SCHEMA_VERSION}`);
   return {
     storageRoot,
@@ -49,7 +55,9 @@ export function resolveVersionedStorageLayout(baseDir = './storage'): VersionedS
   };
 }
 
-export function prepareVersionedStorageLayout(baseDir = './storage'): VersionedStorageLayout {
+export function prepareVersionedStorageLayout(
+  baseDir = DEFAULT_STORAGE_BASE_DIR
+): VersionedStorageLayout {
   const layout = resolveVersionedStorageLayout(baseDir);
   fs.mkdirSync(path.dirname(layout.storageRoot), { recursive: true });
 

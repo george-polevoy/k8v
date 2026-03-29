@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import Database from 'better-sqlite3';
 import {
+  DEFAULT_STORAGE_BASE_DIR,
   STORAGE_SCHEMA_VERSION,
   initializeDataStoreDatabase,
   prepareVersionedStorageLayout,
@@ -50,6 +51,19 @@ test('prepareVersionedStorageLayout initializes the current versioned storage ro
 
     assert.equal(readSchemaVersion(layout.dbPath), String(STORAGE_SCHEMA_VERSION));
   });
+});
+
+test('resolveVersionedStorageLayout defaults to repo-root storage regardless of cwd', () => {
+  const originalCwd = process.cwd();
+  try {
+    process.chdir(path.resolve(originalCwd, 'packages/backend'));
+
+    const layout = resolveVersionedStorageLayout();
+
+    assert.equal(layout.storageRoot, path.join(DEFAULT_STORAGE_BASE_DIR, `v${STORAGE_SCHEMA_VERSION}`));
+  } finally {
+    process.chdir(originalCwd);
+  }
 });
 
 test('prepareVersionedStorageLayout discards a corrupted current-version database root', async () => {

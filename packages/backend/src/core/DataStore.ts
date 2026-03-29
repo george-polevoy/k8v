@@ -16,16 +16,24 @@ export class DataStore {
   private readonly graphicsStore: GraphicsArtifactStore;
 
   constructor(dbPath?: string, artifactsDir?: string) {
-    const resolvedDbPath = dbPath ?? prepareVersionedStorageLayout('./storage').dbPath;
-    const resolvedArtifactsDir = artifactsDir ?? prepareVersionedStorageLayout('./storage').artifactsDir;
+    let persistentStorageLayout: ReturnType<typeof prepareVersionedStorageLayout> | null = null;
+    const getPersistentStorageLayout = () => {
+      persistentStorageLayout ??= prepareVersionedStorageLayout();
+      return persistentStorageLayout;
+    };
+    const usesInMemoryDatabase = dbPath === ':memory:';
+    const resolvedDbPath = dbPath ?? getPersistentStorageLayout().dbPath;
+    const resolvedArtifactsDir =
+      artifactsDir ??
+      (usesInMemoryDatabase
+        ? path.resolve('./tmp/k8v-memory-artifacts')
+        : getPersistentStorageLayout().artifactsDir);
 
-    if (resolvedDbPath !== ':memory:') {
+    if (!usesInMemoryDatabase) {
       this.graphicsStore = new GraphicsArtifactStore(resolvedArtifactsDir);
       this.db = new Database(resolvedDbPath);
     } else {
-      this.graphicsStore = new GraphicsArtifactStore(
-        artifactsDir ?? path.resolve('./tmp/k8v-memory-artifacts')
-      );
+      this.graphicsStore = new GraphicsArtifactStore(resolvedArtifactsDir);
       this.db = new Database(':memory:');
     }
 
