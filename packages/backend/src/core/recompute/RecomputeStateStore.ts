@@ -18,6 +18,8 @@ export class RecomputeStateStore {
       isProcessing: false,
       statusVersion: 0,
       queue: [],
+      activeTaskNodeIds: [],
+      activeTaskGraphRevision: null,
       nodeStates: {},
     };
 
@@ -59,7 +61,7 @@ export class RecomputeStateStore {
     state: GraphRuntimeState,
     nodeId: string,
     patch: Partial<BackendNodeExecutionState>
-  ): void {
+  ): boolean {
     const previousState = state.nodeStates[nodeId] ?? { ...DEFAULT_NODE_STATE };
     const nextState: BackendNodeExecutionState = {
       ...previousState,
@@ -75,23 +77,27 @@ export class RecomputeStateStore {
       previousState.lastRunAt !== nextState.lastRunAt;
 
     if (!changed) {
-      return;
+      return false;
     }
 
     state.nodeStates[nodeId] = nextState;
     state.statusVersion += 1;
+    return true;
   }
 
-  markNodesPending(state: GraphRuntimeState, nodeIds: string[]): void {
+  markNodesPending(state: GraphRuntimeState, nodeIds: string[]): string[] {
+    const changedNodeIds: string[] = [];
     for (const nodeId of nodeIds) {
-      this.patchNodeState(state, nodeId, {
+      if (this.patchNodeState(state, nodeId, {
         isPending: true,
         isComputing: false,
         hasError: false,
         isStale: false,
         errorMessage: null,
-      });
+      })) {
+        changedNodeIds.push(nodeId);
+      }
     }
+    return changedNodeIds;
   }
 }
-

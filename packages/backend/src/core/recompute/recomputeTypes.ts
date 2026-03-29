@@ -25,6 +25,7 @@ export type RecomputeTaskType = 'graph_update' | 'manual_node' | 'manual_graph';
 export interface RecomputeTask {
   type: RecomputeTaskType;
   rootNodeIds: string[];
+  graphRevision?: number;
   recomputeVersion?: number;
   resolve: (summary: RecomputeTaskSummary) => void;
   reject: (error: Error) => void;
@@ -34,6 +35,8 @@ export interface GraphRuntimeState {
   isProcessing: boolean;
   statusVersion: number;
   queue: RecomputeTask[];
+  activeTaskNodeIds: string[];
+  activeTaskGraphRevision: number | null;
   nodeStates: Record<string, BackendNodeExecutionState>;
 }
 
@@ -50,4 +53,3 @@ export const DEFAULT_NODE_STATE: BackendNodeExecutionState = {
   errorMessage: null,
   lastRunAt: null,
 };
-

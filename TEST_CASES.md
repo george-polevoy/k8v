@@ -162,6 +162,8 @@ Last reviewed: March 25, 2026.
 - `A-BE-77` `packages/backend/tests/algoInjections.test.ts`: backend transient wasm invocation requires an absolute file path and validates the requested entrypoint before execution.
 - `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: sandboxed wasm can read via `graph_get`/`graph_query`, while backend transient wasm invocation returns only minimal execution status and command count, stages `bulk_edit`, rejects compute commands, and leaves the graph unchanged on timeout.
 - `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
+- `A-BE-80` `packages/backend/tests/app.test.ts`: rapid graph updates replace older pending graph-update recompute tasks so only the active run plus the latest pending graph-update run remain queued.
+- `A-BE-81` `packages/backend/tests/app.test.ts`: when graph updates collapse pending recompute work, the replacement pending task is rebuilt from the latest graph-wide stale set rather than only the latest change roots.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -358,9 +360,10 @@ Last reviewed: March 25, 2026.
 | Cached frontend node graphics outputs hydrate from persisted results and refresh on compute | `A-FE-12`, `A-FE-13`, `A-FE-14` | Automated |
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
 | Frontend graph updates do not run local auto-recompute chains | `A-FE-05` | Automated |
-| Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
+| Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `A-BE-80`, `A-BE-81`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
 | Graph command API optional recompute suppression (`POST /api/graphs/:id/commands?noRecompute=true`) | `A-BE-55` | Automated |
 | Auto-recompute pending status includes impacted descendants | `A-BE-48`, `M-STATUS-01` | Automated + Manual |
+| Pending graph-update recompute work collapses to the latest graph-wide stale set | `A-BE-80`, `A-BE-81` | Automated |
 | Graph-level recompute worker concurrency is configurable | `A-BE-47`, `A-E2E-11` | Automated |
 | Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
 | Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `M-STATUS-04` | Manual |

@@ -18,6 +18,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Owns backend-driven recomputation scheduling for graph updates and manual recompute requests
 - Delegates task planning and stale-state derivation to `packages/backend/src/core/recompute/`
 - Computes impacted downstream chains and marks all queued descendants as pending before execution
+- Collapses pending graph-update recompute work to the latest graph revision and rebuilds the pending node list from the latest graph-wide stale set
 - Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
 - Uses an internal `RecomputeStateStore` to track node execution state snapshots exposed through graph runtime-state responses and SSE-triggered refreshes
 - Graph command batches can bypass enqueueing update-driven recompute via `POST /api/graphs/:id/commands?noRecompute=true`
@@ -113,6 +114,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Backend recompute queue processing follows upstream-to-downstream topological order.
 - Connections using the presentation pseudo-port / edge anchors are presentation-only: they persist/render on canvas but are excluded from dependency ordering, recompute propagation, and cycle validation.
 - Graph updates can enqueue all impacted auto-recompute descendants as pending before execution starts.
+- A newer graph update replaces any older pending graph-update recompute task and rebuilds pending auto-recompute work from the current graph-wide stale set; currently running work is allowed to finish.
 - When an upstream node is errored, backend recompute skips affected downstream nodes and marks them stale.
 - Circular dependencies are rejected for new graphs and all graph updates.
 

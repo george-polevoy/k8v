@@ -149,6 +149,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Backend marks all impacted recompute nodes as pending before execution begins.
 - Backend recompute queue processes nodes in upstream-to-downstream order.
 - Backend recompute queue uses graph-level configurable worker concurrency (`recomputeConcurrency`).
+- When a new graph update arrives, pending graph-update recompute work is collapsed to the latest graph revision and rebuilt from the current graph-wide stale set; already-running work is not canceled.
 - Backend recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
 - Frontend does not run recompute chains locally; it sends explicit compute commands and refreshes from `/api/graphs/:id/runtime-state` plus SSE events.
 

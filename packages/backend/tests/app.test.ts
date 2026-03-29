@@ -1691,6 +1691,309 @@ test('POST /api/graphs/:id/commands enqueues backend recompute for all impacted 
   }
 });
 
+test('POST /api/graphs/:id/commands replaces pending graph-update recomputes with the latest update', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const rootNode = {
+      id: 'node-a',
+      type: 'inline_code',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: 'A',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'python_process',
+        code: 'import time\ntime.sleep(0.35)\noutputs.output = 1',
+        config: { autoRecompute: true },
+      },
+      version: 'a-v1',
+    };
+    const leafNode = {
+      id: 'node-b',
+      type: 'inline_code',
+      position: { x: 200, y: 0 },
+      metadata: {
+        name: 'B',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: { autoRecompute: true },
+      },
+      version: 'b-v1',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [rootNode, leafNode],
+      connections: [
+        {
+          id: 'ab',
+          sourceNodeId: 'node-a',
+          sourcePort: 'output',
+          targetNodeId: 'node-b',
+          targetPort: 'input',
+        },
+      ],
+      recomputeConcurrency: 1,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 120, 20);
+
+    const firstUpdateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-a'
+          ? {
+              ...node,
+              version: 'a-v2',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0.35)\noutputs.output = 2',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(firstUpdateResponse.status, 200);
+
+    let activeRunStarted = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+      if (status.nodeStates?.['node-a']?.isComputing) {
+        activeRunStarted = true;
+        break;
+      }
+      await delay(20);
+    }
+    assert.equal(activeRunStarted, true);
+
+    const secondUpdateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-a'
+          ? {
+              ...node,
+              version: 'a-v3',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0.35)\noutputs.output = 3',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(secondUpdateResponse.status, 200);
+
+    const thirdUpdateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-a'
+          ? {
+              ...node,
+              version: 'a-v4',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0.35)\noutputs.output = 4',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(thirdUpdateResponse.status, 200);
+
+    let observedCollapsedQueue = false;
+    let observedOversizedQueue = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+
+      if (status.queueLength === 2) {
+        observedCollapsedQueue = true;
+      }
+      if (status.queueLength > 2) {
+        observedOversizedQueue = true;
+      }
+
+      await delay(10);
+    }
+
+    assert.equal(observedCollapsedQueue, true);
+    assert.equal(observedOversizedQueue, false);
+
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 120, 20);
+
+    const settledLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-b');
+    assert.equal(settledLeafResult?.outputs.output, 4);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes from the whole graph stale set', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const makeRootNode = (id: string, output: number, sleepSeconds = 0) => ({
+      id,
+      type: 'inline_code',
+      position: { x: 0, y: 0 },
+      metadata: {
+        name: id,
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'python_process',
+        code: `import time\ntime.sleep(${sleepSeconds})\noutputs.output = ${output}`,
+        config: { autoRecompute: true },
+      },
+      version: `${id}-v1`,
+    });
+    const makeLeafNode = (id: string) => ({
+      id,
+      type: 'inline_code',
+      position: { x: 200, y: 0 },
+      metadata: {
+        name: id,
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        type: 'inline_code',
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        config: { autoRecompute: true },
+      },
+      version: `${id}-v1`,
+    });
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [
+        makeRootNode('node-a-root', 1),
+        makeLeafNode('node-a-leaf'),
+        makeRootNode('node-b-root', 2),
+        makeLeafNode('node-b-leaf'),
+        makeRootNode('node-c-root', 3),
+        makeLeafNode('node-c-leaf'),
+      ],
+      connections: [
+        {
+          id: 'a-chain',
+          sourceNodeId: 'node-a-root',
+          sourcePort: 'output',
+          targetNodeId: 'node-a-leaf',
+          targetPort: 'input',
+        },
+        {
+          id: 'b-chain',
+          sourceNodeId: 'node-b-root',
+          sourcePort: 'output',
+          targetNodeId: 'node-b-leaf',
+          targetPort: 'input',
+        },
+        {
+          id: 'c-chain',
+          sourceNodeId: 'node-c-root',
+          sourcePort: 'output',
+          targetNodeId: 'node-c-leaf',
+          targetPort: 'input',
+        },
+      ],
+      recomputeConcurrency: 1,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 120, 20);
+
+    const activeUpdateResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-c-root'
+          ? {
+              ...node,
+              version: 'node-c-root-v2',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0.35)\noutputs.output = 30',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(activeUpdateResponse.status, 200);
+
+    let activeRunStarted = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+      if (status.nodeStates?.['node-c-root']?.isComputing) {
+        activeRunStarted = true;
+        break;
+      }
+      await delay(20);
+    }
+    assert.equal(activeRunStarted, true);
+
+    const pendingAResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-a-root'
+          ? {
+              ...node,
+              version: 'node-a-root-v2',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0)\noutputs.output = 10',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(pendingAResponse.status, 200);
+
+    const latestBResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node: any) =>
+        node.id === 'node-b-root'
+          ? {
+              ...node,
+              version: 'node-b-root-v2',
+              config: {
+                ...node.config,
+                code: 'import time\ntime.sleep(0)\noutputs.output = 20',
+              },
+            }
+          : node
+      ),
+    }));
+    assert.equal(latestBResponse.status, 200);
+
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 180, 20);
+
+    const nodeALeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-a-leaf');
+    const nodeBLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-b-leaf');
+    const nodeCLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-c-leaf');
+    assert.equal(nodeALeafResult?.outputs.output, 10);
+    assert.equal(nodeBLeafResult?.outputs.output, 20);
+    assert.equal(nodeCLeafResult?.outputs.output, 30);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs/:id/commands supports noRecompute query flag for topology updates', async () => {
   const ctx = await setupTestServer();
 
