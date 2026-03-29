@@ -42,6 +42,7 @@ interface NumericInputDraft {
   min: string;
   max: string;
   step: string;
+  propagateWhileDragging: boolean;
 }
 
 function createNumericInputDraft(config?: unknown): NumericInputDraft {
@@ -51,6 +52,7 @@ function createNumericInputDraft(config?: unknown): NumericInputDraft {
     min: String(normalized.min),
     max: String(normalized.max),
     step: String(normalized.step),
+    propagateWhileDragging: normalized.propagateWhileDragging,
   };
 }
 
@@ -450,13 +452,17 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       step: Number.isFinite(parsedStep) ? parsedStep : current.step,
     });
 
-    setNumericDraft(createNumericInputDraft(next));
+    setNumericDraft(createNumericInputDraft({
+      ...next,
+      propagateWhileDragging: numericDraft.propagateWhileDragging,
+    }));
 
     if (
       next.value === current.value &&
       next.min === current.min &&
       next.max === current.max &&
-      next.step === current.step
+      next.step === current.step &&
+      numericDraft.propagateWhileDragging === current.propagateWhileDragging
     ) {
       return;
     }
@@ -470,6 +476,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
           min: next.min,
           max: next.max,
           step: next.step,
+          propagateWhileDragging: numericDraft.propagateWhileDragging,
         },
       },
     });
@@ -478,6 +485,34 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     selectedNode,
     updateNode,
   ]);
+
+  const setNumericInputPropagateWhileDragging = useCallback((enabled: boolean) => {
+    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+      return;
+    }
+
+    setNumericDraft((current) => ({
+      ...current,
+      propagateWhileDragging: enabled,
+    }));
+
+    const current = normalizeNumericInputConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    if (current.propagateWhileDragging === enabled) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config || {}),
+          propagateWhileDragging: enabled,
+        },
+      },
+    });
+  }, [selectedNode, updateNode]);
 
   const resetNumericInputDrafts = useCallback(() => {
     if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
@@ -1109,6 +1144,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
               }}
               onCommitNumericInputConfig={commitNumericInputConfig}
               onResetNumericInputDrafts={resetNumericInputDrafts}
+              onSetPropagateWhileDragging={setNumericInputPropagateWhileDragging}
             />
           )}
 

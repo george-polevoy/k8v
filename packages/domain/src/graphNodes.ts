@@ -71,6 +71,7 @@ interface NumericInputNodeOptions extends GeneratedNodeOptions {
   max?: number;
   step?: number;
   autoRecompute?: boolean;
+  propagateWhileDragging?: boolean;
 }
 
 export interface NumericInputConfig {
@@ -78,6 +79,7 @@ export interface NumericInputConfig {
   min: number;
   max: number;
   step: number;
+  propagateWhileDragging: boolean;
 }
 
 function createGeneratedId(prefix: string): string {
@@ -472,7 +474,8 @@ export function normalizeNumericInputConfig(config?: Record<string, unknown>): N
   const step = stepCandidate > 0 ? stepCandidate : 1;
   const valueCandidate = toFiniteNumber(config?.value, min);
   const value = snapNumericInputValue(valueCandidate, min, max, step);
-  return { value, min, max, step };
+  const propagateWhileDragging = config?.propagateWhileDragging === true;
+  return { value, min, max, step, propagateWhileDragging };
 }
 
 export function formatNumericInputValue(value: number, step: number): string {
@@ -491,6 +494,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
     min: options.min,
     max: options.max,
     step: options.step,
+    propagateWhileDragging: options.propagateWhileDragging,
   });
 
   return {
@@ -509,6 +513,9 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
         min: numericConfig.min,
         max: numericConfig.max,
         step: numericConfig.step,
+        ...(numericConfig.propagateWhileDragging
+          ? { propagateWhileDragging: true }
+          : {}),
         ...(typeof options.autoRecompute === 'boolean'
           ? { autoRecompute: options.autoRecompute }
           : {}),

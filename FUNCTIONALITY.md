@@ -110,6 +110,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Numeric input node settings:
   - edit slider `value`
   - edit slider `min`/`max`/`step`
+  - choose whether slider drags persist on release only or propagate while dragging
 - Input rename/delete propagates to connections targeting that input.
 - Toggle auto-recompute per node.
 - Run selected node manually.

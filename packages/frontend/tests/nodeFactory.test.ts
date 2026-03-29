@@ -57,6 +57,15 @@ test('createNumericInputNode uses numeric defaults and numeric_input type', () =
   assert.equal(node.config.config?.step, 1);
 });
 
+test('createNumericInputNode stores propagateWhileDragging when enabled', () => {
+  const node = createNumericInputNode({
+    position: { x: 24, y: 36 },
+    propagateWhileDragging: true,
+  });
+
+  assert.equal(node.config.config?.propagateWhileDragging, true);
+});
+
 test('createAnnotationNode uses markdown/text color defaults and annotation type', () => {
   const node = createAnnotationNode({
     position: { x: 4, y: 9 },

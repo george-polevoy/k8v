@@ -12,6 +12,7 @@ Last reviewed: March 25, 2026.
 ## Automated Test Cases
 
 - `A-E2E-01` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag maintains `ew-resize` cursor and persists dragged value.
+- `A-E2E-31` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag can either hold persisted value until release or propagate mid-drag when the numeric input toggle is enabled.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
@@ -56,6 +57,7 @@ Last reviewed: March 25, 2026.
 - `A-FE-13` `packages/frontend/tests/graphStore.test.ts`: `computeNode` updates per-node graphics-output cache from compute response.
 - `A-FE-14` `packages/frontend/tests/graphStore.test.ts`: `computeGraph` clears stale cached graphics when latest result omits graphics output.
 - `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
+- `A-FE-44` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory can persist the `propagateWhileDragging` mode flag.
 - `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
 - `A-FE-17` `packages/frontend/tests/textLayout.test.ts`: title truncation helper ellipsizes long text to fit bounded width.
 - `A-FE-18` `packages/frontend/tests/diagnostics.test.ts`: diagnostics formatter converts technical backend error strings into user-readable messages.
@@ -316,7 +318,7 @@ Last reviewed: March 25, 2026.
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
 | Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
-| Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `M-CANVAS-21` | Automated + Manual |
+| Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `A-E2E-31`, `M-CANVAS-21` | Automated + Manual |
 | Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
@@ -338,7 +340,7 @@ Last reviewed: March 25, 2026.
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |
 | Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
-| Numeric input settings (`value`, `min`, `max`, `step`) | `A-FE-15`, `A-E2E-01`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
+| Numeric input settings (`value`, `min`, `max`, `step`, drag propagation mode) | `A-FE-15`, `A-FE-44`, `A-E2E-01`, `A-E2E-31`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Annotation node editing (`markdown` content + note colors, including border/opacity via shared color dialog, plus font size) | `A-E2E-14`, `A-FE-28`, `M-PANEL-15` | Automated + Manual |
 | Node panel summarizes multi-node selection as a set preview instead of a single node title | `A-E2E-22` | Automated |
 | Multi-selected annotation cards support shared font color and font-size edits in the node panel | `A-E2E-22` | Automated |
@@ -394,6 +396,6 @@ Last reviewed: March 25, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, dedicated screenshot harness mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior and live drag-propagation mode, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, dedicated screenshot harness mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`, `A-E2E-29`, `A-E2E-30`, `A-E2E-31`).
 - No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

@@ -726,6 +726,7 @@ function Canvas({
     drawEffects,
     drawFreehandStrokes,
     endConnectionDrag,
+    enqueueNumericSliderPropagation,
     enqueueLightningForNodeInputs,
     enqueueNodeShock,
     getNodeGraphicsTextureForNode,
@@ -784,6 +785,7 @@ function Canvas({
     onEffectFrame: trackCanvasEffectFrame,
     requestCanvasAnimationLoop,
     requestNodeGraphicsTextureRefresh: requestProjectedGraphicsTextureRefresh,
+    submitGraphCommands,
     updateNode,
     addConnection,
     config: CANVAS_RUNTIME_CONFIG,
@@ -877,6 +879,7 @@ function Canvas({
     drawMinimap,
     drawEffects,
     updateNumericSliderFromPointer,
+    enqueueNumericSliderPropagation,
     refreshCanvasBackgroundTexture,
     syncNodePortPositions,
     pickConnectionAtClientPoint,
@@ -1631,6 +1634,7 @@ function Canvas({
             nodeId: node.id,
             initialValue: slider.value,
             currentValue: slider.value,
+            propagateWhileDragging: numericConfig.propagateWhileDragging,
           };
           hoveredNumericSliderNodeIdRef.current = node.id;
           applyCanvasCursor();

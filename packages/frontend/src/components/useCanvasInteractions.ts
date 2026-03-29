@@ -98,6 +98,7 @@ interface UseCanvasInteractionsParams {
   drawMinimap: () => void;
   drawEffects: () => void;
   updateNumericSliderFromPointer: (nodeId: string, pointerX: number, pointerY: number) => void;
+  enqueueNumericSliderPropagation: (nodeId: string, nextValue: number) => void;
   refreshCanvasBackgroundTexture: () => void;
   syncNodePortPositions: (nodeId: string, position: Position, visual: NodeVisual) => void;
   pickConnectionAtClientPoint: (clientX: number, clientY: number) => string | null;
@@ -159,6 +160,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     drawMinimap,
     drawEffects,
     updateNumericSliderFromPointer,
+    enqueueNumericSliderPropagation,
     refreshCanvasBackgroundTexture,
     syncNodePortPositions,
     pickConnectionAtClientPoint,
@@ -379,7 +381,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     const numericSliderDragState = numericSliderDragStateRef.current;
     if (numericSliderDragState) {
       if (Math.abs(numericSliderDragState.currentValue - numericSliderDragState.initialValue) > 1e-9) {
-        commitNumericSliderValue(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
+        if (numericSliderDragState.propagateWhileDragging) {
+          enqueueNumericSliderPropagation(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
+        } else {
+          commitNumericSliderValue(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
+        }
       }
       numericSliderDragStateRef.current = null;
     }
@@ -540,6 +546,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     drawFreehandStrokes,
     drawingDragStateRef,
     endConnectionDrag,
+    enqueueNumericSliderPropagation,
     hoveredSelectionResizeHandleRef,
     hoveredInputPortKeyRef,
     hoveredOutputPortKeyRef,

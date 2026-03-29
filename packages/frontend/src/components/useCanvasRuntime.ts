@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback, useRef, type MutableRefObject } from 'react';
 import { Application, Container, Graphics, Point, Sprite, Texture } from 'pixi.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { NodeExecutionState } from '../store/graphStore';
@@ -10,6 +10,7 @@ import {
   type Connection,
   type ConnectionAnchorSide,
   type DrawingPath,
+  type GraphCommand,
   type Graph,
   type Position,
 } from '../types';
@@ -124,6 +125,7 @@ interface UseCanvasRuntimeParams {
   onEffectFrame: () => void;
   requestCanvasAnimationLoop: () => void;
   requestNodeGraphicsTextureRefresh: () => void;
+  submitGraphCommands: (commands: GraphCommand[]) => Promise<void>;
   updateNode: (nodeId: string, updates: Record<string, unknown>) => void;
   addConnection: (connection: Connection) => void;
   config: {
@@ -213,10 +215,121 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     onEffectFrame,
     requestCanvasAnimationLoop,
     requestNodeGraphicsTextureRefresh,
+    submitGraphCommands,
     updateNode,
     addConnection,
     config,
   } = params;
+
+  const numericSliderPropagationQueueRef = useRef(new Map<string, {
+    inFlight: boolean;
+    queuedValue: number | null;
+  }>());
+
+  const buildNumericSliderValueCommands = useCallback((
+    graph: Graph,
+    nodeId: string,
+    nextValue: number
+  ): GraphCommand[] | null => {
+    const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node || node.type !== NodeType.NUMERIC_INPUT) {
+      return null;
+    }
+
+    const currentConfig = normalizeNumericInputConfig(
+      node.config.config as Record<string, unknown> | undefined
+    );
+    const value = snapNumericInputValue(nextValue, currentConfig.min, currentConfig.max, currentConfig.step);
+    if (value === currentConfig.value) {
+      return null;
+    }
+
+    return [{
+      kind: 'replace_nodes',
+      nodes: graph.nodes.map((candidate) =>
+        candidate.id === nodeId
+          ? {
+              ...candidate,
+              config: {
+                ...candidate.config,
+                config: {
+                  ...(candidate.config.config ?? {}),
+                  value,
+                  min: currentConfig.min,
+                  max: currentConfig.max,
+                  step: currentConfig.step,
+                },
+              },
+              version: Date.now().toString(),
+            }
+          : candidate
+      ),
+    }];
+  }, []);
+
+  const enqueueNumericSliderPropagation = useCallback((nodeId: string, nextValue: number) => {
+    const currentGraph = graphRef.current;
+    if (!currentGraph) {
+      return;
+    }
+
+    const initialCommands = buildNumericSliderValueCommands(currentGraph, nodeId, nextValue);
+    if (!initialCommands) {
+      return;
+    }
+
+    const queue = numericSliderPropagationQueueRef.current;
+    const entry = queue.get(nodeId) ?? { inFlight: false, queuedValue: null };
+    entry.queuedValue = nextValue;
+    queue.set(nodeId, entry);
+
+    if (entry.inFlight) {
+      return;
+    }
+
+    entry.inFlight = true;
+
+    const drainQueue = async () => {
+      try {
+        while (true) {
+          const currentEntry = queue.get(nodeId);
+          if (!currentEntry) {
+            return;
+          }
+
+          const queuedValue = currentEntry.queuedValue;
+          if (queuedValue === null) {
+            return;
+          }
+          currentEntry.queuedValue = null;
+
+          const latestGraph = graphRef.current;
+          if (!latestGraph) {
+            return;
+          }
+
+          const commands = buildNumericSliderValueCommands(latestGraph, nodeId, queuedValue);
+          if (!commands) {
+            continue;
+          }
+
+          await submitGraphCommands(commands);
+        }
+      } finally {
+        const currentEntry = queue.get(nodeId);
+        if (currentEntry) {
+          currentEntry.inFlight = false;
+          if (currentEntry.queuedValue === null) {
+            queue.delete(nodeId);
+          } else {
+            enqueueNumericSliderPropagation(nodeId, currentEntry.queuedValue);
+          }
+        }
+      }
+    };
+
+    void drainQueue();
+  }, [buildNumericSliderValueCommands, graphRef, submitGraphCommands]);
 
   const refreshCanvasBackgroundTexture = useCallback((backgroundOverride?: CanvasBackgroundSettings) => {
     const app = appRef.current;
@@ -927,9 +1040,16 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
 
     const dragState = numericSliderDragStateRef.current;
     if (dragState?.nodeId === nodeId) {
+      const previousValue = dragState.currentValue;
       dragState.currentValue = nextValue;
+      if (
+        dragState.propagateWhileDragging &&
+        Math.abs(nextValue - previousValue) > 1e-9
+      ) {
+        enqueueNumericSliderPropagation(nodeId, nextValue);
+      }
     }
-  }, [numericSliderDragStateRef, numericSliderVisualsRef]);
+  }, [enqueueNumericSliderPropagation, numericSliderDragStateRef, numericSliderVisualsRef]);
 
   const commitNumericSliderValue = useCallback((nodeId: string, nextValue: number) => {
     const currentGraph = graphRef.current;
@@ -966,6 +1086,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     drawEffects,
     drawFreehandStrokes,
     endConnectionDrag,
+    enqueueNumericSliderPropagation,
     enqueueLightningForNodeInputs,
     enqueueNodeShock,
     getNodeGraphicsTextureForNode,

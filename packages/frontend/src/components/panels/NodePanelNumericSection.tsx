@@ -5,13 +5,15 @@ interface NumericInputDraft {
   step: string;
   min: string;
   max: string;
+  propagateWhileDragging: boolean;
 }
 
 interface NodePanelNumericSectionProps {
   numericDraft: NumericInputDraft;
-  onNumericDraftChange: (field: keyof NumericInputDraft, value: string) => void;
+  onNumericDraftChange: (field: 'value' | 'step' | 'min' | 'max', value: string) => void;
   onCommitNumericInputConfig: () => void;
   onResetNumericInputDrafts: () => void;
+  onSetPropagateWhileDragging: (enabled: boolean) => void;
 }
 
 function NodePanelNumericSection({
@@ -19,6 +21,7 @@ function NodePanelNumericSection({
   onNumericDraftChange,
   onCommitNumericInputConfig,
   onResetNumericInputDrafts,
+  onSetPropagateWhileDragging,
 }: NodePanelNumericSectionProps) {
   return (
     <div style={sectionCardStyle}>
@@ -70,6 +73,24 @@ function NodePanelNumericSection({
           </label>
         ))}
       </div>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginTop: '12px',
+          fontSize: '12px',
+          color: '#334155',
+        }}
+      >
+        <input
+          data-testid="numeric-input-propagate-while-dragging-toggle"
+          type="checkbox"
+          checked={numericDraft.propagateWhileDragging}
+          onChange={(event) => onSetPropagateWhileDragging(event.target.checked)}
+        />
+        Propagate changes while dragging slider
+      </label>
     </div>
   );
 }

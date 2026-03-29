@@ -10,6 +10,12 @@ export interface CreateNodeOptions {
   position: { x: number; y: number };
   cardWidth?: number;
   cardHeight?: number;
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  autoRecompute?: boolean;
+  propagateWhileDragging?: boolean;
   code?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;

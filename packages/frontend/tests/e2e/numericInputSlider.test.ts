@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PNG } from 'pngjs';
-import { createNumericInputGraph, waitForNumericNodeValue } from './support/api.ts';
+import { createNumericInputGraph, getNumericNodeValue, waitForNumericNodeValue } from './support/api.ts';
 import { launchBrowser, openCanvasForGraph, readCanvasCursor, waitForCursorAtPoint } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
@@ -144,6 +144,13 @@ test(
       await page.mouse.down();
       await page.mouse.move(sliderEndX, sliderY, { steps: 24 });
       await waitForCursorAtPoint(page, sliderEndX - 8, sliderY, 'ew-resize');
+      await page.waitForTimeout(180);
+      const valueWhileDragging = await getNumericNodeValue(graphId, nodeId);
+      assert.equal(
+        valueWhileDragging,
+        0,
+        `Default slider mode should hold persisted value until release. Received: ${valueWhileDragging}`
+      );
       await page.mouse.up();
       await waitForCursorAtPoint(page, sliderEndX - 8, sliderY, 'ew-resize');
 
@@ -154,6 +161,72 @@ test(
         E2E_ASSERT_TIMEOUT_MS
       );
       assert.ok(finalValue >= 95, `Expected dragged slider value to be near max. Received: ${finalValue}`);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'numeric_input slider can propagate persisted value while drag is active when enabled',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createNumericInputGraph({
+      value: 0,
+      min: 0,
+      max: 100,
+      step: 1,
+      nodeName: 'Numeric Input',
+    });
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox();
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const nodeBox = resolveCenteredNodePosition(canvasBox);
+      const headerClickX = nodeBox.left + 24;
+      const headerClickY = nodeBox.centerY - 30;
+      const sliderTargetX = nodeBox.left + NUMERIC_NODE_WIDTH - 12;
+
+      await page.mouse.click(headerClickX, headerClickY);
+      await page.locator('[data-testid="numeric-input-propagate-while-dragging-toggle"]').check();
+
+      const sliderY = await locateSliderY(page, nodeBox.left + 80, nodeBox.centerY);
+      await waitForCursorAtPoint(page, nodeBox.left + 12, sliderY, 'ew-resize');
+
+      await page.mouse.down();
+      await page.mouse.move(sliderTargetX, sliderY, { steps: 24 });
+
+      const midDragValue = await waitForNumericNodeValue(
+        graphId,
+        nodeId,
+        (value) => value >= 95,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      assert.ok(
+        midDragValue >= 95,
+        `Expected persisted value to propagate before release. Received: ${midDragValue}`
+      );
+
+      await page.mouse.up();
+
+      const finalValue = await waitForNumericNodeValue(
+        graphId,
+        nodeId,
+        (value) => value >= 95,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      assert.ok(finalValue >= 95, `Expected final dragged slider value to remain near max. Received: ${finalValue}`);
 
       await context.close();
     } finally {
