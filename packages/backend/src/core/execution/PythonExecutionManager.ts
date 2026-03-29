@@ -16,14 +16,50 @@ const PYTHON_WORKER_SCRIPT = String.raw`
 import base64
 import builtins
 import importlib
+import importlib.machinery
 import io
 import json
 import os
+import site
 import sys
+import sysconfig
 import uuid
 
 SERVICE_CWD = os.environ.get("K8V_SERVICE_CWD", "").strip()
 SERVICE_CWD_REAL = os.path.realpath(SERVICE_CWD) if SERVICE_CWD else ""
+
+
+def collect_protected_module_dirs():
+    protected = set()
+
+    if hasattr(site, "getsitepackages"):
+        try:
+            for candidate in site.getsitepackages():
+                if candidate:
+                    protected.add(os.path.realpath(candidate))
+        except Exception:
+            pass
+
+    if hasattr(site, "getusersitepackages"):
+        try:
+            user_site = site.getusersitepackages()
+            if user_site:
+                protected.add(os.path.realpath(user_site))
+        except Exception:
+            pass
+
+    for path_name in ("purelib", "platlib"):
+        try:
+            candidate = sysconfig.get_path(path_name)
+            if candidate:
+                protected.add(os.path.realpath(candidate))
+        except Exception:
+            continue
+
+    return tuple(sorted(protected))
+
+
+PROTECTED_MODULE_DIRS = collect_protected_module_dirs()
 
 
 class AttrDict(dict):
@@ -57,6 +93,32 @@ def to_plain(value):
     return value
 
 
+def is_within_directory(root_path, target_path):
+    if not root_path or not target_path:
+        return False
+
+    try:
+        return os.path.commonpath([root_path, target_path]) == root_path
+    except Exception:
+        return False
+
+
+def should_preserve_local_module(module, module_real):
+    module_spec = getattr(module, "__spec__", None)
+    module_loader = getattr(module_spec, "loader", None)
+    if isinstance(module_loader, importlib.machinery.ExtensionFileLoader):
+        return True
+
+    if module_real.endswith((".so", ".pyd", ".dll", ".dylib")):
+        return True
+
+    for protected_dir in PROTECTED_MODULE_DIRS:
+        if is_within_directory(protected_dir, module_real):
+            return True
+
+    return False
+
+
 def clear_local_modules():
     if not SERVICE_CWD_REAL:
         return
@@ -69,8 +131,11 @@ def clear_local_modules():
 
         try:
             module_real = os.path.realpath(module_file)
-            if os.path.commonpath([SERVICE_CWD_REAL, module_real]) == SERVICE_CWD_REAL:
-                to_delete.append(module_name)
+            if not is_within_directory(SERVICE_CWD_REAL, module_real):
+                continue
+            if should_preserve_local_module(module, module_real):
+                continue
+            to_delete.append(module_name)
         except Exception:
             continue
 

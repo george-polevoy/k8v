@@ -49,6 +49,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Additional runtime: `PythonProcessRuntime` (`python_process`) backed by a graph/env-scoped warm Python service and per-env worker pool
 - Resolves graph-scoped named Python environments (`name`, `pythonPath`, `cwd`) for per-node Python execution when `node.config.pythonEnv` is set
 - Sizes warm Python workers from graph `recomputeConcurrency`, preserving concurrent Python recompute within the same graph/env scope
+- Reloads cwd-local pure-Python helper modules between warm executions while keeping installed packages and native extensions warm
 - Uses graph-level `executionTimeoutMs` for inline runtime timeouts (default: 30 seconds)
 
 #### Execution Engine (`packages/backend/src/core/execution/`)
