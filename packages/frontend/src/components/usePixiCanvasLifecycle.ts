@@ -18,6 +18,7 @@ interface UsePixiCanvasLifecycleParams {
   edgeLayerRef: MutableRefObject<Graphics | null>;
   nodeLayerRef: MutableRefObject<Container | null>;
   drawingHandleLayerRef: MutableRefObject<Container | null>;
+  gizmoLayerRef: MutableRefObject<Container | null>;
   drawLayerRef: MutableRefObject<Graphics | null>;
   effectsLayerRef: MutableRefObject<Graphics | null>;
   backgroundSpriteRef: MutableRefObject<Sprite | null>;
@@ -53,6 +54,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     edgeLayerRef,
     nodeLayerRef,
     drawingHandleLayerRef,
+    gizmoLayerRef,
     drawLayerRef,
     effectsLayerRef,
     backgroundSpriteRef,
@@ -103,9 +105,11 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     const edgeLayer = new Graphics();
     const nodeLayer = new Container();
     const drawingHandleLayer = new Container();
+    const gizmoLayer = new Container();
     const drawLayer = new Graphics();
     drawLayer.eventMode = 'none';
     drawingHandleLayer.eventMode = 'passive';
+    gizmoLayer.eventMode = 'passive';
     const effectsLayer = new Graphics();
     effectsLayer.eventMode = 'none';
     const backgroundSprite = new Sprite(Texture.WHITE);
@@ -119,6 +123,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     edgeLayerRef.current = edgeLayer;
     nodeLayerRef.current = nodeLayer;
     drawingHandleLayerRef.current = drawingHandleLayer;
+    gizmoLayerRef.current = gizmoLayer;
     drawLayerRef.current = drawLayer;
     effectsLayerRef.current = effectsLayer;
 
@@ -128,6 +133,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     viewport.addChild(drawLayer);
     viewport.addChild(drawingHandleLayer);
     viewport.addChild(effectsLayer);
+    viewport.addChild(gizmoLayer);
     app.stage.addChild(viewport);
 
     app.stage.eventMode = 'static';
@@ -196,6 +202,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
       edgeLayerRef.current = null;
       nodeLayerRef.current = null;
       drawingHandleLayerRef.current = null;
+      gizmoLayerRef.current = null;
       drawLayerRef.current = null;
       effectsLayerRef.current = null;
     };
@@ -212,6 +219,7 @@ export function usePixiCanvasLifecycle(params: UsePixiCanvasLifecycleParams): vo
     drawingHandleLayerRef,
     edgeLayerRef,
     effectsLayerRef,
+    gizmoLayerRef,
     finishInteraction,
     handleKeyDown,
     handleKeyUp,

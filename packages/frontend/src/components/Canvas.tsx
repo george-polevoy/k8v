@@ -214,6 +214,7 @@ function Canvas({
   const viewportRef = useRef<Container | null>(null);
   const nodeLayerRef = useRef<Container | null>(null);
   const drawingHandleLayerRef = useRef<Container | null>(null);
+  const gizmoLayerRef = useRef<Container | null>(null);
   const edgeLayerRef = useRef<Graphics | null>(null);
   const drawLayerRef = useRef<Graphics | null>(null);
   const effectsLayerRef = useRef<Graphics | null>(null);
@@ -925,6 +926,7 @@ function Canvas({
     incrementCanvasDebugCounter('fullRenderCount');
     const nodesLayer = nodeLayerRef.current;
     const drawingHandleLayer = drawingHandleLayerRef.current;
+    const gizmoLayer = gizmoLayerRef.current;
     const currentGraph = graphRef.current;
     const app = appRef.current;
     const viewportContainer = viewportRef.current;
@@ -963,12 +965,13 @@ function Canvas({
       )
       : resolveGraphCanvasBackground(null);
 
-    if (!nodesLayer || !drawingHandleLayer) return;
+    if (!nodesLayer || !drawingHandleLayer || !gizmoLayer) return;
 
     requestCanvasAnimationLoop();
     refreshCanvasBackgroundTexture(resolvedCanvasBackground);
     clearRenderLayerChildren(nodesLayer);
     clearRenderLayerChildren(drawingHandleLayer);
+    clearRenderLayerChildren(gizmoLayer);
     nodeVisualsRef.current.clear();
     drawingVisualsRef.current.clear();
     numericSliderVisualsRef.current.clear();
@@ -1705,8 +1708,13 @@ function Canvas({
       if (isSelected && selectedNodeIdSet.size === 1) {
         const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
         addResizeHandles({
-          target: container,
-          bounds: { x: 0, y: 0, width, height },
+          target: gizmoLayer,
+          bounds: {
+            x: renderedPosition.x,
+            y: renderedPosition.y,
+            width,
+            height,
+          },
           fillColor: 0x1d4ed8,
           fillAlpha: 0.9,
           strokeAlpha: 0.7,
@@ -2035,10 +2043,10 @@ function Canvas({
         );
         selectionFrame.endFill();
         selectionFrame.eventMode = 'none';
-        drawingHandleLayer.addChild(selectionFrame);
+        gizmoLayer.addChild(selectionFrame);
 
         addResizeHandles({
-          target: drawingHandleLayer,
+          target: gizmoLayer,
           bounds: selectionBounds,
           fillColor: 0x2563eb,
           fillAlpha: 0.92,
@@ -2243,6 +2251,7 @@ function Canvas({
     edgeLayerRef,
     nodeLayerRef,
     drawingHandleLayerRef,
+    gizmoLayerRef,
     drawLayerRef,
     effectsLayerRef,
     backgroundSpriteRef,
