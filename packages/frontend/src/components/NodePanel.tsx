@@ -43,6 +43,7 @@ interface NumericInputDraft {
   max: string;
   step: string;
   propagateWhileDragging: boolean;
+  dragDebounceSeconds: string;
 }
 
 function createNumericInputDraft(config?: unknown): NumericInputDraft {
@@ -53,6 +54,7 @@ function createNumericInputDraft(config?: unknown): NumericInputDraft {
     max: String(normalized.max),
     step: String(normalized.step),
     propagateWhileDragging: normalized.propagateWhileDragging,
+    dragDebounceSeconds: String(normalized.dragDebounceSeconds),
   };
 }
 
@@ -431,38 +433,51 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     });
   }, [selectedNode, updateNode]);
 
-  const commitNumericInputConfig = useCallback(() => {
+  const commitNumericInputConfig = useCallback((
+    overrideField?: keyof Pick<NumericInputDraft, 'value' | 'step' | 'min' | 'max' | 'dragDebounceSeconds'>,
+    overrideValue?: string
+  ) => {
     if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
       return;
     }
+
+    const effectiveDraft = overrideField
+      ? {
+          ...numericDraft,
+          [overrideField]: overrideValue ?? numericDraft[overrideField],
+        }
+      : numericDraft;
 
     const current = normalizeNumericInputConfig(
       selectedNode.config.config as Record<string, unknown> | undefined
     );
 
-    const parsedValue = Number.parseFloat(numericDraft.value);
-    const parsedMin = Number.parseFloat(numericDraft.min);
-    const parsedMax = Number.parseFloat(numericDraft.max);
-    const parsedStep = Number.parseFloat(numericDraft.step);
+    const parsedValue = Number.parseFloat(effectiveDraft.value);
+    const parsedMin = Number.parseFloat(effectiveDraft.min);
+    const parsedMax = Number.parseFloat(effectiveDraft.max);
+    const parsedStep = Number.parseFloat(effectiveDraft.step);
+    const parsedDragDebounceSeconds = Number.parseFloat(effectiveDraft.dragDebounceSeconds);
 
     const next = normalizeNumericInputConfig({
       value: Number.isFinite(parsedValue) ? parsedValue : current.value,
       min: Number.isFinite(parsedMin) ? parsedMin : current.min,
       max: Number.isFinite(parsedMax) ? parsedMax : current.max,
       step: Number.isFinite(parsedStep) ? parsedStep : current.step,
+      propagateWhileDragging: effectiveDraft.propagateWhileDragging,
+      dragDebounceSeconds: Number.isFinite(parsedDragDebounceSeconds)
+        ? parsedDragDebounceSeconds
+        : current.dragDebounceSeconds,
     });
 
-    setNumericDraft(createNumericInputDraft({
-      ...next,
-      propagateWhileDragging: numericDraft.propagateWhileDragging,
-    }));
+    setNumericDraft(createNumericInputDraft(next));
 
     if (
       next.value === current.value &&
       next.min === current.min &&
       next.max === current.max &&
       next.step === current.step &&
-      numericDraft.propagateWhileDragging === current.propagateWhileDragging
+      next.dragDebounceSeconds === current.dragDebounceSeconds &&
+      effectiveDraft.propagateWhileDragging === current.propagateWhileDragging
     ) {
       return;
     }
@@ -476,7 +491,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
           min: next.min,
           max: next.max,
           step: next.step,
-          propagateWhileDragging: numericDraft.propagateWhileDragging,
+          dragDebounceSeconds: next.dragDebounceSeconds,
+          propagateWhileDragging: effectiveDraft.propagateWhileDragging,
         },
       },
     });

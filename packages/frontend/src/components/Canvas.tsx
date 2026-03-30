@@ -1635,6 +1635,7 @@ function Canvas({
             initialValue: slider.value,
             currentValue: slider.value,
             propagateWhileDragging: numericConfig.propagateWhileDragging,
+            dragDebounceMs: numericConfig.dragDebounceSeconds * 1000,
           };
           hoveredNumericSliderNodeIdRef.current = node.id;
           applyCanvasCursor();

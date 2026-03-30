@@ -1,4 +1,4 @@
-import { useCallback, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { Application, Container, Graphics, Point, Sprite, Texture } from 'pixi.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { NodeExecutionState } from '../store/graphStore';
@@ -224,6 +224,8 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
   const numericSliderPropagationQueueRef = useRef(new Map<string, {
     inFlight: boolean;
     queuedValue: number | null;
+    timeoutId: ReturnType<typeof setTimeout> | null;
+    lastSubmittedAt: number;
   }>());
 
   const buildNumericSliderValueCommands = useCallback((
@@ -267,69 +269,134 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     }];
   }, []);
 
-  const enqueueNumericSliderPropagation = useCallback((nodeId: string, nextValue: number) => {
+  const clearNumericSliderPropagationTimer = useCallback((entry: {
+    timeoutId: ReturnType<typeof setTimeout> | null;
+  }) => {
+    if (entry.timeoutId !== null) {
+      clearTimeout(entry.timeoutId);
+      entry.timeoutId = null;
+    }
+  }, []);
+
+  const drainNumericSliderPropagationQueue = useCallback((nodeId: string) => {
+    const queue = numericSliderPropagationQueueRef.current;
+    const entry = queue.get(nodeId);
+    if (!entry || entry.inFlight) {
+      return;
+    }
+
+    if (entry.queuedValue === null) {
+      clearNumericSliderPropagationTimer(entry);
+      queue.delete(nodeId);
+      return;
+    }
+
+    const activeDragState = numericSliderDragStateRef.current;
+    const debounceMs = activeDragState?.nodeId === nodeId ? activeDragState.dragDebounceMs : 0;
+    const now = performance.now();
+    const remainingDebounceMs = Math.max(0, (entry.lastSubmittedAt + debounceMs) - now);
+
+    if (remainingDebounceMs > 0) {
+      if (entry.timeoutId === null) {
+        entry.timeoutId = setTimeout(() => {
+          const currentEntry = numericSliderPropagationQueueRef.current.get(nodeId);
+          if (!currentEntry) {
+            return;
+          }
+          currentEntry.timeoutId = null;
+          drainNumericSliderPropagationQueue(nodeId);
+        }, remainingDebounceMs);
+      }
+      return;
+    }
+
+    clearNumericSliderPropagationTimer(entry);
+    entry.inFlight = true;
+    entry.lastSubmittedAt = now;
+    const queuedValue = entry.queuedValue;
+    entry.queuedValue = null;
+
+    const latestGraph = graphRef.current;
+    if (!latestGraph) {
+      entry.inFlight = false;
+      if (entry.queuedValue === null) {
+        queue.delete(nodeId);
+      }
+      return;
+    }
+
+    const commands = buildNumericSliderValueCommands(latestGraph, nodeId, queuedValue);
+    if (!commands) {
+      entry.inFlight = false;
+      if (entry.queuedValue === null) {
+        queue.delete(nodeId);
+      }
+      return;
+    }
+
+    void submitGraphCommands(commands).finally(() => {
+      const currentEntry = queue.get(nodeId);
+      if (!currentEntry) {
+        return;
+      }
+      currentEntry.inFlight = false;
+      if (currentEntry.queuedValue === null && currentEntry.timeoutId === null) {
+        queue.delete(nodeId);
+        return;
+      }
+      drainNumericSliderPropagationQueue(nodeId);
+    });
+  }, [
+    buildNumericSliderValueCommands,
+    clearNumericSliderPropagationTimer,
+    graphRef,
+    numericSliderDragStateRef,
+    submitGraphCommands,
+  ]);
+
+  const enqueueNumericSliderPropagation = useCallback((
+    nodeId: string,
+    nextValue: number,
+    options?: { flush?: boolean }
+  ) => {
     const currentGraph = graphRef.current;
     if (!currentGraph) {
       return;
     }
 
-    const initialCommands = buildNumericSliderValueCommands(currentGraph, nodeId, nextValue);
-    if (!initialCommands) {
+    if (!buildNumericSliderValueCommands(currentGraph, nodeId, nextValue)) {
       return;
     }
 
     const queue = numericSliderPropagationQueueRef.current;
-    const entry = queue.get(nodeId) ?? { inFlight: false, queuedValue: null };
+    const entry = queue.get(nodeId) ?? {
+      inFlight: false,
+      queuedValue: null,
+      timeoutId: null,
+      lastSubmittedAt: performance.now(),
+    };
     entry.queuedValue = nextValue;
     queue.set(nodeId, entry);
 
-    if (entry.inFlight) {
-      return;
+    if (options?.flush) {
+      entry.lastSubmittedAt = Number.NEGATIVE_INFINITY;
+      clearNumericSliderPropagationTimer(entry);
     }
 
-    entry.inFlight = true;
+    drainNumericSliderPropagationQueue(nodeId);
+  }, [
+    buildNumericSliderValueCommands,
+    clearNumericSliderPropagationTimer,
+    drainNumericSliderPropagationQueue,
+    graphRef,
+  ]);
 
-    const drainQueue = async () => {
-      try {
-        while (true) {
-          const currentEntry = queue.get(nodeId);
-          if (!currentEntry) {
-            return;
-          }
-
-          const queuedValue = currentEntry.queuedValue;
-          if (queuedValue === null) {
-            return;
-          }
-          currentEntry.queuedValue = null;
-
-          const latestGraph = graphRef.current;
-          if (!latestGraph) {
-            return;
-          }
-
-          const commands = buildNumericSliderValueCommands(latestGraph, nodeId, queuedValue);
-          if (!commands) {
-            continue;
-          }
-
-          await submitGraphCommands(commands);
-        }
-      } finally {
-        const currentEntry = queue.get(nodeId);
-        if (currentEntry) {
-          currentEntry.inFlight = false;
-          if (currentEntry.queuedValue === null) {
-            queue.delete(nodeId);
-          } else {
-            enqueueNumericSliderPropagation(nodeId, currentEntry.queuedValue);
-          }
-        }
-      }
-    };
-
-    void drainQueue();
-  }, [buildNumericSliderValueCommands, graphRef, submitGraphCommands]);
+  useEffect(() => () => {
+    for (const entry of numericSliderPropagationQueueRef.current.values()) {
+      clearNumericSliderPropagationTimer(entry);
+    }
+    numericSliderPropagationQueueRef.current.clear();
+  }, [clearNumericSliderPropagationTimer]);
 
   const refreshCanvasBackgroundTexture = useCallback((backgroundOverride?: CanvasBackgroundSettings) => {
     const app = appRef.current;

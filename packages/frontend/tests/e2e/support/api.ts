@@ -22,6 +22,7 @@ interface GraphNodePayload {
       max: number;
       step: number;
       propagateWhileDragging?: boolean;
+      dragDebounceSeconds?: number;
     };
   };
   version: string;
@@ -457,6 +458,7 @@ export async function createNumericInputGraph(options?: {
   max?: number;
   step?: number;
   propagateWhileDragging?: boolean;
+  dragDebounceSeconds?: number;
   nodeName?: string;
   nodePosition?: { x: number; y: number };
 }): Promise<{ graphId: string; nodeId: string }> {
@@ -477,6 +479,7 @@ export async function createNumericInputGraph(options?: {
         min: options?.min ?? 0,
         max: options?.max ?? 100,
         step: options?.step ?? 1,
+        dragDebounceSeconds: options?.dragDebounceSeconds ?? 0.1,
         ...(options?.propagateWhileDragging === true
           ? { propagateWhileDragging: true }
           : {}),

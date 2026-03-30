@@ -16,6 +16,7 @@ export interface CreateNodeOptions {
   step?: number;
   autoRecompute?: boolean;
   propagateWhileDragging?: boolean;
+  dragDebounceSeconds?: number;
   code?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;

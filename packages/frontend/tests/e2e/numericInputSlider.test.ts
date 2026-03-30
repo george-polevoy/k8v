@@ -236,6 +236,81 @@ test(
 );
 
 test(
+  'numeric_input live slider propagation respects the configured debounce interval',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createNumericInputGraph({
+      value: 0,
+      min: 0,
+      max: 100,
+      step: 1,
+      propagateWhileDragging: true,
+      dragDebounceSeconds: 1,
+      nodeName: 'Numeric Input',
+    });
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox();
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const nodeBox = resolveCenteredNodePosition(canvasBox);
+      const headerClickX = nodeBox.left + 24;
+      const headerClickY = nodeBox.centerY - 30;
+      const sliderTargetX = nodeBox.left + NUMERIC_NODE_WIDTH - 12;
+
+      await page.mouse.click(headerClickX, headerClickY);
+
+      const sliderY = await locateSliderY(page, nodeBox.left + 80, nodeBox.centerY);
+      await waitForCursorAtPoint(page, nodeBox.left + 12, sliderY, 'ew-resize');
+
+      await page.mouse.down();
+      await page.mouse.move(sliderTargetX, sliderY, { steps: 24 });
+
+      await page.waitForTimeout(120);
+      const earlyValue = await getNumericNodeValue(graphId, nodeId);
+      assert.equal(
+        earlyValue,
+        0,
+        `Expected live propagation to stay debounced before 1s. Received: ${earlyValue}`
+      );
+
+      const midDragValue = await waitForNumericNodeValue(
+        graphId,
+        nodeId,
+        (value) => value >= 95,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      assert.ok(
+        midDragValue >= 95,
+        `Expected persisted value to propagate after debounce while drag is active. Received: ${midDragValue}`
+      );
+
+      await page.mouse.up();
+
+      const finalValue = await waitForNumericNodeValue(
+        graphId,
+        nodeId,
+        (value) => value >= 95,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      assert.ok(finalValue >= 95, `Expected final dragged slider value to remain near max. Received: ${finalValue}`);
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
   'numeric_input slider drag stays visually stable across canvas re-renders',
   { timeout: 90_000 },
   async () => {

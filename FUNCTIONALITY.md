@@ -111,6 +111,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
   - edit slider `value`
   - edit slider `min`/`max`/`step`
   - choose whether slider drags persist on release only or propagate while dragging
+  - configure live-drag debounce in seconds for propagated slider updates
 - Input rename/delete propagates to connections targeting that input.
 - Toggle auto-recompute per node.
 - Run selected node manually.

@@ -194,6 +194,7 @@ export interface NumericSliderDragState {
   initialValue: number;
   currentValue: number;
   propagateWhileDragging: boolean;
+  dragDebounceMs: number;
 }
 
 export interface NodeCardDimensions {

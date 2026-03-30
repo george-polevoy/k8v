@@ -6,12 +6,19 @@ interface NumericInputDraft {
   min: string;
   max: string;
   propagateWhileDragging: boolean;
+  dragDebounceSeconds: string;
 }
 
 interface NodePanelNumericSectionProps {
   numericDraft: NumericInputDraft;
-  onNumericDraftChange: (field: 'value' | 'step' | 'min' | 'max', value: string) => void;
-  onCommitNumericInputConfig: () => void;
+  onNumericDraftChange: (
+    field: 'value' | 'step' | 'min' | 'max' | 'dragDebounceSeconds',
+    value: string
+  ) => void;
+  onCommitNumericInputConfig: (
+    field?: 'value' | 'step' | 'min' | 'max' | 'dragDebounceSeconds',
+    value?: string
+  ) => void;
   onResetNumericInputDrafts: () => void;
   onSetPropagateWhileDragging: (enabled: boolean) => void;
 }
@@ -40,6 +47,14 @@ function NodePanelNumericSection({
           { label: 'Step', testId: 'numeric-input-step', value: numericDraft.step, field: 'step' as const },
           { label: 'Min', testId: 'numeric-input-min', value: numericDraft.min, field: 'min' as const },
           { label: 'Max', testId: 'numeric-input-max', value: numericDraft.max, field: 'max' as const },
+          {
+            label: 'Debounce (seconds)',
+            testId: 'numeric-input-drag-debounce-seconds',
+            value: numericDraft.dragDebounceSeconds,
+            field: 'dragDebounceSeconds' as const,
+            step: '0.01',
+            min: '0',
+          },
         ].map((field) => (
           <label
             key={field.testId}
@@ -50,8 +65,10 @@ function NodePanelNumericSection({
               data-testid={field.testId}
               type="number"
               value={field.value}
+              min={field.min}
+              step={field.step}
               onChange={(event) => onNumericDraftChange(field.field, event.target.value)}
-              onBlur={onCommitNumericInputConfig}
+              onBlur={(event) => onCommitNumericInputConfig(field.field, event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.currentTarget.blur();

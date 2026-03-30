@@ -72,6 +72,7 @@ interface NumericInputNodeOptions extends GeneratedNodeOptions {
   step?: number;
   autoRecompute?: boolean;
   propagateWhileDragging?: boolean;
+  dragDebounceSeconds?: number;
 }
 
 export interface NumericInputConfig {
@@ -80,7 +81,10 @@ export interface NumericInputConfig {
   max: number;
   step: number;
   propagateWhileDragging: boolean;
+  dragDebounceSeconds: number;
 }
+
+const DEFAULT_NUMERIC_INPUT_DRAG_DEBOUNCE_SECONDS = 0.1;
 
 function createGeneratedId(prefix: string): string {
   const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -475,7 +479,12 @@ export function normalizeNumericInputConfig(config?: Record<string, unknown>): N
   const valueCandidate = toFiniteNumber(config?.value, min);
   const value = snapNumericInputValue(valueCandidate, min, max, step);
   const propagateWhileDragging = config?.propagateWhileDragging === true;
-  return { value, min, max, step, propagateWhileDragging };
+  const dragDebounceCandidate = toFiniteNumber(
+    config?.dragDebounceSeconds,
+    DEFAULT_NUMERIC_INPUT_DRAG_DEBOUNCE_SECONDS
+  );
+  const dragDebounceSeconds = Math.max(dragDebounceCandidate, 0);
+  return { value, min, max, step, propagateWhileDragging, dragDebounceSeconds };
 }
 
 export function formatNumericInputValue(value: number, step: number): string {
@@ -495,6 +504,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
     max: options.max,
     step: options.step,
     propagateWhileDragging: options.propagateWhileDragging,
+    dragDebounceSeconds: options.dragDebounceSeconds,
   });
 
   return {
@@ -513,6 +523,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
         min: numericConfig.min,
         max: numericConfig.max,
         step: numericConfig.step,
+        dragDebounceSeconds: numericConfig.dragDebounceSeconds,
         ...(numericConfig.propagateWhileDragging
           ? { propagateWhileDragging: true }
           : {}),

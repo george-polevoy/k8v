@@ -55,6 +55,7 @@ test('createNumericInputNode uses numeric defaults and numeric_input type', () =
   assert.equal(node.config.config?.min, 0);
   assert.equal(node.config.config?.max, 100);
   assert.equal(node.config.config?.step, 1);
+  assert.equal(node.config.config?.dragDebounceSeconds, 0.1);
 });
 
 test('createNumericInputNode stores propagateWhileDragging when enabled', () => {
@@ -64,6 +65,15 @@ test('createNumericInputNode stores propagateWhileDragging when enabled', () => 
   });
 
   assert.equal(node.config.config?.propagateWhileDragging, true);
+});
+
+test('createNumericInputNode stores explicit drag debounce seconds when provided', () => {
+  const node = createNumericInputNode({
+    position: { x: 18, y: 22 },
+    dragDebounceSeconds: 0.35,
+  });
+
+  assert.equal(node.config.config?.dragDebounceSeconds, 0.35);
 });
 
 test('createAnnotationNode uses markdown/text color defaults and annotation type', () => {

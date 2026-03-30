@@ -98,7 +98,11 @@ interface UseCanvasInteractionsParams {
   drawMinimap: () => void;
   drawEffects: () => void;
   updateNumericSliderFromPointer: (nodeId: string, pointerX: number, pointerY: number) => void;
-  enqueueNumericSliderPropagation: (nodeId: string, nextValue: number) => void;
+  enqueueNumericSliderPropagation: (
+    nodeId: string,
+    nextValue: number,
+    options?: { flush?: boolean }
+  ) => void;
   refreshCanvasBackgroundTexture: () => void;
   syncNodePortPositions: (nodeId: string, position: Position, visual: NodeVisual) => void;
   pickConnectionAtClientPoint: (clientX: number, clientY: number) => string | null;
@@ -382,7 +386,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
     if (numericSliderDragState) {
       if (Math.abs(numericSliderDragState.currentValue - numericSliderDragState.initialValue) > 1e-9) {
         if (numericSliderDragState.propagateWhileDragging) {
-          enqueueNumericSliderPropagation(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
+          enqueueNumericSliderPropagation(
+            numericSliderDragState.nodeId,
+            numericSliderDragState.currentValue,
+            { flush: true }
+          );
         } else {
           commitNumericSliderValue(numericSliderDragState.nodeId, numericSliderDragState.currentValue);
         }
