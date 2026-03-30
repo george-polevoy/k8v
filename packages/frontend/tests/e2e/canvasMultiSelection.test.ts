@@ -11,9 +11,14 @@ import {
 import { launchBrowser, openCanvasForGraph, waitForCursorAtPoint } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
+import {
+  NODE_RESIZE_HANDLE_MARGIN,
+  NODE_RESIZE_HANDLE_SIZE,
+} from '../../src/components/canvasConstants.ts';
 
 const DEFAULT_NUMERIC_NODE_WIDTH = 220;
 const DEFAULT_NUMERIC_NODE_HEIGHT = 80;
+const RESIZE_HANDLE_CENTER_OFFSET = NODE_RESIZE_HANDLE_MARGIN + (NODE_RESIZE_HANDLE_SIZE * 0.5);
 
 interface CanvasBox {
   x: number;
@@ -482,8 +487,8 @@ test(
         canvasBox
       );
       const sharedResizeHandle = {
-        x: selectionBoundsBeforeResize.x + selectionBoundsBeforeResize.width,
-        y: selectionBoundsBeforeResize.y + selectionBoundsBeforeResize.height,
+        x: selectionBoundsBeforeResize.x + selectionBoundsBeforeResize.width + RESIZE_HANDLE_CENTER_OFFSET,
+        y: selectionBoundsBeforeResize.y + selectionBoundsBeforeResize.height + RESIZE_HANDLE_CENTER_OFFSET,
       };
       await waitForCursorAtPoint(
         page,

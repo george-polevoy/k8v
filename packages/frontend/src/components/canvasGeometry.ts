@@ -13,8 +13,10 @@ export interface ResizeHandleBounds {
 }
 
 export interface ResizeHandlePlacement {
-  x: number;
-  y: number;
+  anchorX: number;
+  anchorY: number;
+  drawX: number;
+  drawY: number;
   handle: ResizeHandleDirection;
 }
 
@@ -33,18 +35,68 @@ export function resolveResizeCursor(handle: ResizeHandleDirection): string {
 
 export function resolveResizeHandlePlacements(
   bounds: ResizeHandleBounds,
-  handleSize: number
+  handleSize: number,
+  handleMargin = 0
 ): ResizeHandlePlacement[] {
   const handleOffset = handleSize * 0.5;
+  const outerOffset = handleSize + handleMargin;
   return [
-    { x: bounds.x - handleOffset, y: bounds.y - handleOffset, handle: 'nw' },
-    { x: bounds.x + (bounds.width * 0.5) - handleOffset, y: bounds.y - handleOffset, handle: 'n' },
-    { x: bounds.x + bounds.width - handleOffset, y: bounds.y - handleOffset, handle: 'ne' },
-    { x: bounds.x + bounds.width - handleOffset, y: bounds.y + (bounds.height * 0.5) - handleOffset, handle: 'e' },
-    { x: bounds.x + bounds.width - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 'se' },
-    { x: bounds.x + (bounds.width * 0.5) - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 's' },
-    { x: bounds.x - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 'sw' },
-    { x: bounds.x - handleOffset, y: bounds.y + (bounds.height * 0.5) - handleOffset, handle: 'w' },
+    {
+      anchorX: bounds.x,
+      anchorY: bounds.y,
+      drawX: -outerOffset,
+      drawY: -outerOffset,
+      handle: 'nw',
+    },
+    {
+      anchorX: bounds.x + (bounds.width * 0.5),
+      anchorY: bounds.y,
+      drawX: -handleOffset,
+      drawY: -outerOffset,
+      handle: 'n',
+    },
+    {
+      anchorX: bounds.x + bounds.width,
+      anchorY: bounds.y,
+      drawX: handleMargin,
+      drawY: -outerOffset,
+      handle: 'ne',
+    },
+    {
+      anchorX: bounds.x + bounds.width,
+      anchorY: bounds.y + (bounds.height * 0.5),
+      drawX: handleMargin,
+      drawY: -handleOffset,
+      handle: 'e',
+    },
+    {
+      anchorX: bounds.x + bounds.width,
+      anchorY: bounds.y + bounds.height,
+      drawX: handleMargin,
+      drawY: handleMargin,
+      handle: 'se',
+    },
+    {
+      anchorX: bounds.x + (bounds.width * 0.5),
+      anchorY: bounds.y + bounds.height,
+      drawX: -handleOffset,
+      drawY: handleMargin,
+      handle: 's',
+    },
+    {
+      anchorX: bounds.x,
+      anchorY: bounds.y + bounds.height,
+      drawX: -outerOffset,
+      drawY: handleMargin,
+      handle: 'sw',
+    },
+    {
+      anchorX: bounds.x,
+      anchorY: bounds.y + (bounds.height * 0.5),
+      drawX: -outerOffset,
+      drawY: -handleOffset,
+      handle: 'w',
+    },
   ];
 }
 

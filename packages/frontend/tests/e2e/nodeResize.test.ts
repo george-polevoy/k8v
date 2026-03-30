@@ -6,12 +6,22 @@ import {
   waitForNodeCardSize,
   waitForNodePosition,
 } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph, readCanvasCursor } from './support/browser.ts';
+import {
+  launchBrowser,
+  openCanvasForGraph,
+  readCanvasCursor,
+  waitForCursorAtPoint,
+} from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
+import {
+  NODE_RESIZE_HANDLE_MARGIN,
+  NODE_RESIZE_HANDLE_SIZE,
+} from '../../src/components/canvasConstants.ts';
 
 const DEFAULT_NODE_WIDTH = 220;
 const DEFAULT_NODE_HEIGHT = 108;
+const RESIZE_HANDLE_CENTER_OFFSET = NODE_RESIZE_HANDLE_MARGIN + (NODE_RESIZE_HANDLE_SIZE * 0.5);
 
 interface NodeScreenPosition {
   centerX: number;
@@ -32,6 +42,12 @@ interface SearchRegion {
   maxX: number;
   minY: number;
   maxY: number;
+}
+
+interface ViewportTransform {
+  x: number;
+  y: number;
+  scale: number;
 }
 
 function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
@@ -60,6 +76,76 @@ async function locateCursorPoint(
   }
 
   throw new Error(`Failed to find cursor "${expectedCursor}" within region ${JSON.stringify(region)}`);
+}
+
+async function readViewportTransform(page: import('playwright').Page): Promise<ViewportTransform> {
+  return page.evaluate(() => {
+    const debug = (window as Window & {
+      __k8vCanvasDebug?: {
+        viewportX?: number;
+        viewportY?: number;
+        viewportScale?: number;
+      };
+    }).__k8vCanvasDebug;
+    return {
+      x: Number(debug?.viewportX ?? Number.NaN),
+      y: Number(debug?.viewportY ?? Number.NaN),
+      scale: Number(debug?.viewportScale ?? Number.NaN),
+    };
+  });
+}
+
+async function waitForViewportTransform(
+  page: import('playwright').Page,
+  predicate: (transform: ViewportTransform) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<ViewportTransform> {
+  const startedAt = Date.now();
+  let lastTransform = await readViewportTransform(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (predicate(lastTransform)) {
+      return lastTransform;
+    }
+
+    await page.waitForTimeout(40);
+    lastTransform = await readViewportTransform(page);
+  }
+
+  throw new Error(`Timed out waiting for viewport transform. Last value: ${JSON.stringify(lastTransform)}`);
+}
+
+function resolveNodeScreenRect(
+  nodePosition: { x: number; y: number },
+  viewportTransform: ViewportTransform,
+  canvasBox: CanvasBox
+): { x: number; y: number; width: number; height: number } {
+  return {
+    x: canvasBox.x + viewportTransform.x + (nodePosition.x * viewportTransform.scale),
+    y: canvasBox.y + viewportTransform.y + (nodePosition.y * viewportTransform.scale),
+    width: DEFAULT_NODE_WIDTH * viewportTransform.scale,
+    height: DEFAULT_NODE_HEIGHT * viewportTransform.scale,
+  };
+}
+
+async function dispatchCanvasWheel(
+  page: import('playwright').Page,
+  options: { x: number; y: number; deltaX: number; deltaY: number }
+): Promise<void> {
+  await page.evaluate(({ x, y, deltaX, deltaY }) => {
+    const mainCanvas = document.querySelector('canvas');
+    if (!(mainCanvas instanceof HTMLCanvasElement)) {
+      throw new Error('Main canvas not found');
+    }
+    mainCanvas.dispatchEvent(new WheelEvent('wheel', {
+      deltaX,
+      deltaY,
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+      cancelable: true,
+    }));
+  }, options);
 }
 
 async function ensureNodeSelected(
@@ -184,6 +270,90 @@ test(
 
       assert.ok((taller.height ?? 0) >= 150, `Expected height >= 150 after top resize. Received: ${taller.height}`);
       assert.ok(movedUp.y <= initialPosition.y - 24, 'Expected node y to decrease after top resize.');
+
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  }
+);
+
+test(
+  'resize handles stay outside the card and keep a constant screen offset across zoom',
+  { timeout: 90_000 },
+  async () => {
+    const { graphId, nodeId } = await createInlineCodeGraph({
+      cardWidth: DEFAULT_NODE_WIDTH,
+      cardHeight: DEFAULT_NODE_HEIGHT,
+      code: 'outputs.output = inputs.input ?? 0;',
+    });
+    const initialPosition = await getNodePosition(graphId, nodeId);
+
+    const browser = await launchBrowser();
+    try {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        (window as Window & {
+          __k8vCanvasDebug?: Record<string, unknown>;
+        }).__k8vCanvasDebug = {};
+      });
+      await openCanvasForGraph(page, graphId);
+
+      const canvas = page.locator('canvas').first();
+      const canvasBox = await canvas.boundingBox() as CanvasBox | null;
+      assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+
+      const nodeBox = resolveCenteredNodePosition(canvasBox);
+      await ensureNodeSelected(page, nodeBox);
+
+      const initialViewportTransform = await waitForViewportTransform(
+        page,
+        (transform) => (
+          Number.isFinite(transform.x) &&
+          Number.isFinite(transform.y) &&
+          Number.isFinite(transform.scale)
+        )
+      );
+      const initialNodeRect = resolveNodeScreenRect(initialPosition, initialViewportTransform, canvasBox);
+      const initialLeftHandle = {
+        x: initialNodeRect.x - RESIZE_HANDLE_CENTER_OFFSET,
+        y: initialNodeRect.y + (initialNodeRect.height * 0.5),
+      };
+
+      await waitForCursorAtPoint(page, initialLeftHandle.x, initialLeftHandle.y, 'ew-resize');
+
+      const zoomAnchor = {
+        x: initialNodeRect.x + (initialNodeRect.width * 0.5),
+        y: initialNodeRect.y + (initialNodeRect.height * 0.5),
+      };
+      await dispatchCanvasWheel(page, {
+        x: zoomAnchor.x,
+        y: zoomAnchor.y,
+        deltaX: 0,
+        deltaY: 240,
+      });
+
+      const zoomedViewportTransform = await waitForViewportTransform(
+        page,
+        (transform) => (
+          Number.isFinite(transform.scale) &&
+          transform.scale < (initialViewportTransform.scale * 0.85)
+        )
+      );
+      const zoomedNodeRect = resolveNodeScreenRect(initialPosition, zoomedViewportTransform, canvasBox);
+      const zoomedLeftHandle = {
+        x: zoomedNodeRect.x - RESIZE_HANDLE_CENTER_OFFSET,
+        y: zoomedNodeRect.y + (zoomedNodeRect.height * 0.5),
+      };
+
+      await waitForCursorAtPoint(page, zoomedLeftHandle.x, zoomedLeftHandle.y, 'ew-resize');
+      assert.ok(
+        zoomedLeftHandle.x < (zoomedNodeRect.x - (NODE_RESIZE_HANDLE_SIZE * 0.5)),
+        'Left handle center should remain outside the node bounds after zoom'
+      );
 
       await context.close();
     } finally {

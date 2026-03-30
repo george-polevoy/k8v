@@ -86,6 +86,7 @@ import {
   MINIMAP_WIDTH,
   MIN_ZOOM,
   NODE_GRAPHICS_FALLBACK_ASPECT_RATIO,
+  NODE_RESIZE_HANDLE_MARGIN,
   NODE_RESIZE_HANDLE_SIZE,
   NODE_TITLE_CHAR_WIDTH_ESTIMATE,
   NODE_TITLE_TEXT_STYLE,
@@ -1035,6 +1036,9 @@ function Canvas({
     const selectedNodeIdValue = selectedNodeIdRef.current;
     const selectedNodeIdSet = new Set(selectedNodeIdsRef.current);
     const activeNodeDragState = nodeDragStateRef.current;
+    const handleInverseScale = 1 / viewportScale;
+    const nodeResizeHandleHitPadding =
+      (NODE_RESIZE_HANDLE_SIZE + NODE_RESIZE_HANDLE_MARGIN) / viewportScale;
     const addResizeHandles = ({
       target,
       bounds,
@@ -1054,13 +1058,19 @@ function Canvas({
       onPointerOut: (event: FederatedPointerEvent, handle: ResizeHandleDirection) => void;
       onPointerDown: (event: FederatedPointerEvent, handle: ResizeHandleDirection) => void;
     }) => {
-      for (const placement of resolveResizeHandlePlacements(bounds, NODE_RESIZE_HANDLE_SIZE)) {
+      for (const placement of resolveResizeHandlePlacements(
+        bounds,
+        NODE_RESIZE_HANDLE_SIZE,
+        NODE_RESIZE_HANDLE_MARGIN
+      )) {
         const resizeHandle = new Graphics();
+        resizeHandle.position.set(placement.anchorX, placement.anchorY);
+        resizeHandle.scale.set(handleInverseScale);
         resizeHandle.lineStyle(1, 0x1e3a8a, strokeAlpha);
         resizeHandle.beginFill(fillColor, fillAlpha);
         resizeHandle.drawRoundedRect(
-          placement.x,
-          placement.y,
+          placement.drawX,
+          placement.drawY,
           NODE_RESIZE_HANDLE_SIZE,
           NODE_RESIZE_HANDLE_SIZE,
           2
@@ -1161,7 +1171,7 @@ function Canvas({
       container.eventMode = 'static';
       container.cursor = 'pointer';
       // Keep the card body selectable even when fill alpha is 0 (fully transparent).
-      const hitPadding = NODE_RESIZE_HANDLE_SIZE * 0.5;
+      const hitPadding = nodeResizeHandleHitPadding;
       container.hitArea = new Rectangle(
         -hitPadding,
         -hitPadding,
