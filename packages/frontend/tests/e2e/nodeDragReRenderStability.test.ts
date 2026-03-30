@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PNG } from 'pngjs';
 import { createNumericInputGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -96,6 +96,10 @@ async function findCenteredNodeDragPoint(
   ];
   const nodeNameInput = page.locator('[data-testid="node-name-input"]');
 
+  if (await nodeNameInput.isVisible().catch(() => false)) {
+    return candidatePoints[0] as { x: number; y: number };
+  }
+
   for (const point of candidatePoints) {
     await page.mouse.click(point.x, point.y);
     try {
@@ -136,6 +140,13 @@ test(
       });
       const page = await context.newPage();
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();

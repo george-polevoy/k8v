@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Page } from 'playwright';
 import { createEmptyGraph, fetchGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -12,13 +12,6 @@ interface ViewportTransform {
   x: number;
   y: number;
   scale: number;
-}
-
-interface FloatingWindowBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 interface GraphCameraResponse {
@@ -99,49 +92,6 @@ async function dispatchCanvasWheel(
   }, options);
 }
 
-async function dragFloatingWindow(
-  page: Page,
-  windowId: string,
-  deltaX: number,
-  deltaY: number
-): Promise<FloatingWindowBox> {
-  const handle = page.locator(`[data-testid="floating-window-drag-${windowId}"]`);
-  const handleBox = await handle.boundingBox();
-  assert.ok(handleBox, `Expected drag handle bounds for ${windowId}`);
-
-  const startX = handleBox.x + (handleBox.width / 2);
-  const startY = handleBox.y + (handleBox.height / 2);
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 16 });
-  await page.mouse.up();
-  await page.waitForTimeout(220);
-
-  const windowBox = await page.locator(`[data-testid="floating-window-${windowId}"]`).boundingBox();
-  assert.ok(windowBox, `Expected floating window bounds for ${windowId}`);
-  return windowBox;
-}
-
-async function waitForFloatingWindowBox(
-  page: Page,
-  windowId: string,
-  predicate: (box: FloatingWindowBox) => boolean,
-  timeoutMs = E2E_ASSERT_TIMEOUT_MS
-): Promise<FloatingWindowBox> {
-  const startedAt = Date.now();
-  let lastBox: FloatingWindowBox | null = null;
-
-  while ((Date.now() - startedAt) < timeoutMs) {
-    lastBox = await page.locator(`[data-testid="floating-window-${windowId}"]`).boundingBox() as FloatingWindowBox | null;
-    if (lastBox && predicate(lastBox)) {
-      return lastBox;
-    }
-    await page.waitForTimeout(60);
-  }
-
-  throw new Error(`Timed out waiting for floating window ${windowId}. Last value: ${JSON.stringify(lastBox)}`);
-}
-
 async function waitForCameraSelectValue(
   page: Page,
   expectedValue: string,
@@ -218,6 +168,7 @@ test(
         }).__k8vCanvasDebug = {};
       });
       await openCanvasForGraph(firstPage, graphId);
+      await openSidebarSection(firstPage, 'graph');
       await waitForCameraSelectValue(firstPage, DEFAULT_CAMERA_ID);
 
       const canvas = firstPage.locator('canvas').first();
@@ -229,9 +180,6 @@ test(
         Number.isFinite(transform.y) &&
         Number.isFinite(transform.scale)
       );
-
-      const defaultSidebarBox = await dragFloatingWindow(firstPage, 'right-sidebar', -180, 110);
-      const defaultToolbarBox = await dragFloatingWindow(firstPage, 'toolbar', 130, 92);
 
       await firstPage.mouse.move(
         canvasBox.x + (canvasBox.width * 0.62),
@@ -282,8 +230,7 @@ test(
           typeof camera.viewport?.x === 'number' &&
           typeof camera.viewport?.y === 'number' &&
           typeof camera.viewport?.scale === 'number' &&
-          Boolean(camera.floatingWindows?.toolbar) &&
-          Boolean(camera.floatingWindows?.['right-sidebar'])
+          (!camera.floatingWindows || Object.keys(camera.floatingWindows).length === 0)
         )
       );
 
@@ -297,9 +244,6 @@ test(
       const customCameraId = cameraOptionsAfterAdd.find((cameraId) => cameraId !== DEFAULT_CAMERA_ID);
       assert.ok(customCameraId, 'Expected a newly added camera id');
       await waitForCameraSelectValue(firstPage, customCameraId);
-
-      const customSidebarBox = await dragFloatingWindow(firstPage, 'right-sidebar', 120, -70);
-      const customToolbarBox = await dragFloatingWindow(firstPage, 'toolbar', -110, 70);
 
       const customViewportBeforePan = await waitForViewportTransform(firstPage, () => true);
       const customPanStart = {
@@ -338,8 +282,7 @@ test(
           typeof camera.viewport?.x === 'number' &&
           typeof camera.viewport?.y === 'number' &&
           typeof camera.viewport?.scale === 'number' &&
-          Boolean(camera.floatingWindows?.toolbar) &&
-          Boolean(camera.floatingWindows?.['right-sidebar'])
+          (!camera.floatingWindows || Object.keys(camera.floatingWindows).length === 0)
         )
       );
 
@@ -357,14 +300,6 @@ test(
         approxEqual(restoredDefaultViewport.scale, defaultViewport.scale, 0.02),
         'Expected switching back to the default camera to restore its viewport'
       );
-      await waitForFloatingWindowBox(firstPage, 'right-sidebar', (box) =>
-        approxEqual(box.x, defaultSidebarBox.x, 3) &&
-        approxEqual(box.y, defaultSidebarBox.y, 3)
-      );
-      await waitForFloatingWindowBox(firstPage, 'toolbar', (box) =>
-        approxEqual(box.x, defaultToolbarBox.x, 3) &&
-        approxEqual(box.y, defaultToolbarBox.y, 3)
-      );
 
       await firstPage.locator('[data-testid="camera-select"]').selectOption(customCameraId);
       await waitForCameraSelectValue(firstPage, customCameraId);
@@ -380,14 +315,6 @@ test(
         approxEqual(restoredCustomViewport.scale, customViewport.scale, 0.02),
         'Expected switching to the custom camera to restore its viewport'
       );
-      await waitForFloatingWindowBox(firstPage, 'right-sidebar', (box) =>
-        approxEqual(box.x, customSidebarBox.x, 3) &&
-        approxEqual(box.y, customSidebarBox.y, 3)
-      );
-      await waitForFloatingWindowBox(firstPage, 'toolbar', (box) =>
-        approxEqual(box.x, customToolbarBox.x, 3) &&
-        approxEqual(box.y, customToolbarBox.y, 3)
-      );
 
       const secondContext = await browser.newContext({
         viewport: { width: 1440, height: 900 },
@@ -401,6 +328,7 @@ test(
           }).__k8vCanvasDebug = {};
         });
         await openCanvasForGraph(secondPage, graphId);
+        await openSidebarSection(secondPage, 'graph');
         await waitForCameraSelectValue(secondPage, DEFAULT_CAMERA_ID);
 
         const secondViewport = await waitForViewportTransform(secondPage, (transform) =>
@@ -413,19 +341,6 @@ test(
           approxEqual(secondViewport.y, defaultViewport.y, 2) &&
           approxEqual(secondViewport.scale, defaultViewport.scale, 0.02),
           'Expected a new browser window to keep its own current-camera selection and open on the default camera'
-        );
-
-        const secondSidebarBox = await waitForFloatingWindowBox(secondPage, 'right-sidebar', () => true);
-        const secondToolbarBox = await waitForFloatingWindowBox(secondPage, 'toolbar', () => true);
-        assert.ok(
-          approxEqual(secondSidebarBox.x, defaultSidebarBox.x, 3) &&
-          approxEqual(secondSidebarBox.y, defaultSidebarBox.y, 3),
-          'Expected a new browser window to restore the default camera sidebar layout'
-        );
-        assert.ok(
-          approxEqual(secondToolbarBox.x, defaultToolbarBox.x, 3) &&
-          approxEqual(secondToolbarBox.y, defaultToolbarBox.y, 3),
-          'Expected a new browser window to restore the default camera toolbar layout'
         );
       } finally {
         await secondContext.close();
@@ -446,6 +361,16 @@ test(
         remainingCameras.map((camera) => camera.id),
         [DEFAULT_CAMERA_ID],
         'Expected deleting the custom camera to persist only the default camera on the graph'
+      );
+      assert.ok(
+        remainingCameras.every((camera) => !camera.floatingWindows || Object.keys(camera.floatingWindows).length === 0),
+        'Expected docked sidebar state to remain out of persisted camera data'
+      );
+
+      const graphAfterCameraEdits = await fetchGraph(graphId) as { cameras?: GraphCameraResponse[] };
+      assert.ok(
+        Array.isArray(graphAfterCameraEdits.cameras),
+        'Expected graph camera response to include cameras after edits'
       );
 
       await firstContext.close();

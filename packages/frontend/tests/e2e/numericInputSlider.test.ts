@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PNG } from 'pngjs';
 import { createNumericInputGraph, getNumericNodeValue, waitForNumericNodeValue } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph, readCanvasCursor, waitForCursorAtPoint } from './support/browser.ts';
+import {
+  launchBrowser,
+  openCanvasForGraph,
+  openSidebarSection,
+  readCanvasCursor,
+  waitForCursorAtPoint,
+} from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -199,6 +205,7 @@ test(
       const sliderTargetX = nodeBox.left + NUMERIC_NODE_WIDTH - 12;
 
       await page.mouse.click(headerClickX, headerClickY);
+      await openSidebarSection(page, 'node');
       await page.locator('[data-testid="numeric-input-propagate-while-dragging-toggle"]').check();
 
       const sliderY = await locateSliderY(page, nodeBox.left + 80, nodeBox.centerY);

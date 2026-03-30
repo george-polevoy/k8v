@@ -69,52 +69,42 @@ function parseToolJson(result: { content: Array<{ text?: string }> }): unknown {
 test('graph_create posts only name and returns an empty graph payload', async () => {
   const server = new FakeMcpServer();
   const requests: RecordedRequest[] = [];
-  const originalFetch = globalThis.fetch;
   const createdGraph = createGraphFixture({ name: 'Created Via MCP' });
 
   registerGraphTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    requestJson: async <T>(backendUrl: string, endpoint: string, init?: RequestInit) => {
+      const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+      requests.push({
+        url: `${backendUrl}${endpoint}`,
+        method: (init?.method ?? 'GET').toUpperCase(),
+        body: requestBody,
+      });
+      return createdGraph as T;
+    },
   });
 
   const graphCreate = server.tools.get('graph_create');
   assert.ok(graphCreate);
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
-    requests.push({
-      url: String(input),
-      method: (init?.method ?? 'GET').toUpperCase(),
-      body: requestBody,
-    });
-    return new Response(JSON.stringify(createdGraph), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
+  const result = await graphCreate.handler({
+    name: 'Created Via MCP',
+    backendUrl: 'http://backend.test',
+  });
+  const parsed = parseToolJson(result) as Record<string, unknown>;
 
-  try {
-    const result = await graphCreate.handler({
-      name: 'Created Via MCP',
-      backendUrl: 'http://backend.test',
-    });
-    const parsed = parseToolJson(result) as Record<string, unknown>;
-
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs');
-    assert.equal(requests[0]?.method, 'POST');
-    assert.deepEqual(requests[0]?.body, { name: 'Created Via MCP' });
-    assert.equal(parsed.name, 'Created Via MCP');
-    assert.deepEqual(parsed.nodes, []);
-    assert.deepEqual(parsed.connections, []);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, 'http://backend.test/api/graphs');
+  assert.equal(requests[0]?.method, 'POST');
+  assert.deepEqual(requests[0]?.body, { name: 'Created Via MCP' });
+  assert.equal(parsed.name, 'Created Via MCP');
+  assert.deepEqual(parsed.nodes, []);
+  assert.deepEqual(parsed.connections, []);
 });
 
 test('bulk_edit accepts GraphCommand[] and resolves base revision from graph when omitted', async () => {
   const server = new FakeMcpServer();
   const requests: RecordedRequest[] = [];
-  const originalFetch = globalThis.fetch;
   const currentGraph = createGraphFixture({ revision: 7 });
   const updatedGraph = createGraphFixture({ revision: 8, name: 'Renamed Graph' });
   const commands = [
@@ -124,6 +114,30 @@ test('bulk_edit accepts GraphCommand[] and resolves base revision from graph whe
 
   registerGraphTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    getGraph: async (backendUrl: string, graphId: string) => {
+      requests.push({
+        url: `${backendUrl}/api/graphs/${graphId}`,
+        method: 'GET',
+        body: undefined,
+      });
+      return currentGraph as any;
+    },
+    submitGraphCommands: async (
+      backendUrl: string,
+      graphId: string,
+      baseRevision: number,
+      nextCommands: GraphCommand[]
+    ) => {
+      requests.push({
+        url: `${backendUrl}/api/graphs/${graphId}/commands`,
+        method: 'POST',
+        body: {
+          baseRevision,
+          commands: nextCommands,
+        },
+      });
+      return { graph: updatedGraph as any, runtimeState: { queueLength: 0 } };
+    },
   });
 
   const bulkEdit = server.tools.get('bulk_edit');
@@ -137,127 +151,97 @@ test('bulk_edit accepts GraphCommand[] and resolves base revision from graph whe
   );
   assert.throws(() => commandsSchema.parse(['{"kind":"compute_graph"}']));
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const url = String(input);
-    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
-    requests.push({
-      url,
-      method,
-      body: requestBody,
-    });
+  const result = await bulkEdit.handler({
+    graphId: 'graph-1',
+    commands,
+    backendUrl: 'http://backend.test',
+  });
+  const parsed = parseToolJson(result) as Record<string, unknown>;
 
-    if (method === 'GET' && url.endsWith('/api/graphs/graph-1')) {
-      return new Response(JSON.stringify(currentGraph), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-
-    return new Response(JSON.stringify({ graph: updatedGraph, runtimeState: { queueLength: 0 } }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
-
-  try {
-    const result = await bulkEdit.handler({
-      graphId: 'graph-1',
-      commands,
-      backendUrl: 'http://backend.test',
-    });
-    const parsed = parseToolJson(result) as Record<string, unknown>;
-
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0]?.method, 'GET');
-    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1');
-    assert.equal(requests[1]?.method, 'POST');
-    assert.equal(requests[1]?.url, 'http://backend.test/api/graphs/graph-1/commands');
-    assert.deepEqual(requests[1]?.body, {
-      baseRevision: 7,
-      commands,
-    });
-    assert.equal(parsed.commandCount, 2);
-    assert.equal((parsed.graph as Record<string, unknown>).revision, 8);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0]?.method, 'GET');
+  assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1');
+  assert.equal(requests[1]?.method, 'POST');
+  assert.equal(requests[1]?.url, 'http://backend.test/api/graphs/graph-1/commands');
+  assert.deepEqual(requests[1]?.body, {
+    baseRevision: 7,
+    commands,
+  });
+  assert.equal(parsed.commandCount, 2);
+  assert.equal((parsed.graph as Record<string, unknown>).revision, 8);
 });
 
 test('bulk_edit re-validates structured command objects against GraphCommand before posting', async () => {
   const server = new FakeMcpServer();
-  const originalFetch = globalThis.fetch;
-  let fetchCalled = false;
+  let dependencyCalled = false;
 
   registerGraphTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    getGraph: async () => {
+      dependencyCalled = true;
+      throw new Error('getGraph should not be called for invalid commands');
+    },
+    submitGraphCommands: async () => {
+      dependencyCalled = true;
+      throw new Error('submitGraphCommands should not be called for invalid commands');
+    },
   });
 
   const bulkEdit = server.tools.get('bulk_edit');
   assert.ok(bulkEdit);
 
-  globalThis.fetch = (async () => {
-    fetchCalled = true;
-    throw new Error('fetch should not be called for invalid commands');
-  }) as typeof fetch;
-
-  try {
-    await assert.rejects(
-      () => bulkEdit.handler({
-        graphId: 'graph-1',
-        commands: [{ kind: 'not_a_real_graph_command' }],
-        backendUrl: 'http://backend.test',
-      })
-    );
-    assert.equal(fetchCalled, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await assert.rejects(
+    () => bulkEdit.handler({
+      graphId: 'graph-1',
+      commands: [{ kind: 'not_a_real_graph_command' }],
+      backendUrl: 'http://backend.test',
+    })
+  );
+  assert.equal(dependencyCalled, false);
 });
 
 test('bulk_edit uses explicit baseRevision and forwards noRecompute query flag', async () => {
   const server = new FakeMcpServer();
   const requests: RecordedRequest[] = [];
-  const originalFetch = globalThis.fetch;
   const commands = [GraphCommand.parse({ kind: 'compute_node', nodeId: 'node-1' })];
 
   registerGraphTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    submitGraphCommands: async (
+      backendUrl: string,
+      graphId: string,
+      baseRevision: number,
+      nextCommands: GraphCommand[],
+      options?: { noRecompute?: boolean }
+    ) => {
+      requests.push({
+        url: `${backendUrl}/api/graphs/${graphId}/commands${options?.noRecompute ? '?noRecompute=true' : ''}`,
+        method: 'POST',
+        body: {
+          baseRevision,
+          commands: nextCommands,
+        },
+      });
+      return { graph: createGraphFixture({ revision: 12 }) as any };
+    },
   });
 
   const bulkEdit = server.tools.get('bulk_edit');
   assert.ok(bulkEdit);
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
-    requests.push({
-      url: String(input),
-      method: (init?.method ?? 'GET').toUpperCase(),
-      body: requestBody,
-    });
-    return new Response(JSON.stringify({ graph: createGraphFixture({ revision: 12 }) }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
-
-  try {
-    await bulkEdit.handler({
-      graphId: 'graph-1',
-      baseRevision: 11,
-      noRecompute: true,
-      commands,
-      backendUrl: 'http://backend.test',
-    });
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/commands?noRecompute=true');
-    assert.deepEqual(requests[0]?.body, {
-      baseRevision: 11,
-      commands,
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await bulkEdit.handler({
+    graphId: 'graph-1',
+    baseRevision: 11,
+    noRecompute: true,
+    commands,
+    backendUrl: 'http://backend.test',
+  });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/commands?noRecompute=true');
+  assert.deepEqual(requests[0]?.body, {
+    baseRevision: 11,
+    commands,
+  });
 });
 
 test('graph_query uses shared GraphQueryRequestSchema contract', async () => {

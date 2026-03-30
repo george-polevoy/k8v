@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Page } from 'playwright';
 import { createEmptyGraph, createNumericInputGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -32,8 +32,10 @@ function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
 }
 
 async function ensureNodeSelected(page: Page, nodeBox: NodeScreenPosition): Promise<void> {
-  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-  if (await nodeNameInput.isVisible()) {
+  const alreadySelected = await page.evaluate(() =>
+    Boolean(window.__k8vGraphStore?.getState().selectedNodeId)
+  );
+  if (alreadySelected) {
     return;
   }
 
@@ -54,12 +56,15 @@ async function ensureNodeSelected(page: Page, nodeBox: NodeScreenPosition): Prom
     index += 1;
     await page.mouse.click(click.x, click.y);
     await page.waitForTimeout(120);
-    if (await nodeNameInput.isVisible()) {
+    const isSelected = await page.evaluate(() =>
+      Boolean(window.__k8vGraphStore?.getState().selectedNodeId)
+    );
+    if (isSelected) {
       return;
     }
   }
 
-  throw new Error('Failed to select centered node before accordion assertion.');
+  throw new Error('Failed to select centered node before sidebar assertion.');
 }
 
 test.before(async () => {
@@ -71,10 +76,10 @@ test.after(async () => {
 });
 
 test(
-  'right sidebar panels behave as accordion and graph controls live in graph panel',
+  'right sidebar switches sections from the icon rail and active icon toggles collapse',
   { timeout: 90_000 },
   async () => {
-    const { graphId } = await createEmptyGraph('E2E Accordion Graph');
+    const { graphId } = await createEmptyGraph('E2E Sidebar Navigation Graph');
 
     const browser = await launchBrowser();
     try {
@@ -87,44 +92,46 @@ test(
 
       const graphSelect = page.locator('[data-testid="graph-select"]');
       await graphSelect.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
-
-      await page.locator('[data-testid="sidebar-toggle-node"]').click();
-      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
+      await page.locator('[data-testid="sidebar-content-graph"]').waitFor({
         state: 'visible',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
+
+      await openSidebarSection(page, 'node');
       await page.locator('[data-testid="sidebar-content-graph"]').waitFor({
         state: 'hidden',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
+      await page.getByText('Select a node or drawing to edit').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
-      const emptyNodeSelectionText = page.locator('text=Select a node or drawing to edit');
-      await emptyNodeSelectionText.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
+      await openSidebarSection(page, 'output');
+      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.getByText('Select a node to view its output').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+
+      await page.locator('[data-testid="sidebar-toggle-output"]').click();
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.locator('[data-testid="sidebar-content-pane"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       await page.locator('[data-testid="sidebar-toggle-output"]').click();
       await page.locator('[data-testid="sidebar-content-output"]').waitFor({
         state: 'visible',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
-      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
-        state: 'hidden',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
-
-      const outputEmptyText = page.locator('text=Select a node to view its output');
-      await outputEmptyText.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
-
-      await page.locator('[data-testid="sidebar-toggle-graph"]').click();
-      await page.locator('[data-testid="sidebar-content-graph"]').waitFor({
-        state: 'visible',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
-      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
-        state: 'hidden',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
-
-      assert.equal(await graphSelect.isVisible(), true);
 
       await context.close();
     } finally {
@@ -134,7 +141,7 @@ test(
 );
 
 test(
-  'selecting a node auto-expands the node sidebar panel',
+  'selecting a node preserves the current sidebar section instead of auto-switching to node',
   { timeout: 90_000 },
   async () => {
     const { graphId } = await createNumericInputGraph({
@@ -152,16 +159,7 @@ test(
       const page = await context.newPage();
 
       await openCanvasForGraph(page, graphId);
-
-      await page.locator('[data-testid="sidebar-toggle-output"]').click();
-      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
-        state: 'visible',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
-      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
-        state: 'hidden',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
+      await openSidebarSection(page, 'output');
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
@@ -170,17 +168,14 @@ test(
       const nodeBox = resolveCenteredNodePosition(canvasBox);
       await ensureNodeSelected(page, nodeBox);
 
-      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
         state: 'visible',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
-      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+      await page.locator('[data-testid="sidebar-content-node"]').waitFor({
         state: 'hidden',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
-
-      const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-      await nodeNameInput.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
       await context.close();
     } finally {

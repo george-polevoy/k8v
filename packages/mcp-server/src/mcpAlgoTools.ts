@@ -1,12 +1,18 @@
 import { z } from 'zod';
 import { requestJson, textResult } from './mcpHttp.js';
 
+type RequestJsonFn = typeof requestJson;
+
 interface AlgoToolRegistrarDeps {
   resolveBackendUrl: (backendUrl?: string) => string;
+  requestJson?: RequestJsonFn;
 }
 
 export function registerAlgoTools(server: any, deps: AlgoToolRegistrarDeps): void {
-  const { resolveBackendUrl } = deps;
+  const {
+    resolveBackendUrl,
+    requestJson: requestJsonImpl = requestJson,
+  } = deps;
 
   server.registerTool(
     'algo_injection_run',
@@ -26,7 +32,7 @@ export function registerAlgoTools(server: any, deps: AlgoToolRegistrarDeps): voi
     },
     async ({ graphId, wasmPath, entrypoint, input, noRecompute, backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const response = await requestJson<unknown>(
+      const response = await requestJsonImpl<unknown>(
         resolvedBackendUrl,
         `/api/graphs/${encodeURIComponent(graphId)}/algo/invoke`,
         {

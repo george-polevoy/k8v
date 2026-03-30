@@ -16,8 +16,15 @@ import {
   submitGraphCommands,
 } from './mcpGraphClient.js';
 
+type RequestJsonFn = typeof requestJson;
+type GetGraphFn = typeof getGraph;
+type SubmitGraphCommandsFn = typeof submitGraphCommands;
+
 interface GraphToolRegistrarDeps {
   resolveBackendUrl: (backendUrl?: string) => string;
+  requestJson?: RequestJsonFn;
+  getGraph?: GetGraphFn;
+  submitGraphCommands?: SubmitGraphCommandsFn;
 }
 
 const GraphCommandArgumentSchema = z.object({
@@ -31,7 +38,12 @@ const GraphCommandArgumentListSchema = z.array(GraphCommandArgumentSchema).min(1
 );
 
 export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): void {
-  const { resolveBackendUrl } = deps;
+  const {
+    resolveBackendUrl,
+    requestJson: requestJsonImpl = requestJson,
+    getGraph: getGraphImpl = getGraph,
+    submitGraphCommands: submitGraphCommandsImpl = submitGraphCommands,
+  } = deps;
 
   server.registerTool(
     'graph_list',
@@ -43,7 +55,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     },
     async ({ backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const response = await requestJson<{ graphs: Array<{ id: string; name: string; updated_at: number }> }>(
+      const response = await requestJsonImpl<{ graphs: Array<{ id: string; name: string; updated_at: number }> }>(
         resolvedBackendUrl,
         '/api/graphs'
       );
@@ -63,8 +75,8 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     async ({ graphId, backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
       const graph = graphId
-        ? await getGraph(resolvedBackendUrl, graphId)
-        : normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
+        ? await getGraphImpl(resolvedBackendUrl, graphId)
+        : normalizeGraph(await requestJsonImpl<Graph>(resolvedBackendUrl, '/api/graphs/latest'));
 
       return textResult(graph);
     }
@@ -107,7 +119,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
         connectionFields,
       }) as GraphQueryRequest;
 
-      const result = await requestJson<unknown>(
+      const result = await requestJsonImpl<unknown>(
         resolvedBackendUrl,
         `/api/graphs/${encodeURIComponent(graphId)}/query`,
         {
@@ -131,7 +143,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     },
     async ({ name, backendUrl }) => {
       const resolvedBackendUrl = resolveBackendUrl(backendUrl);
-      const graph = normalizeGraph(await requestJson<Graph>(resolvedBackendUrl, '/api/graphs', {
+      const graph = normalizeGraph(await requestJsonImpl<Graph>(resolvedBackendUrl, '/api/graphs', {
         method: 'POST',
         body: JSON.stringify({ name: name ?? 'Untitled Graph' }),
       }));
@@ -160,8 +172,8 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
       const parsedCommands = z.array(GraphCommand).min(1).parse(commands);
       const resolvedBaseRevision = typeof baseRevision === 'number'
         ? baseRevision
-        : (await getGraph(resolvedBackendUrl, graphId)).revision ?? 0;
-      const response = await submitGraphCommands(
+        : (await getGraphImpl(resolvedBackendUrl, graphId)).revision ?? 0;
+      const response = await submitGraphCommandsImpl(
         resolvedBackendUrl,
         graphId,
         resolvedBaseRevision,

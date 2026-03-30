@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Page } from 'playwright';
 import { createEmptyGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -12,17 +12,20 @@ interface ViewportTransform {
   scale: number;
 }
 
-async function assertCanvasMatchesViewport(page: Page): Promise<void> {
+async function assertCanvasMatchesLayout(page: Page): Promise<void> {
   const viewport = page.viewportSize();
   assert.ok(viewport, 'Expected page viewport to be set');
   const canvas = page.locator('canvas').first();
+  const sidebar = page.locator('[data-testid="right-sidebar"]');
   const canvasBox = await canvas.boundingBox();
+  const sidebarBox = await sidebar.boundingBox();
   assert.ok(canvasBox, 'Expected canvas to be measurable');
+  assert.ok(sidebarBox, 'Expected sidebar to be measurable');
   assert.ok(Math.abs(canvasBox.x) <= 1.5, `Expected canvas x near 0, got ${canvasBox.x}`);
   assert.ok(Math.abs(canvasBox.y) <= 1.5, `Expected canvas y near 0, got ${canvasBox.y}`);
   assert.ok(
-    Math.abs(canvasBox.width - viewport.width) <= 2,
-    `Expected canvas width ${viewport.width}, got ${canvasBox.width}`
+    Math.abs(canvasBox.width - (viewport.width - sidebarBox.width)) <= 2,
+    `Expected canvas width ${viewport.width - sidebarBox.width}, got ${canvasBox.width}`
   );
   assert.ok(
     Math.abs(canvasBox.height - viewport.height) <= 2,
@@ -48,13 +51,19 @@ async function reloadCanvasForGraph(page: Page, graphId: string): Promise<void> 
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
   await graphLoadResponse;
-  await page.locator('[data-testid="graph-select"]').first().waitFor({
+  await page.locator('[data-testid="right-sidebar"]').waitFor({
     state: 'visible',
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
   await page.waitForFunction((expectedGraphId: string) => {
-    const graphSelect = document.querySelector('[data-testid="graph-select"]');
-    return graphSelect instanceof HTMLSelectElement && graphSelect.value === expectedGraphId;
+    const activeGraphId = (window as Window & {
+      __k8vGraphStore?: {
+        getState: () => {
+          graph?: { id?: string | null } | null;
+        };
+      };
+    }).__k8vGraphStore?.getState().graph?.id;
+    return activeGraphId === expectedGraphId;
   }, graphId, {
     timeout: E2E_ASSERT_TIMEOUT_MS,
   });
@@ -94,6 +103,26 @@ async function waitForViewportTransform(
   }
 
   throw new Error(`Timed out waiting for viewport transform. Last value: ${JSON.stringify(lastTransform)}`);
+}
+
+async function waitForSidebarWidth(
+  page: Page,
+  predicate: (width: number) => boolean,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<number> {
+  const startedAt = Date.now();
+  let lastWidth = Number.NaN;
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const box = await page.locator('[data-testid="right-sidebar"]').boundingBox();
+    lastWidth = box?.width ?? Number.NaN;
+    if (Number.isFinite(lastWidth) && predicate(lastWidth)) {
+      return lastWidth;
+    }
+    await page.waitForTimeout(60);
+  }
+
+  throw new Error(`Timed out waiting for sidebar width. Last value: ${lastWidth}`);
 }
 
 function approxEqual(left: number, right: number, tolerance: number): boolean {
@@ -136,10 +165,10 @@ test.after(async () => {
 });
 
 test(
-  'canvas stays full-viewport while floating panels remain draggable across resize',
+  'canvas fills the remaining workspace while docked sidebar switches and collapses',
   { timeout: 90_000 },
   async () => {
-    const { graphId } = await createEmptyGraph('E2E Floating Panels');
+    const { graphId } = await createEmptyGraph('E2E Docked Sidebar Layout');
     const browser = await launchBrowser();
     try {
       const context = await browser.newContext({
@@ -148,57 +177,39 @@ test(
       const page = await context.newPage();
       await openCanvasForGraph(page, graphId);
 
-      await page.locator('[data-testid="floating-window-right-sidebar"]').waitFor({
+      await page.locator('[data-testid="right-sidebar"]').waitFor({
         state: 'visible',
         timeout: E2E_ASSERT_TIMEOUT_MS,
       });
+      await assertCanvasMatchesLayout(page);
 
-      await assertCanvasMatchesViewport(page);
+      const expandedWidth = await waitForSidebarWidth(page, (width) => width > 300);
+      await openSidebarSection(page, 'output');
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await assertCanvasMatchesLayout(page);
 
-      const sidebarWindow = page.locator('[data-testid="floating-window-right-sidebar"]');
-      const dragHandle = page.locator('[data-testid="floating-window-drag-right-sidebar"]');
-      const beforeDrag = await sidebarWindow.boundingBox();
-      const dragHandleBox = await dragHandle.boundingBox();
-      assert.ok(beforeDrag, 'Expected sidebar floating window bounds');
-      assert.ok(dragHandleBox, 'Expected sidebar drag-handle bounds');
-
-      const startX = dragHandleBox.x + (dragHandleBox.width / 2);
-      const startY = dragHandleBox.y + (dragHandleBox.height / 2);
-      await page.mouse.move(startX, startY);
-      await page.mouse.down();
-      await page.mouse.move(startX - 180, startY + 120, { steps: 14 });
-      await page.mouse.up();
-      await page.waitForTimeout(120);
-
-      const afterDrag = await sidebarWindow.boundingBox();
-      assert.ok(afterDrag, 'Expected sidebar floating window bounds after drag');
-      assert.ok(Math.abs(afterDrag.x - beforeDrag.x) >= 120, 'Expected sidebar window to move horizontally');
-      assert.ok(Math.abs(afterDrag.y - beforeDrag.y) >= 20, 'Expected sidebar window to move vertically');
-
-      await page.setViewportSize({ width: 1060, height: 700 });
-      await page.waitForTimeout(180);
-
-      await assertCanvasMatchesViewport(page);
-
-      const viewport = page.viewportSize();
-      assert.ok(viewport, 'Expected resized page viewport');
-      const sidebarAfterResize = await sidebarWindow.boundingBox();
-      const toolbarAfterResize = await page.locator('[data-testid="floating-window-toolbar"]').boundingBox();
-      assert.ok(sidebarAfterResize, 'Expected sidebar window bounds after resize');
-      assert.ok(toolbarAfterResize, 'Expected toolbar window bounds after resize');
-
-      assert.ok(sidebarAfterResize.x >= -1, `Expected sidebar x in viewport, got ${sidebarAfterResize.x}`);
-      assert.ok(sidebarAfterResize.y >= -1, `Expected sidebar y in viewport, got ${sidebarAfterResize.y}`);
+      await page.locator('[data-testid="sidebar-toggle-output"]').click();
+      await page.locator('[data-testid="sidebar-content-pane"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      const collapsedWidth = await waitForSidebarWidth(page, (width) => width < 120);
       assert.ok(
-        (sidebarAfterResize.x + sidebarAfterResize.width) <= (viewport.width + 1),
-        'Expected sidebar right edge to stay in viewport after resize'
+        collapsedWidth < expandedWidth,
+        `Expected collapsed width ${collapsedWidth} to be smaller than expanded width ${expandedWidth}`
       );
-      assert.ok(
-        (sidebarAfterResize.y + sidebarAfterResize.height) <= (viewport.height + 1),
-        'Expected sidebar bottom edge to stay in viewport after resize'
-      );
-      assert.ok(toolbarAfterResize.x >= -1, `Expected toolbar x in viewport, got ${toolbarAfterResize.x}`);
-      assert.ok(toolbarAfterResize.y >= -1, `Expected toolbar y in viewport, got ${toolbarAfterResize.y}`);
+      await assertCanvasMatchesLayout(page);
+
+      await page.locator('[data-testid="sidebar-toggle-output"]').click();
+      await page.locator('[data-testid="sidebar-content-output"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await waitForSidebarWidth(page, (width) => approxEqual(width, expandedWidth, 2));
+      await assertCanvasMatchesLayout(page);
 
       await context.close();
     } finally {
@@ -208,10 +219,10 @@ test(
 );
 
 test(
-  'floating window positions and viewport navigation persist across page refresh',
+  'sidebar session state and viewport navigation persist across page refresh',
   { timeout: 90_000 },
   async () => {
-    const { graphId } = await createEmptyGraph('E2E Refresh Persistence');
+    const { graphId } = await createEmptyGraph('E2E Sidebar Refresh Persistence');
     const browser = await launchBrowser();
     try {
       const context = await browser.newContext({
@@ -226,10 +237,6 @@ test(
       });
       await openCanvasForGraph(page, graphId);
 
-      const sidebarWindow = page.locator('[data-testid="floating-window-right-sidebar"]');
-      const toolbarWindow = page.locator('[data-testid="floating-window-toolbar"]');
-      const sidebarDragHandle = page.locator('[data-testid="floating-window-drag-right-sidebar"]');
-      const toolbarDragHandle = page.locator('[data-testid="floating-window-drag-toolbar"]');
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Expected canvas bounds for viewport interaction test');
@@ -240,38 +247,8 @@ test(
         Number.isFinite(transform.scale)
       );
 
-      const sidebarHandleBox = await sidebarDragHandle.boundingBox();
-      assert.ok(sidebarHandleBox, 'Expected sidebar drag handle bounds');
-      await page.mouse.move(
-        sidebarHandleBox.x + (sidebarHandleBox.width / 2),
-        sidebarHandleBox.y + (sidebarHandleBox.height / 2)
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        sidebarHandleBox.x + (sidebarHandleBox.width / 2) - 170,
-        sidebarHandleBox.y + (sidebarHandleBox.height / 2) + 115,
-        { steps: 16 }
-      );
-      await page.mouse.up();
-
-      const toolbarHandleBox = await toolbarDragHandle.boundingBox();
-      assert.ok(toolbarHandleBox, 'Expected toolbar drag handle bounds');
-      await page.mouse.move(
-        toolbarHandleBox.x + (toolbarHandleBox.width / 2),
-        toolbarHandleBox.y + (toolbarHandleBox.height / 2)
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        toolbarHandleBox.x + (toolbarHandleBox.width / 2) + 135,
-        toolbarHandleBox.y + (toolbarHandleBox.height / 2) + 96,
-        { steps: 16 }
-      );
-      await page.mouse.up();
-
-      const sidebarBeforeReload = await sidebarWindow.boundingBox();
-      const toolbarBeforeReload = await toolbarWindow.boundingBox();
-      assert.ok(sidebarBeforeReload, 'Expected sidebar bounds after drag');
-      assert.ok(toolbarBeforeReload, 'Expected toolbar bounds after drag');
+      await openSidebarSection(page, 'tools');
+      const expandedToolsWidth = await waitForSidebarWidth(page, (width) => width > 300);
 
       await page.mouse.move(
         canvasBox.x + (canvasBox.width * 0.62),
@@ -320,34 +297,39 @@ test(
       await page.waitForTimeout(180);
       await reloadCanvasForGraph(page, graphId);
 
-      const sidebarAfterReload = await sidebarWindow.boundingBox();
-      const toolbarAfterReload = await toolbarWindow.boundingBox();
-      assert.ok(sidebarAfterReload, 'Expected sidebar bounds after reload');
-      assert.ok(toolbarAfterReload, 'Expected toolbar bounds after reload');
-
-      assert.ok(
-        approxEqual(sidebarAfterReload.x, sidebarBeforeReload.x, 2) &&
-        approxEqual(sidebarAfterReload.y, sidebarBeforeReload.y, 2),
-        `Expected sidebar window to restore after reload. Before=${JSON.stringify(sidebarBeforeReload)} After=${JSON.stringify(sidebarAfterReload)}`
-      );
-      assert.ok(
-        approxEqual(toolbarAfterReload.x, toolbarBeforeReload.x, 2) &&
-        approxEqual(toolbarAfterReload.y, toolbarBeforeReload.y, 2),
-        `Expected toolbar window to restore after reload. Before=${JSON.stringify(toolbarBeforeReload)} After=${JSON.stringify(toolbarAfterReload)}`
-      );
+      await page.locator('[data-testid="sidebar-content-tools"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await waitForSidebarWidth(page, (width) => approxEqual(width, expandedToolsWidth, 2));
+      await assertCanvasMatchesLayout(page);
 
       const viewportAfterReload = await waitForViewportTransform(page, (transform) =>
-        Number.isFinite(transform.x) &&
-        Number.isFinite(transform.y) &&
-        Number.isFinite(transform.scale)
+        approxEqual(transform.x, viewportBeforeReload.x, 2) &&
+        approxEqual(transform.y, viewportBeforeReload.y, 2) &&
+        approxEqual(transform.scale, viewportBeforeReload.scale, 0.02)
       );
-
       assert.ok(
         approxEqual(viewportAfterReload.x, viewportBeforeReload.x, 2) &&
         approxEqual(viewportAfterReload.y, viewportBeforeReload.y, 2) &&
         approxEqual(viewportAfterReload.scale, viewportBeforeReload.scale, 0.02),
-        `Expected viewport transform to restore after reload. Before=${JSON.stringify(viewportBeforeReload)} After=${JSON.stringify(viewportAfterReload)}`
+        'Expected viewport navigation to restore after refresh'
       );
+
+      await page.locator('[data-testid="sidebar-toggle-tools"]').click();
+      await page.locator('[data-testid="sidebar-content-pane"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      const collapsedWidthBeforeReload = await waitForSidebarWidth(page, (width) => width < 120);
+
+      await reloadCanvasForGraph(page, graphId);
+      await page.locator('[data-testid="sidebar-content-pane"]').waitFor({
+        state: 'hidden',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await waitForSidebarWidth(page, (width) => approxEqual(width, collapsedWidthBeforeReload, 2));
+      await assertCanvasMatchesLayout(page);
 
       await context.close();
     } finally {

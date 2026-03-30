@@ -21,11 +21,11 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
 - Graph panel backend recompute worker setting: edit per-graph `recomputeConcurrency` (`1-32`).
-- Graph panel camera management: select the current camera for this browser window, add cameras cloned from the current camera state, and remove non-default cameras.
+- Graph panel camera management: select the current camera for this browser window, add cameras cloned from the current viewport state, and remove non-default cameras.
 - Graph panel projection management: select active 2D projection, add new projections, and remove non-default projections.
 - New projections clone node coordinates, node card dimensions, and projection background from the currently selected projection.
 - Graph stores per-projection node coordinates, node card dimensions, background settings, and active projection id; default projection is always present.
-- Graph stores shared camera objects with viewport pan/zoom and floating window layout state; default camera is always present.
+- Graph stores shared camera objects with viewport pan/zoom state; default camera is always present.
 - Current camera selection is window-local per graph (scoped to the current browser tab/window rather than shared across all viewers).
 - Graph command API rejects projection updates that remove all projections (at least one projection must remain).
 - Graph command API normalizes camera updates so the default camera always remains present.
@@ -76,22 +76,21 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - All node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
 - Minimap/navigation assistant with click-to-center behavior.
 - Current graph viewport pan/zoom state persists across browser refresh as part of the active camera.
-- Pencil draw mode on canvas (toggle from toolbar).
+- Pencil draw mode on canvas (toggle from the sidebar Tools section).
 - Draw tool color is selected via reusable color-selection dialog (default `#ffffff`).
 - Draw tool options: thickness `hairline (1px)`/`3px`/`9px`.
-- Draw toolbar hint text wraps within the narrow panel without horizontal overflow.
+- Draw-tool “Create/select drawing” hint wraps within the Tools section without horizontal overflow.
 - Drawings are persisted as graph-level drawing objects with named handles.
 - Drawing paths are attached to a selected drawing object (not ephemeral canvas paint).
 - Drawing handles are selectable, draggable (move drawing), and deletable.
 - Drawing paths and handles are rendered in canvas and minimap.
-- Canvas fills the full viewport while UI chrome is rendered as floating overlays.
-- Toolbar and right-side panel stack are draggable floating windows, so layout remains stable during window resizing.
-- Floating toolbar and right sidebar window positions persist across browser refresh as part of the active camera.
-- Floating window layouts are stored as nearest-edge padding ratios, so the same camera can reopen cleanly in different browser window sizes without layout hysteresis.
-- Shared color-selection dialogs render as viewport overlays outside floating toolbar/sidebar windows, so larger dialogs are not clipped by narrow panel client areas.
+- Canvas fills the remaining workspace width beside a docked right sidebar.
+- The right sidebar uses a persistent icon rail plus a collapsible content pane for Tools, Graph, Node, Output, and Diagnostics.
+- Clicking an inactive sidebar icon opens that section; clicking the active icon toggles the wide content pane collapsed/expanded while keeping the rail visible.
+- Sidebar active section and collapsed state restore after refresh in the same browser tab/window via session storage.
+- Shared color-selection dialogs render as viewport overlays outside docked sidebar content, so larger dialogs are not clipped by the panel body.
 - Shared color-selection dialogs support rectangular saturation/value picking, linear hue selection, RGB sliders, preset swatches, and optional opacity control.
-- Right sidebar uses collapsible accordion panels for graph editing, node editing, output, and diagnostics.
-- Selecting a node auto-expands the Node accordion panel.
+- Selecting a node or drawing does not auto-switch the active sidebar section.
 - Diagnostics panel shows backend failure state with a red header indicator and user-readable error message.
 - Canvas node card titles are ellipsized to prevent long names from overlapping the card layout.
 
@@ -135,7 +134,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Computation and Outputs
 
-- Compute entire graph from toolbar.
+- Compute entire graph from the sidebar Tools section.
 - Compute single selected node from node panel.
 - Deterministic recomputation in backend based on node version + dependency result timestamps.
 - Backend invalidates target-node compute cache on inbound connection topology changes by bumping affected node versions on graph command mutations.

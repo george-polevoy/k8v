@@ -60,14 +60,14 @@ test(
       });
 
       assert.equal(
-        await page.locator('[data-testid="floating-window-toolbar"]').count(),
+        await page.locator('[data-testid="right-sidebar"]').count(),
         0,
-        'Expected toolbar floating window to be absent from the screenshot harness.'
+        'Expected docked sidebar to be absent from the screenshot harness.'
       );
       assert.equal(
-        await page.locator('[data-testid="floating-window-right-sidebar"]').count(),
+        await page.locator('[data-testid="tools-panel"]').count(),
         0,
-        'Expected right sidebar floating window to be absent from the screenshot harness.'
+        'Expected tools chrome to be absent from the screenshot harness.'
       );
 
       await page.waitForFunction(() => {

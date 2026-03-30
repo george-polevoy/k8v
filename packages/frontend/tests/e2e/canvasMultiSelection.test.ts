@@ -670,6 +670,10 @@ test(
       const leftPositionBeforeDuplicate = await getNodePosition(graphId, nodeIds.left);
       const middlePositionBeforeDuplicate = await getNodePosition(graphId, nodeIds.middle);
       const dragDelta = { x: 144, y: 108 };
+      const expectedWorldDragDelta = {
+        x: dragDelta.x / viewportTransform.scale,
+        y: dragDelta.y / viewportTransform.scale,
+      };
 
       await page.keyboard.down('Alt');
       await page.mouse.move(
@@ -729,10 +733,26 @@ test(
         'Alt-drag should leave the original selected nodes in place'
       );
       assert.ok(
-        approxEqual(duplicateLeftNode.position.x - leftPositionBeforeDuplicate.x, dragDelta.x, 1.5) &&
-        approxEqual(duplicateLeftNode.position.y - leftPositionBeforeDuplicate.y, dragDelta.y, 1.5) &&
-        approxEqual(duplicateMiddleNode.position.x - middlePositionBeforeDuplicate.x, dragDelta.x, 1.5) &&
-        approxEqual(duplicateMiddleNode.position.y - middlePositionBeforeDuplicate.y, dragDelta.y, 1.5),
+        approxEqual(
+          duplicateLeftNode.position.x - leftPositionBeforeDuplicate.x,
+          expectedWorldDragDelta.x,
+          1.5
+        ) &&
+        approxEqual(
+          duplicateLeftNode.position.y - leftPositionBeforeDuplicate.y,
+          expectedWorldDragDelta.y,
+          1.5
+        ) &&
+        approxEqual(
+          duplicateMiddleNode.position.x - middlePositionBeforeDuplicate.x,
+          expectedWorldDragDelta.x,
+          1.5
+        ) &&
+        approxEqual(
+          duplicateMiddleNode.position.y - middlePositionBeforeDuplicate.y,
+          expectedWorldDragDelta.y,
+          1.5
+        ),
         'Duplicate nodes should follow the Alt-drag delta'
       );
       assert.ok(

@@ -8,43 +8,23 @@ import {
   waitForNodeCardSize,
   waitForNodePosition,
 } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph, readCanvasCursor } from './support/browser.ts';
+import {
+  launchBrowser,
+  openCanvasForGraph,
+  openSidebarSection,
+  readCanvasCursor,
+} from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const DEFAULT_ANNOTATION_WIDTH = 320;
 const DEFAULT_ANNOTATION_HEIGHT = 200;
 
-interface CanvasBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface NodeScreenPosition {
-  centerX: number;
-  centerY: number;
-  left: number;
-  top: number;
-}
-
 interface SearchRegion {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
-}
-
-function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
-  const centerX = canvasBox.x + (canvasBox.width / 2);
-  const centerY = canvasBox.y + (canvasBox.height / 2);
-  return {
-    centerX,
-    centerY,
-    left: centerX - (DEFAULT_ANNOTATION_WIDTH / 2),
-    top: centerY - (DEFAULT_ANNOTATION_HEIGHT / 2),
-  };
 }
 
 async function locateCursorPoint(
@@ -62,37 +42,6 @@ async function locateCursorPoint(
   }
 
   throw new Error(`Failed to find cursor "${expectedCursor}" within region ${JSON.stringify(region)}`);
-}
-
-async function ensureNodeSelected(
-  page: import('playwright').Page,
-  nodeBox: NodeScreenPosition
-): Promise<void> {
-  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-  if (await nodeNameInput.isVisible()) {
-    return;
-  }
-
-  const clicks = [
-    { x: nodeBox.centerX, y: nodeBox.centerY },
-    { x: nodeBox.left + 28, y: nodeBox.top + 28 },
-    { x: nodeBox.centerX + 90, y: nodeBox.centerY - 40 },
-    { x: nodeBox.centerX - 90, y: nodeBox.centerY + 40 },
-  ];
-
-  const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
-  let index = 0;
-  while (Date.now() < deadline) {
-    const click = clicks[index % clicks.length];
-    index += 1;
-    await page.mouse.click(click.x, click.y);
-    await page.waitForTimeout(120);
-    if (await nodeNameInput.isVisible()) {
-      return;
-    }
-  }
-
-  throw new Error('Failed to select centered annotation node before resize interaction.');
 }
 
 test.before(async () => {
@@ -123,16 +72,34 @@ test(
       });
       const page = await context.newPage();
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-      const nodeBox = resolveCenteredNodePosition(canvasBox);
-      await ensureNodeSelected(page, nodeBox);
+      await page.locator('[data-testid="annotation-markdown-input"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       const annotationOverlay = page.locator(`[data-testid="annotation-overlay-${nodeId}"]`);
       await annotationOverlay.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
       assert.ok((await annotationOverlay.locator('.katex').count()) > 0, 'Expected rendered KaTeX content');
+      const overlayBox = await annotationOverlay.boundingBox();
+      assert.ok(overlayBox, 'Annotation overlay should provide a bounding box');
+      const nodeBox = {
+        centerX: overlayBox.x + (overlayBox.width / 2),
+        centerY: overlayBox.y + (overlayBox.height / 2),
+        left: overlayBox.x,
+        top: overlayBox.y,
+      };
 
       const leftHandle = await locateCursorPoint(page, {
         minX: Math.round(nodeBox.left - 16),
@@ -214,12 +181,22 @@ test(
       });
       const page = await context.newPage();
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-      const nodeBox = resolveCenteredNodePosition(canvasBox);
-      await ensureNodeSelected(page, nodeBox);
+      await page.locator('[data-testid="annotation-markdown-input"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       const annotationOverlay = page.locator(`[data-testid="annotation-overlay-${nodeId}"]`);
       await annotationOverlay.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });

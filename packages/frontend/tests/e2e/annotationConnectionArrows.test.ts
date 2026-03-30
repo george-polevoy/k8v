@@ -4,21 +4,9 @@ import {
   createAnnotationArrowGraph,
   waitForGraphConnections,
 } from './support/api.ts';
-import {
-  launchBrowser,
-  openCanvasForGraph,
-  waitForCursorAtPoint,
-} from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, waitForCursorAtPoint } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
-
-const VIEWPORT_MARGIN = 100;
-const GRAPH_BOUNDS = {
-  minX: 100,
-  minY: 100,
-  maxX: 1140,
-  maxY: 300,
-};
 
 interface CanvasBox {
   x: number;
@@ -32,21 +20,60 @@ interface WorldPoint {
   y: number;
 }
 
-function resolveWorldPointToScreen(canvasBox: CanvasBox, point: WorldPoint): { x: number; y: number } {
-  const graphWidth = GRAPH_BOUNDS.maxX - GRAPH_BOUNDS.minX;
-  const graphHeight = GRAPH_BOUNDS.maxY - GRAPH_BOUNDS.minY;
-  const scale = Math.min(
-    (canvasBox.width - (VIEWPORT_MARGIN * 2)) / graphWidth,
-    (canvasBox.height - (VIEWPORT_MARGIN * 2)) / graphHeight,
-    1
-  );
-  const viewportX = (canvasBox.width / 2) - (((GRAPH_BOUNDS.minX + GRAPH_BOUNDS.maxX) * 0.5) * scale);
-  const viewportY = (canvasBox.height / 2) - (((GRAPH_BOUNDS.minY + GRAPH_BOUNDS.maxY) * 0.5) * scale);
+interface ViewportTransform {
+  x: number;
+  y: number;
+  scale: number;
+}
 
+function resolveWorldPointToScreen(
+  canvasBox: CanvasBox,
+  viewportTransform: ViewportTransform,
+  point: WorldPoint
+): { x: number; y: number } {
   return {
-    x: canvasBox.x + viewportX + (point.x * scale),
-    y: canvasBox.y + viewportY + (point.y * scale),
+    x: canvasBox.x + viewportTransform.x + (point.x * viewportTransform.scale),
+    y: canvasBox.y + viewportTransform.y + (point.y * viewportTransform.scale),
   };
+}
+
+async function readViewportTransform(page: import('playwright').Page): Promise<ViewportTransform> {
+  return page.evaluate(() => {
+    const debug = (window as Window & {
+      __k8vCanvasDebug?: {
+        viewportX?: unknown;
+        viewportY?: unknown;
+        viewportScale?: unknown;
+      };
+    }).__k8vCanvasDebug;
+    return {
+      x: typeof debug?.viewportX === 'number' ? debug.viewportX : Number.NaN,
+      y: typeof debug?.viewportY === 'number' ? debug.viewportY : Number.NaN,
+      scale: typeof debug?.viewportScale === 'number' ? debug.viewportScale : Number.NaN,
+    };
+  });
+}
+
+async function waitForViewportTransform(
+  page: import('playwright').Page,
+  timeoutMs = E2E_ASSERT_TIMEOUT_MS
+): Promise<ViewportTransform> {
+  const startedAt = Date.now();
+  let lastTransform = await readViewportTransform(page);
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (
+      Number.isFinite(lastTransform.x) &&
+      Number.isFinite(lastTransform.y) &&
+      Number.isFinite(lastTransform.scale)
+    ) {
+      return lastTransform;
+    }
+    await page.waitForTimeout(60);
+    lastTransform = await readViewportTransform(page);
+  }
+
+  throw new Error(`Timed out waiting for viewport transform. Last value: ${JSON.stringify(lastTransform)}`);
 }
 
 async function dragConnection(
@@ -84,25 +111,37 @@ test(
         viewport: { width: 1440, height: 900 },
       });
       const page = await context.newPage();
+      await page.addInitScript(() => {
+        (window as Window & {
+          __k8vCanvasDebug?: Record<string, unknown>;
+        }).__k8vCanvasDebug = {};
+      });
       await openCanvasForGraph(page, graphId);
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((sourceNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(sourceNodeId);
+      }, leftInlineId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
+      const viewportTransform = await waitForViewportTransform(page);
 
-      const leftBottomEdge = resolveWorldPointToScreen(canvasBox, {
+      const leftBottomEdge = resolveWorldPointToScreen(canvasBox, viewportTransform, {
         x: 100 + (220 * 0.25),
         y: 166 + 68,
       });
-      const middleTopEdge = resolveWorldPointToScreen(canvasBox, {
+      const middleTopEdge = resolveWorldPointToScreen(canvasBox, viewportTransform, {
         x: 440 + (220 * 0.5),
         y: 166,
       });
-      const leftOutput = resolveWorldPointToScreen(canvasBox, {
+      const leftOutput = resolveWorldPointToScreen(canvasBox, viewportTransform, {
         x: 100 + 220,
         y: 166 + 49,
       });
-      const middleInput = resolveWorldPointToScreen(canvasBox, {
+      const middleInput = resolveWorldPointToScreen(canvasBox, viewportTransform, {
         x: 440,
         y: 166 + 49,
       });

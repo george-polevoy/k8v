@@ -131,48 +131,39 @@ test('filterConnections helper matches nodeId and targetPort filters', () => {
 test('graph_query tool forwards validated query payload to backend', async () => {
   const server = new FakeMcpServer();
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
-  const originalFetch = globalThis.fetch;
 
   registerGraphTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    requestJson: async <T>(backendUrl: string, endpoint: string, init?: RequestInit) => {
+      requests.push({
+        url: `${backendUrl}${endpoint}`,
+        method: (init?.method ?? 'GET').toUpperCase(),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return { operation: 'overview', nodes: [], connections: [] } as T;
+    },
   });
 
   const handler = server.tools.get('graph_query');
   assert.ok(handler);
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    requests.push({
-      url: String(input),
-      method: (init?.method ?? 'GET').toUpperCase(),
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    });
-    return new Response(JSON.stringify({ operation: 'overview', nodes: [], connections: [] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
+  const query = GraphQueryRequestSchema.parse({
+    operation: 'traverse_bfs',
+    startNodeIds: ['node-a'],
+    depth: 1,
+    nodeFields: ['id', 'annotationText', 'position'],
+    connectionFields: ['id', 'sourceNodeId', 'targetNodeId'],
+  });
+  const result = await handler({
+    graphId: 'graph-1',
+    ...query,
+    backendUrl: 'http://backend.test',
+  });
 
-  try {
-    const query = GraphQueryRequestSchema.parse({
-      operation: 'traverse_bfs',
-      startNodeIds: ['node-a'],
-      depth: 1,
-      nodeFields: ['id', 'annotationText', 'position'],
-      connectionFields: ['id', 'sourceNodeId', 'targetNodeId'],
-    });
-    const result = await handler({
-      graphId: 'graph-1',
-      ...query,
-      backendUrl: 'http://backend.test',
-    });
-
-    const parsed = parseToolJson(result) as Record<string, unknown>;
-    assert.equal(parsed.operation, 'overview');
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/query');
-    assert.equal(requests[0]?.method, 'POST');
-    assert.deepEqual(requests[0]?.body, query);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const parsed = parseToolJson(result) as Record<string, unknown>;
+  assert.equal(parsed.operation, 'overview');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/query');
+  assert.equal(requests[0]?.method, 'POST');
+  assert.deepEqual(requests[0]?.body, query);
 });

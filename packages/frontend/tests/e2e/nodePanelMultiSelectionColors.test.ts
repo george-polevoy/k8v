@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSeededGraph, fetchGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -244,8 +244,8 @@ test(
       await openCanvasForGraph(page, graphId);
       await setSelectedNodes(page, [nodeIds.left, nodeIds.right]);
 
+      await openSidebarSection(page, 'node');
       const nodeSidebarContent = page.locator('[data-testid="sidebar-content-node"]');
-      await nodeSidebarContent.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
       const summary = nodeSidebarContent.locator('[data-testid="multi-node-selection-summary"]');
       await summary.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
@@ -297,8 +297,8 @@ test(
       await openCanvasForGraph(page, graphId);
       await setSelectedNodes(page, [nodeIds.left, nodeIds.right]);
 
+      await openSidebarSection(page, 'node');
       const nodeSidebarContent = page.locator('[data-testid="sidebar-content-node"]');
-      await nodeSidebarContent.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
       const summary = nodeSidebarContent.locator('[data-testid="multi-node-selection-summary"]');
       await summary.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });

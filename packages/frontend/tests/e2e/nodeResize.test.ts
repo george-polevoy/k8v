@@ -9,6 +9,7 @@ import {
 import {
   launchBrowser,
   openCanvasForGraph,
+  openSidebarSection,
   readCanvasCursor,
   waitForCursorAtPoint,
 } from './support/browser.ts';
@@ -148,40 +149,6 @@ async function dispatchCanvasWheel(
   }, options);
 }
 
-async function ensureNodeSelected(
-  page: import('playwright').Page,
-  nodeBox: NodeScreenPosition
-): Promise<void> {
-  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-  if (await nodeNameInput.isVisible()) {
-    return;
-  }
-
-  const selectionClicks = [
-    { x: nodeBox.centerX, y: nodeBox.centerY },
-    { x: nodeBox.left + 24, y: nodeBox.centerY - 30 },
-    { x: nodeBox.left + 24, y: nodeBox.centerY - 12 },
-    { x: nodeBox.centerX - 80, y: nodeBox.centerY - 12 },
-    { x: nodeBox.centerX + 80, y: nodeBox.centerY - 12 },
-    { x: nodeBox.centerX, y: nodeBox.centerY - 56 },
-    { x: nodeBox.centerX, y: nodeBox.centerY + 28 },
-  ];
-
-  const deadline = Date.now() + E2E_ASSERT_TIMEOUT_MS;
-  let index = 0;
-  while (Date.now() < deadline) {
-    const click = selectionClicks[index % selectionClicks.length];
-    index += 1;
-    await page.mouse.click(click.x, click.y);
-    await page.waitForTimeout(120);
-    if (await nodeNameInput.isVisible()) {
-      return;
-    }
-  }
-
-  throw new Error('Failed to select centered node before resize interaction.');
-}
-
 test.before(async () => {
   await ensureE2EEnvironment();
 });
@@ -208,13 +175,24 @@ test(
       });
       const page = await context.newPage();
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
 
       const nodeBox = resolveCenteredNodePosition(canvasBox);
-      await ensureNodeSelected(page, nodeBox);
+      await page.locator('[data-testid="node-name-input"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       const leftHandle = await locateCursorPoint(page, {
         minX: Math.round(nodeBox.left - 16),
@@ -301,13 +279,21 @@ test(
         }).__k8vCanvasDebug = {};
       });
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox() as CanvasBox | null;
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-
-      const nodeBox = resolveCenteredNodePosition(canvasBox);
-      await ensureNodeSelected(page, nodeBox);
+      await page.locator('[data-testid="node-name-input"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       const initialViewportTransform = await waitForViewportTransform(
         page,

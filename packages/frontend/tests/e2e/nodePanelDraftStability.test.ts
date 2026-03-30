@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEmptyGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -29,6 +29,7 @@ test(
 
       await openCanvasForGraph(page, graphId);
 
+      await openSidebarSection(page, 'tools');
       await page.locator('button[title="Add Node"]').click();
 
       const dialog = page.locator('div', {
@@ -65,8 +66,8 @@ test(
         store.selectNode(targetNode.id);
       }, nodeName);
 
+      await openSidebarSection(page, 'node');
       const nodeSidebarContent = page.locator('[data-testid="sidebar-content-node"]');
-      await nodeSidebarContent.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
       const nodeNameInput = nodeSidebarContent.locator('[data-testid="node-name-input"]');
       const draftName = 'Unsaved Node Name Draft';

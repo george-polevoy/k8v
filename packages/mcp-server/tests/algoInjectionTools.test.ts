@@ -40,10 +40,20 @@ function parseToolJson(result: { content: Array<{ text?: string }> }): unknown {
 test('algo_injection_run is the only MCP algo tool and forwards the transient invoke payload', async () => {
   const server = new FakeMcpServer();
   const requests: RecordedRequest[] = [];
-  const originalFetch = globalThis.fetch;
 
   registerAlgoTools(server as unknown as any, {
     resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    requestJson: async <T>(backendUrl: string, endpoint: string, init?: RequestInit) => {
+      requests.push({
+        url: `${backendUrl}${endpoint}`,
+        method: (init?.method ?? 'GET').toUpperCase(),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return {
+        status: 'ok',
+        commandCount: 1,
+      } as T;
+    },
   });
 
   assert.equal(server.tools.size, 1);
@@ -54,44 +64,25 @@ test('algo_injection_run is the only MCP algo tool and forwards the transient in
   assert.match(runTool.description ?? '', /absolute filesystem path/i);
   assert.match(runTool.description ?? '', /graph_get, graph_query, and staged bulk_edit/i);
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    requests.push({
-      url: String(input),
-      method: (init?.method ?? 'GET').toUpperCase(),
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    });
-    return new Response(JSON.stringify({
-      status: 'ok',
-      commandCount: 1,
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
+  const result = await runTool.handler({
+    graphId: 'graph-1',
+    wasmPath: '/tmp/rename-graph.wasm',
+    entrypoint: 'run',
+    input: { nextName: 'Renamed by wasm' },
+    noRecompute: true,
+    backendUrl: 'http://backend.test',
+  });
+  const parsed = parseToolJson(result) as { status: string; commandCount: number };
 
-  try {
-    const result = await runTool.handler({
-      graphId: 'graph-1',
-      wasmPath: '/tmp/rename-graph.wasm',
-      entrypoint: 'run',
-      input: { nextName: 'Renamed by wasm' },
-      noRecompute: true,
-      backendUrl: 'http://backend.test',
-    });
-    const parsed = parseToolJson(result) as { status: string; commandCount: number };
-
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/algo/invoke');
-    assert.equal(requests[0]?.method, 'POST');
-    assert.deepEqual(requests[0]?.body, {
-      wasmPath: '/tmp/rename-graph.wasm',
-      entrypoint: 'run',
-      input: { nextName: 'Renamed by wasm' },
-      noRecompute: true,
-    });
-    assert.equal(parsed.status, 'ok');
-    assert.equal(parsed.commandCount, 1);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, 'http://backend.test/api/graphs/graph-1/algo/invoke');
+  assert.equal(requests[0]?.method, 'POST');
+  assert.deepEqual(requests[0]?.body, {
+    wasmPath: '/tmp/rename-graph.wasm',
+    entrypoint: 'run',
+    input: { nextName: 'Renamed by wasm' },
+    noRecompute: true,
+  });
+  assert.equal(parsed.status, 'ok');
+  assert.equal(parsed.commandCount, 1);
 });

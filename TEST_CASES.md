@@ -15,11 +15,11 @@ Last reviewed: March 30, 2026.
 - `A-E2E-31` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag can either hold persisted value until release or propagate mid-drag when the numeric input toggle is enabled.
 - `A-E2E-32` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` live slider propagation respects the configured debounce interval before persisting mid-drag updates.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
-- `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
-- `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
+- `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: the right sidebar icon rail switches sections and clicking the active icon collapses/reopens the wide content pane.
+- `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node preserves the current sidebar section instead of auto-switching to Node.
 - `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: inline-code cards expose the shared all-side resize handles and persist left/top resize updates (`cardWidth`/`cardHeight` + position).
-- `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
-- `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
+- `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics rail button shows a red alert badge while inactive and the panel shows a human-readable backend failure message.
+- `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: the Tools section “Create/select drawing” hint wraps without horizontal overflow.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
 - `A-E2E-09` `packages/frontend/tests/e2e/graphicsMipSelection.test.ts`: output graphics requests use sharper mip selection (`maxPixels` reflects 2x budget bias).
 - `A-E2E-10` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: canvas wheel navigation keeps mouse-wheel zoom around cursor, applies stronger pinch zoom response, supports deep zoom-in/out range, maps modifier pan (`Shift` horizontal, `Alt` vertical), and keeps trackpad-style small-delta pan.
@@ -29,19 +29,19 @@ Last reviewed: March 30, 2026.
 - `A-E2E-14` `packages/frontend/tests/e2e/annotationCard.test.ts`: annotation card renders markdown + KaTeX math, persists left/top edge resize updates (size + position), stays selectable with fully transparent background fill, persists font-size updates in node panel, and preserves empty text state (no template fallback, no overlay render when cleared).
 - `A-E2E-15` `packages/frontend/tests/e2e/inlineCodeOutputPortSync.test.ts`: editing inline-code source in the node panel updates inferred output port metadata on blur.
 - `A-E2E-16` `packages/frontend/tests/e2e/connectionStroke.test.ts`: graph panel connection stroke controls persist foreground/background colors and preserve the required 2x background-to-foreground width ratio.
-- `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas remains full viewport while toolbar/sidebar floating windows stay draggable and inside viewport bounds across window resize.
+- `A-E2E-17` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: canvas fills the remaining workspace while the docked sidebar switches sections and collapses/reopens cleanly.
 - `A-E2E-18` `packages/frontend/tests/e2e/screenshotHarnessMode.test.ts`: Dedicated screenshot harness bootstraps a graph snapshot, renders the canvas without interactive app chrome, and exposes the screenshot control bridge.
-- `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking toolbar add-node opens a full-size creation dialog mounted outside the toolbar floating window.
+- `A-E2E-19` `packages/frontend/tests/e2e/toolbarNodeCreationDialogLayering.test.ts`: clicking Tools add-node opens a full-size creation dialog mounted outside the docked sidebar content.
 - `A-E2E-20` `packages/frontend/tests/e2e/annotationConnectionArrows.test.ts`: generic cards create persisted presentation-only arrows from arbitrary card edges to other card edges while port drags still create data connections.
 - `A-E2E-21` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: empty-canvas drag marquee-selects nodes without panning, `Ctrl` toggle/additive selection works without opening the browser context menu, shared multi-selection move/resize persists, delete removes only the selected nodes, and `Space`-drag pans the viewport even when the drag starts on a selected node.
 - `A-E2E-22` `packages/frontend/tests/e2e/nodePanelMultiSelectionColors.test.ts`: node panel summarizes multi-node selection as a named set and applies shared node-card background/border color changes plus shared annotation font color/font-size changes across the selected nodes.
 - `A-E2E-23` `packages/frontend/tests/e2e/canvasMultiSelection.test.ts`: `Alt`-dragging a selected node set duplicates the nodes, keeps the originals in place, leaves the duplicate set selected, and copies internal links between the duplicated nodes.
-- `A-E2E-24` `packages/frontend/tests/e2e/toolbarColorDialogLayering.test.ts`: the pencil color dialog mounts outside the narrow toolbar floating window, keeps its full overlay size, and is centered in the viewport instead of being clipped inside the toolbar client area.
+- `A-E2E-24` `packages/frontend/tests/e2e/toolbarColorDialogLayering.test.ts`: the pencil color dialog mounts outside the docked sidebar content, keeps its full overlay size, and is centered in the viewport instead of being clipped inside the panel body.
 - `A-E2E-25` `packages/frontend/tests/e2e/backgroundColor.test.ts`: the shared color dialog supports hue-slider and saturation/value-palette selection and persists the exact chosen graph background color.
 - `A-E2E-26` `packages/frontend/tests/e2e/inlineInputConnectionReplacement.test.ts`: dragging a new edge onto an occupied inline input replaces the previous inbound edge instead of persisting duplicate inbound connections.
-- `A-E2E-27` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: floating toolbar/sidebar window positions and the current graph viewport pan/zoom restore after a browser refresh.
+- `A-E2E-27` `packages/frontend/tests/e2e/floatingPanelsLayout.test.ts`: docked sidebar section/collapse state and the current graph viewport pan/zoom restore after a browser refresh in the same tab.
 - `A-E2E-28` `packages/frontend/tests/e2e/graphCollaborationSync.test.ts`: multiple browser sessions auto-detect remote graph updates, reflect them without refresh, and preserve unrelated subset edits (for example rename + node drag).
-- `A-E2E-29` `packages/frontend/tests/e2e/graphCameras.test.ts`: graph cameras can be created, switched, and removed, restore per-camera viewport/floating-window layouts, and keep the current camera selection scoped to each browser window.
+- `A-E2E-29` `packages/frontend/tests/e2e/graphCameras.test.ts`: graph cameras can be created, switched, and removed, restore per-camera viewport state, and keep the current camera selection scoped to each browser window.
 - `A-E2E-30` `packages/frontend/tests/e2e/canvasWheelNavigation.test.ts`: idle canvas effect frames stay flat after the canvas settles, so the Pixi ticker does not keep running while the UI is idle.
 - `A-FE-01` `packages/frontend/tests/graphStore.test.ts`: `initializeGraph` recovers stale graph ID via `/api/graphs/latest`.
 - `A-FE-02` `packages/frontend/tests/graphStore.test.ts`: `updateNodePosition` persists position without changing node version.
@@ -197,7 +197,7 @@ Last reviewed: March 30, 2026.
 - `M-GRAPH-10`: Graph panel projection controls can add a new projection cloned from current active coordinates/card sizes/background and switch active projection.
 - `M-GRAPH-11`: Graph panel projection controls can remove the active non-default projection, while always keeping at least one projection.
 - `M-GRAPH-12`: Graph panel connection-stroke controls persist per-graph foreground/background colors and 2x width ratio.
-- `M-GRAPH-13`: Graph panel camera controls can add a new camera cloned from the current viewport/floating-window state and switch between cameras.
+- `M-GRAPH-13`: Graph panel camera controls can add a new camera cloned from the current viewport state and switch between cameras.
 - `M-GRAPH-14`: Different browser windows can keep different current-camera selections while sharing the same graph camera contents.
 - `M-GRAPH-15`: Graph panel camera controls can remove the active non-default camera while keeping the default camera undeletable.
 - `M-CANVAS-01`: Wheel zoom in/out keeps pointer-focused zoom and smooth redraw.
@@ -241,8 +241,8 @@ Last reviewed: March 30, 2026.
 - `M-PANEL-08`: For a `python_process` node, selecting a graph-level Python env in node panel persists and is used on compute.
 - `M-PANEL-09`: Selecting a drawing allows rename/delete operations from node panel.
 - `M-PANEL-10`: For a `numeric_input` node, editing `min`/`max`/`step` in node panel updates slider behavior and persisted output value bounds.
-- `M-PANEL-11`: Right sidebar panels (Graph, Node, Output) are collapsible in accordion behavior (opening one collapses the others).
-- `M-PANEL-12`: Selecting a node from canvas auto-expands the Node panel in the right sidebar accordion.
+- `M-PANEL-11`: Right sidebar icon rail switches between Tools/Graph/Node/Output/Diagnostics and clicking the active icon collapses the wide content pane.
+- `M-PANEL-12`: Selecting a node from canvas preserves the current sidebar section instead of auto-switching panels.
 - `M-PANEL-13`: Diagnostics panel title shows red status when a backend failure exists and the panel body shows a user-readable failure message.
 - `M-PANEL-14`: Node panel graphics budget debug shows selected-node `maxPixels` computation inputs/results (viewport scale, estimated/stable maxPixels, selected level, request URL).
 - `M-PANEL-15`: Annotation node panel edits markdown/body colors + font size and persists canvas note appearance.
@@ -252,7 +252,7 @@ Last reviewed: March 30, 2026.
 - `M-STATUS-04`: Upstream error marks downstream nodes stale with brown indicator.
 - `M-STATUS-05`: Node in error state emits subtle black smoke near the card status light.
 - `M-COMPUTE-01`: Manual run of selected node from node panel updates output panel.
-- `M-COMPUTE-02`: Graph compute from toolbar updates all downstream outputs.
+- `M-COMPUTE-02`: Graph compute from the Tools section updates all downstream outputs.
 - `M-COMPUTE-03`: Output panel refresh recovers from persistence lag without manual reload.
 - `M-VALID-01`: API rejects connection with missing source/target node references.
 - `M-VALID-02`: API rejects cycles on graph create and rejects all command updates on legacy cyclic graphs.
@@ -278,7 +278,7 @@ Last reviewed: March 30, 2026.
 | Graph panel camera management (select + add + remove current non-default camera) | `A-E2E-29`, `M-GRAPH-13`, `M-GRAPH-15` | Automated + Manual |
 | Graph panel projection management (add + select + remove active projection) | `M-GRAPH-10`, `M-GRAPH-11` | Manual |
 | Graph updates reject removing all projections (at least one projection must remain) | `A-BE-43`, `M-GRAPH-11` | Automated + Manual |
-| Graph stores shared cameras with per-camera viewport/floating-window layout and always keeps a default camera | `A-FE-38`, `A-E2E-29`, `A-BE-74`, `A-BE-75` | Automated |
+| Graph stores shared cameras with per-camera viewport state and always keeps a default camera | `A-FE-38`, `A-E2E-29`, `A-BE-74`, `A-BE-75` | Automated |
 | Current camera selection is scoped to the current browser window instead of the whole graph | `A-E2E-29`, `A-FE-38`, `M-GRAPH-14` | Automated + Manual |
 | Connections-only graph updates preserve node layout/projection metadata | `A-BE-56` | Automated |
 | New projection coordinates/card sizes/background clone from previously active projection | `A-FE-21`, `M-GRAPH-10` | Automated + Manual |
@@ -286,12 +286,12 @@ Last reviewed: March 30, 2026.
 | Graph panel projection background management (`solid`/`gradient` + base color) | `A-BE-38`, `A-BE-42`, `A-FE-19`, `M-GRAPH-09`, `M-GRAPH-10` | Automated + Manual |
 | Graph panel connection stroke management (per-graph colors + widths, 2x background ratio) | `A-BE-57`, `A-BE-58`, `A-FE-29`, `A-E2E-16`, `M-GRAPH-12` | Automated + Manual |
 | Current graph ID visibility in UI | `M-GRAPH-06` | Manual |
-| Right sidebar Graph/Node/Output/Diagnostics panels collapse as accordion | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
-| Selecting a node auto-expands Node panel accordion section | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
-| Canvas remains full viewport while toolbar/right sidebar render as draggable floating windows during resize | `A-E2E-17` | Automated |
-| Floating toolbar/right sidebar window positions persist across browser refresh as part of the active camera | `A-E2E-27`, `A-E2E-29`, `A-FE-38` | Automated |
-| Toolbar add-node dialog layers outside the floating toolbar container (not clipped/embedded) | `A-E2E-19` | Automated |
-| Shared color-selection dialogs layer outside floating windows and are not clipped by narrow panel client areas | `A-E2E-24` | Automated |
+| Right sidebar icon rail switches sections and clicking the active icon collapses the wide content pane | `A-E2E-03`, `M-PANEL-11` | Automated + Manual |
+| Selecting a node preserves the current sidebar section instead of auto-switching to Node | `A-E2E-04`, `M-PANEL-12` | Automated + Manual |
+| Canvas fills the remaining workspace while the docked sidebar resizes between expanded/collapsed states | `A-E2E-17` | Automated |
+| Docked sidebar section/collapse state persists across browser refresh in the same tab, alongside active-camera viewport pan/zoom | `A-E2E-27`, `A-E2E-29`, `A-FE-38` | Automated |
+| Tools add-node dialog layers outside the docked sidebar content (not clipped/embedded) | `A-E2E-19` | Automated |
+| Shared color-selection dialogs layer outside docked sidebar content and are not clipped by the panel body | `A-E2E-24` | Automated |
 | Shared color-selection dialogs support hue, saturation/value, RGB, and optional opacity controls | `A-E2E-25`, `A-FE-35` | Automated |
 | Dedicated screenshot harness renders canvas without interactive app chrome and keeps the screenshot bridge available | `A-E2E-18`, `A-MCP-06`, `M-MCP-01` | Automated + Manual |
 | Diagnostics panel surfaces backend failures with collapsed red status and human-readable message | `A-E2E-06`, `A-FE-18`, `M-PANEL-13` | Automated + Manual |
@@ -336,7 +336,7 @@ Last reviewed: March 30, 2026.
 | Canvas pencil draw mode | `M-CANVAS-13` | Manual |
 | Canvas pencil color selection via reusable color dialog (default white) | `A-FE-20`, `A-BE-39`, `M-CANVAS-14` | Automated + Manual |
 | Canvas pencil thickness selection (1/3/9 px) | `M-CANVAS-15` | Manual |
-| Draw-toolbar hint text wraps without horizontal overflow in the narrow toolbar panel | `A-E2E-07` | Automated |
+| Tools-section drawing hint text wraps without horizontal overflow | `A-E2E-07` | Automated |
 | Persistent drawing objects (create/select/move/delete) | `A-FE-09`, `A-FE-10`, `A-BE-31`, `A-BE-32`, `A-BE-33`, `M-CANVAS-16`, `M-CANVAS-17`, `M-CANVAS-18` | Automated + Manual |
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
@@ -357,7 +357,7 @@ Last reviewed: March 30, 2026.
 | Node panel execution error text | `M-STATUS-02` | Manual |
 | Node panel graphics budget debug for selected projected-graphics node | `M-PANEL-14` | Manual |
 | Error-state smoke effect on node cards | `M-STATUS-05` | Manual |
-| Compute entire graph from toolbar | `M-COMPUTE-02` | Manual |
+| Compute entire graph from the Tools section | `M-COMPUTE-02` | Manual |
 | Compute single selected node from node panel | `M-COMPUTE-01` | Manual |
 | Deterministic recomputation by node version + deps timestamps | `A-BE-08` | Automated |
 | Inbound connection topology updates invalidate affected target nodes for recomputation | `A-BE-46` | Automated |
@@ -401,6 +401,6 @@ Last reviewed: March 30, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior and live drag-propagation mode, graph deletion confirmation flow, sidebar accordion behaviors, node card resize, diagnostics error surfacing, draw-toolbar hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, floating-panel resize behavior, floating-window/viewport refresh persistence, dedicated screenshot harness mode, toolbar add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`, `A-E2E-29`, `A-E2E-30`, `A-E2E-31`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior and live drag-propagation mode, graph deletion confirmation flow, docked sidebar navigation/collapse behaviors, node card resize, diagnostics error surfacing, Tools-section drawing hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, docked-sidebar/viewport refresh persistence, dedicated screenshot harness mode, Tools add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`, `A-E2E-29`, `A-E2E-30`, `A-E2E-31`).
 - No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

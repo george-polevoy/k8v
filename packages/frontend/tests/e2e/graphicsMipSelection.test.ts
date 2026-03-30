@@ -3,12 +3,11 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PNG } from 'pngjs';
 import { createSeededGraph, submitGraphCommands } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS, E2E_BACKEND_URL, E2E_FRONTEND_URL } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
-const NUMERIC_NODE_WIDTH = 220;
 
 interface GraphicsArtifact {
   id: string;
@@ -16,13 +15,6 @@ interface GraphicsArtifact {
     level: number;
     pixelCount: number;
   }>;
-}
-
-interface CanvasBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 interface CanvasDebugCounters {
@@ -239,34 +231,6 @@ async function waitForNodeGraphics(
   throw new Error(`Timed out waiting for graphics output for node ${nodeId}`);
 }
 
-async function selectCenteredNode(
-  page: import('playwright').Page,
-  canvasBox: CanvasBox
-): Promise<void> {
-  const centerX = canvasBox.x + (canvasBox.width / 2);
-  const centerY = canvasBox.y + (canvasBox.height / 2);
-  const nodeLeft = centerX - (NUMERIC_NODE_WIDTH / 2);
-  const clickTargets: Array<{ x: number; y: number }> = [
-    { x: nodeLeft + 24, y: centerY - 30 },
-    { x: centerX, y: centerY - 24 },
-    { x: centerX, y: centerY },
-    { x: nodeLeft + 96, y: centerY - 18 },
-  ];
-
-  const nodeNameInput = page.locator('[data-testid="node-name-input"]');
-  for (const target of clickTargets) {
-    await page.mouse.click(target.x, target.y);
-    try {
-      await nodeNameInput.waitFor({ state: 'visible', timeout: 2_000 });
-      return;
-    } catch {
-      // Try next target.
-    }
-  }
-
-  throw new Error('Failed to select centered node on canvas');
-}
-
 test.before(async () => {
   await ensureE2EEnvironment();
 });
@@ -292,11 +256,21 @@ test(
       const page = await context.newPage();
 
       await openCanvasForGraph(page, graphId);
+      await openSidebarSection(page, 'node');
+      await page.waitForFunction(() => Boolean(window.__k8vGraphStore), {
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
+      await page.evaluate((targetNodeId: string) => {
+        window.__k8vGraphStore?.getState().selectNode(targetNodeId);
+      }, nodeId);
 
       const canvas = page.locator('canvas').first();
       const canvasBox = await canvas.boundingBox();
       assert.ok(canvasBox, 'Canvas element should provide a bounding box');
-      await selectCenteredNode(page, canvasBox);
+      await page.locator('[data-testid="node-name-input"]').waitFor({
+        state: 'visible',
+        timeout: E2E_ASSERT_TIMEOUT_MS,
+      });
 
       await page.locator('[data-testid="sidebar-toggle-output"]').click();
       await page.locator('[data-testid="sidebar-content-output"]').waitFor({

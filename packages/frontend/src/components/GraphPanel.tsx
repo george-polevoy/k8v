@@ -394,15 +394,7 @@ function GraphPanel({ embedded = false }: GraphPanelProps) {
       id: uuidv4(),
       name: getNextCameraName(cameraOptions.map((camera) => camera.name)),
       viewport: sourceCamera.viewport ? { ...sourceCamera.viewport } : undefined,
-      floatingWindows: Object.fromEntries(
-        Object.entries(sourceCamera.floatingWindows ?? {}).map(([windowId, windowPosition]) => [
-          windowId,
-          {
-            horizontal: { ...windowPosition.horizontal },
-            vertical: { ...windowPosition.vertical },
-          },
-        ])
-      ),
+      floatingWindows: {},
     };
 
     await runGraphCommands(

@@ -119,6 +119,28 @@ export async function openCanvasForGraph(page: Page, graphId: string): Promise<v
   throw lastError;
 }
 
+export async function openSidebarSection(
+  page: Page,
+  sectionId: 'tools' | 'graph' | 'node' | 'output' | 'diagnostics'
+): Promise<void> {
+  const content = page.locator(`[data-testid="sidebar-content-${sectionId}"]`);
+  try {
+    await content.waitFor({
+      state: 'visible',
+      timeout: 500,
+    });
+    return;
+  } catch {
+    // Fall through and toggle the target section open.
+  }
+
+  await page.locator(`[data-testid="sidebar-toggle-${sectionId}"]`).click();
+  await content.waitFor({
+    state: 'visible',
+    timeout: E2E_ASSERT_TIMEOUT_MS,
+  });
+}
+
 export async function readCanvasCursor(page: Page): Promise<string> {
   return page.evaluate(() => {
     const canvas = document.querySelector('canvas');

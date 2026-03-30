@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEmptyGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -14,7 +14,7 @@ test.after(async () => {
 });
 
 test(
-  'node creation dialog renders outside toolbar floating window',
+  'node creation dialog renders outside docked sidebar content',
   { timeout: 90_000 },
   async () => {
     const { graphId } = await createEmptyGraph('E2E Toolbar Dialog Layering');
@@ -27,22 +27,19 @@ test(
       const page = await context.newPage();
 
       await openCanvasForGraph(page, graphId);
-      await page.locator('[data-testid="floating-window-toolbar"]').waitFor({
-        state: 'visible',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
+      await openSidebarSection(page, 'tools');
 
       await page.locator('button[title="Add Node"]').click();
 
       const dialog = page.locator('[data-testid="node-creation-dialog"]');
       await dialog.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
-      const toolbarContainsDialog = await page.evaluate(() => {
-        const toolbarWindow = document.querySelector('[data-testid="floating-window-toolbar"]');
+      const sidebarContainsDialog = await page.evaluate(() => {
+        const toolsContent = document.querySelector('[data-testid="sidebar-content-tools"]');
         const nodeCreationDialog = document.querySelector('[data-testid="node-creation-dialog"]');
-        return Boolean(toolbarWindow && nodeCreationDialog && toolbarWindow.contains(nodeCreationDialog));
+        return Boolean(toolsContent && nodeCreationDialog && toolsContent.contains(nodeCreationDialog));
       });
-      assert.equal(toolbarContainsDialog, false, 'Expected node creation dialog to be mounted outside toolbar window.');
+      assert.equal(sidebarContainsDialog, false, 'Expected node creation dialog to be mounted outside docked sidebar content.');
 
       const dialogBounds = await dialog.boundingBox();
       assert.ok(dialogBounds, 'Expected node creation dialog to have measurable bounds.');

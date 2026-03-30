@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEmptyGraph } from './support/api.ts';
-import { launchBrowser, openCanvasForGraph } from './support/browser.ts';
+import { launchBrowser, openCanvasForGraph, openSidebarSection } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
@@ -14,7 +14,7 @@ test.after(async () => {
 });
 
 test(
-  'pencil color dialog renders outside toolbar floating window',
+  'pencil color dialog renders outside docked sidebar content',
   { timeout: 90_000 },
   async () => {
     const { graphId } = await createEmptyGraph('E2E Toolbar Pencil Color Dialog');
@@ -27,10 +27,7 @@ test(
       const page = await context.newPage();
 
       await openCanvasForGraph(page, graphId);
-      await page.locator('[data-testid="floating-window-toolbar"]').waitFor({
-        state: 'visible',
-        timeout: E2E_ASSERT_TIMEOUT_MS,
-      });
+      await openSidebarSection(page, 'tools');
 
       await page.locator('button[title="Toggle Pencil Draw"]').click();
       await page.locator('button[title="Choose pencil color"]').click();
@@ -38,12 +35,12 @@ test(
       const dialog = page.locator('[data-testid="color-selection-dialog"]');
       await dialog.waitFor({ state: 'visible', timeout: E2E_ASSERT_TIMEOUT_MS });
 
-      const toolbarContainsDialog = await page.evaluate(() => {
-        const toolbarWindow = document.querySelector('[data-testid="floating-window-toolbar"]');
+      const sidebarContainsDialog = await page.evaluate(() => {
+        const toolsContent = document.querySelector('[data-testid="sidebar-content-tools"]');
         const colorDialog = document.querySelector('[data-testid="color-selection-dialog"]');
-        return Boolean(toolbarWindow && colorDialog && toolbarWindow.contains(colorDialog));
+        return Boolean(toolsContent && colorDialog && toolsContent.contains(colorDialog));
       });
-      assert.equal(toolbarContainsDialog, false, 'Expected pencil color dialog to be mounted outside toolbar window.');
+      assert.equal(sidebarContainsDialog, false, 'Expected pencil color dialog to be mounted outside docked sidebar content.');
 
       const dialogBounds = await dialog.boundingBox();
       assert.ok(dialogBounds, 'Expected pencil color dialog to have measurable bounds.');
