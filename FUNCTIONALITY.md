@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 25, 2026.
+This file tracks what is currently implemented in the codebase as of March 30, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -185,6 +185,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## Debugging and Tooling
 
 - Playwright-based canvas snapshot script for headless visual debugging.
+- Managed frontend e2e runs auto-start on dedicated local frontend/backend ports (`5273`/`3300`) and use a separate backend storage root under `tmp/e2e/storage`, so browser tests do not touch the default dev app ports or persistent storage.
 - Backend/frontend build and test scripts wired at workspace root.
 
 ## MCP and Agent API

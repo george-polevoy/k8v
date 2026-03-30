@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 25, 2026.
+Last reviewed: March 30, 2026.
 
 ## Coverage Legend
 
@@ -87,6 +87,7 @@ Last reviewed: March 25, 2026.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
 - `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
 - `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
+- `A-FE-46` `packages/frontend/tests/e2eConfig.test.ts`: frontend e2e support defaults to dedicated local backend/frontend URLs and Vite's dev proxy honors `K8V_BACKEND_URL` for managed test servers.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
 - `A-BE-03` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` rejects malformed runtime updates.
@@ -168,6 +169,7 @@ Last reviewed: March 25, 2026.
 - `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
 - `A-BE-80` `packages/backend/tests/app.test.ts`: rapid graph updates replace older pending graph-update recompute tasks so only the active run plus the latest pending graph-update run remain queued.
 - `A-BE-81` `packages/backend/tests/app.test.ts`: when graph updates collapse pending recompute work, the replacement pending task is rebuilt from the latest graph-wide stale set rather than only the latest change roots.
+- `A-BE-82` `packages/backend/tests/DataStore.test.ts`: DataStore honors `K8V_STORAGE_DIR` so managed browser-test backends can keep their SQLite/artifact storage separate from the default app storage.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -387,6 +389,7 @@ Last reviewed: March 25, 2026.
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
+| Managed Playwright e2e harness uses dedicated local ports and a separate backend storage root | `A-FE-46`, `A-BE-82` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |
 | MCP graph-create contract coverage | `A-MCP-01` | Automated |
 | MCP bulk-edit contract coverage | `A-MCP-02`, `A-MCP-03` | Automated |

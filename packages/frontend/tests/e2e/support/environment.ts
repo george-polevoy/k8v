@@ -3,7 +3,13 @@ import { once } from 'node:events';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { E2E_BACKEND_URL, E2E_FRONTEND_URL, E2E_START_TIMEOUT_MS } from './config.ts';
+import {
+  DEFAULT_E2E_BACKEND_PORT,
+  DEFAULT_E2E_FRONTEND_PORT,
+  E2E_BACKEND_URL,
+  E2E_FRONTEND_URL,
+  E2E_START_TIMEOUT_MS,
+} from './config.ts';
 
 interface ManagedProcess {
   name: string;
@@ -14,6 +20,7 @@ interface ManagedProcess {
 const SUPPORT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.resolve(SUPPORT_DIR, '..', '..', '..');
 const REPO_ROOT = path.resolve(FRONTEND_DIR, '..', '..');
+const E2E_STORAGE_DIR = path.resolve(REPO_ROOT, 'tmp', 'e2e', 'storage');
 const MAX_LOG_LINES = 160;
 const POLL_INTERVAL_MS = 250;
 const AUTOTEST_GRAPH_PREFIX = 'autotests_';
@@ -283,13 +290,16 @@ export async function ensureE2EEnvironment(): Promise<void> {
 
     if (!(await isHttpReady(backendHealthUrl))) {
       debugLog('Backend not reachable; starting managed backend');
-      if (!isDefaultLocalUrl(E2E_BACKEND_URL, '3000')) {
+      if (!isDefaultLocalUrl(E2E_BACKEND_URL, DEFAULT_E2E_BACKEND_PORT)) {
         throw new Error(
           `Backend URL ${E2E_BACKEND_URL} is not reachable and cannot be auto-started. ` +
-          'Use a local URL on port 3000 or start the backend manually.'
+          `Use a local URL on port ${DEFAULT_E2E_BACKEND_PORT} or start the backend manually.`
         );
       }
-      backendProcess = startProcess('backend', ['run', 'dev:backend'], { PORT: '3000' });
+      backendProcess = startProcess('backend', ['run', 'dev:backend'], {
+        PORT: DEFAULT_E2E_BACKEND_PORT,
+        K8V_STORAGE_DIR: E2E_STORAGE_DIR,
+      });
       await waitForUrl(backendHealthUrl, E2E_START_TIMEOUT_MS, backendProcess);
     } else {
       debugLog('Backend already reachable; reusing existing backend');
@@ -297,16 +307,27 @@ export async function ensureE2EEnvironment(): Promise<void> {
 
     if (!(await isHttpReady(frontendHealthUrl))) {
       debugLog('Frontend not reachable; starting managed frontend');
-      if (!isDefaultLocalUrl(E2E_FRONTEND_URL, '5173')) {
+      if (!isDefaultLocalUrl(E2E_FRONTEND_URL, DEFAULT_E2E_FRONTEND_PORT)) {
         throw new Error(
           `Frontend URL ${E2E_FRONTEND_URL} is not reachable and cannot be auto-started. ` +
-          'Use a local URL on port 5173 or start the frontend manually.'
+          `Use a local URL on port ${DEFAULT_E2E_FRONTEND_PORT} or start the frontend manually.`
         );
       }
       frontendProcess = startProcess(
         'frontend',
-        ['--prefix', 'packages/frontend', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'],
-        {}
+        [
+          '--prefix',
+          'packages/frontend',
+          'run',
+          'dev',
+          '--',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          DEFAULT_E2E_FRONTEND_PORT,
+          '--strictPort',
+        ],
+        { K8V_BACKEND_URL: E2E_BACKEND_URL }
       );
       await waitForUrl(frontendHealthUrl, E2E_START_TIMEOUT_MS, frontendProcess);
     } else {

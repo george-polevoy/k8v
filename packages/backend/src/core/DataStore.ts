@@ -8,6 +8,13 @@ import { ComputationResultRepository } from './storage/ComputationResultReposito
 import { GraphRepository } from './storage/GraphRepository.js';
 import { GraphicsArtifactStore } from './storage/GraphicsArtifactStore.js';
 
+type StorageEnvironment = Record<string, string | undefined>;
+
+function resolveStorageBaseDir(env: StorageEnvironment): string | undefined {
+  const configuredPath = env.K8V_STORAGE_DIR?.trim();
+  return configuredPath ? path.resolve(configuredPath) : undefined;
+}
+
 export class DataStore {
   private readonly db: Database.Database;
   private readonly graphRepository: GraphRepository;
@@ -15,10 +22,11 @@ export class DataStore {
   private readonly artifactRepository: ArtifactRepository;
   private readonly graphicsStore: GraphicsArtifactStore;
 
-  constructor(dbPath?: string, artifactsDir?: string) {
+  constructor(dbPath?: string, artifactsDir?: string, env: StorageEnvironment = process.env) {
+    const configuredStorageBaseDir = resolveStorageBaseDir(env);
     let persistentStorageLayout: ReturnType<typeof prepareVersionedStorageLayout> | null = null;
     const getPersistentStorageLayout = () => {
-      persistentStorageLayout ??= prepareVersionedStorageLayout();
+      persistentStorageLayout ??= prepareVersionedStorageLayout(configuredStorageBaseDir);
       return persistentStorageLayout;
     };
     const usesInMemoryDatabase = dbPath === ':memory:';

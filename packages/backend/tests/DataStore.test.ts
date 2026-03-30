@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { DataStore } from '../src/core/DataStore.ts';
+import {
+  STORAGE_ARTIFACTS_DIR_NAME,
+  STORAGE_DB_FILE_NAME,
+  STORAGE_SCHEMA_VERSION,
+} from '../src/core/storage/DatabaseBootstrap.ts';
 import { ComputationResult, type Graph } from '../src/types/index.ts';
 
 const PNG_4X4_BASE64 =
@@ -135,6 +140,27 @@ test('DataStore preserves graphics-backed results when updating an existing grap
     const binary = await store.getGraphicsBinary(stored.graphics.id, 16);
     assert.ok(binary, 'expected graphics binary to remain available after graph update');
     assert.equal(binary?.mimeType, 'image/png');
+  } finally {
+    store.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('DataStore uses K8V_STORAGE_DIR for persistent storage when explicit paths are omitted', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-datastore-env-test-'));
+  const storageBaseDir = path.join(tmpDir, 'isolated-storage');
+  const store = new DataStore(undefined, undefined, { K8V_STORAGE_DIR: storageBaseDir });
+
+  try {
+    await store.storeGraph(makeGraph('graph-env-storage'));
+
+    const storageRoot = path.join(path.resolve(storageBaseDir), `v${STORAGE_SCHEMA_VERSION}`);
+    const dbPath = path.join(storageRoot, STORAGE_DB_FILE_NAME);
+    const artifactsDir = path.join(storageRoot, STORAGE_ARTIFACTS_DIR_NAME);
+
+    assert.ok(await store.getGraph('graph-env-storage'));
+    assert.equal((await fs.stat(dbPath)).isFile(), true);
+    assert.equal((await fs.stat(artifactsDir)).isDirectory(), true);
   } finally {
     store.close();
     await fs.rm(tmpDir, { recursive: true, force: true });
