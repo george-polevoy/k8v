@@ -17,7 +17,7 @@ Last reviewed: March 30, 2026.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: right sidebar panels behave as accordion and graph controls are rendered in graph panel.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node auto-expands the Node panel section in the accordion sidebar.
-- `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: dragging a selected node card resize handle updates and persists node `cardWidth`/`cardHeight`.
+- `A-E2E-05` `packages/frontend/tests/e2e/nodeResize.test.ts`: inline-code cards expose the shared all-side resize handles and persist left/top resize updates (`cardWidth`/`cardHeight` + position).
 - `A-E2E-06` `packages/frontend/tests/e2e/diagnosticsPanel.test.ts`: diagnostics accordion title shows red alert while collapsed and panel shows a human-readable backend failure message.
 - `A-E2E-07` `packages/frontend/tests/e2e/toolbarDrawingHint.test.ts`: draw-toolbar “Create/select drawing” hint wraps inside the narrow toolbar panel without horizontal overflow.
 - `A-E2E-08` `packages/frontend/tests/e2e/graphConflictReload.test.ts`: graph panel reloads latest graph when a stale local save conflicts with a remote update (`409`).
@@ -221,7 +221,7 @@ Last reviewed: March 30, 2026.
 - `M-CANVAS-19`: Canvas redraw loop idles when no interactions/effects are active and resumes on the next interaction or status animation trigger.
 - `M-CANVAS-20`: `python_process` node graphics output projects below the node card with no in-card frame/padding.
 - `M-CANVAS-21`: `numeric_input` node shows an in-card slider; dragging the slider updates and persists the node output value.
-- `M-CANVAS-22`: Selected node card resize handle can resize the card on canvas and the new size persists.
+- `M-CANVAS-22`: Selected node cards expose shared all-side resize handles and persist canvas resize changes.
 - `M-CANVAS-23`: Switching active projection animates node positions/card dimensions/background and does not hard-switch instantly.
 - `M-CANVAS-24`: While projection-switch animation is running, projected graphics textures are not reloaded; mip/offscreen reload/disposal resumes after animation completes.
 - `M-CANVAS-25`: Two-finger trackpad scroll pans the viewport while pinch zoom and mouse-wheel zoom still zoom in/out.
@@ -323,9 +323,9 @@ Last reviewed: March 30, 2026.
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
 | Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
 | Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `A-E2E-31`, `A-E2E-32`, `M-CANVAS-21` | Automated + Manual |
-| Canvas node cards support drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
+| Canvas node cards support shared all-side drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
 | Annotation cards render markdown + TeX/LaTeX in a canvas-synced overlay | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
-| Annotation cards support all-side resize handles with persisted size/position | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
+| Annotation cards share the all-side resize handles and persist size/position updates | `A-E2E-14`, `M-CANVAS-26` | Automated + Manual |
 | Node cards support presentation-only arrows from arbitrary card edges | `A-E2E-20`, `A-FE-30`, `A-FE-33`, `M-CANVAS-28` | Automated + Manual |
 | Graph traversal/query includes annotation nodes and annotation-linked anchors | `A-BE-67`, `A-MCP-05` | Automated |
 | Graph query can project annotation text/config/position/card size without full graph fetch | `A-BE-76`, `A-MCP-05` | Automated |

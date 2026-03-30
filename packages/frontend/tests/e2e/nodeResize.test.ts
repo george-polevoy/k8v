@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createNumericInputGraph, waitForNodeCardSize } from './support/api.ts';
+import {
+  createInlineCodeGraph,
+  getNodePosition,
+  waitForNodeCardSize,
+  waitForNodePosition,
+} from './support/api.ts';
 import { launchBrowser, openCanvasForGraph, readCanvasCursor } from './support/browser.ts';
 import { E2E_ASSERT_TIMEOUT_MS } from './support/config.ts';
 import { ensureE2EEnvironment, shutdownE2EEnvironment } from './support/environment.ts';
 
 const DEFAULT_NODE_WIDTH = 220;
+const DEFAULT_NODE_HEIGHT = 108;
 
 interface NodeScreenPosition {
   centerX: number;
   centerY: number;
   left: number;
+  top: number;
 }
 
 interface CanvasBox {
@@ -34,23 +41,25 @@ function resolveCenteredNodePosition(canvasBox: CanvasBox): NodeScreenPosition {
     centerX,
     centerY,
     left: centerX - (DEFAULT_NODE_WIDTH / 2),
+    top: centerY - (DEFAULT_NODE_HEIGHT / 2),
   };
 }
 
-async function locateResizeHandle(
+async function locateCursorPoint(
   page: import('playwright').Page,
-  region: SearchRegion
+  region: SearchRegion,
+  expectedCursor: string
 ): Promise<{ x: number; y: number }> {
   for (let y = region.minY; y <= region.maxY; y += 4) {
     for (let x = region.minX; x <= region.maxX; x += 4) {
       await page.mouse.move(x, y);
-      if ((await readCanvasCursor(page)) === 'nwse-resize') {
+      if ((await readCanvasCursor(page)) === expectedCursor) {
         return { x, y };
       }
     }
   }
 
-  throw new Error(`Failed to find resize handle cursor within region ${JSON.stringify(region)}`);
+  throw new Error(`Failed to find cursor "${expectedCursor}" within region ${JSON.stringify(region)}`);
 }
 
 async function ensureNodeSelected(
@@ -96,15 +105,15 @@ test.after(async () => {
 });
 
 test(
-  'node cards can be resized from canvas and persisted',
+  'inline-code cards use shared edge resize handles and persist size/position changes',
   { timeout: 90_000 },
   async () => {
-    const { graphId, nodeId } = await createNumericInputGraph({
-      value: 10,
-      min: 0,
-      max: 100,
-      step: 1,
+    const { graphId, nodeId } = await createInlineCodeGraph({
+      cardWidth: DEFAULT_NODE_WIDTH,
+      cardHeight: DEFAULT_NODE_HEIGHT,
+      code: 'outputs.output = inputs.input ?? 0;',
     });
+    const initialPosition = await getNodePosition(graphId, nodeId);
 
     const browser = await launchBrowser();
     try {
@@ -121,26 +130,60 @@ test(
       const nodeBox = resolveCenteredNodePosition(canvasBox);
       await ensureNodeSelected(page, nodeBox);
 
-      const resizePoint = await locateResizeHandle(page, {
-        minX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH - 80),
-        maxX: Math.round(nodeBox.left + DEFAULT_NODE_WIDTH + 60),
-        minY: Math.round(nodeBox.centerY - 20),
-        maxY: Math.round(nodeBox.centerY + 90),
-      });
+      const leftHandle = await locateCursorPoint(page, {
+        minX: Math.round(nodeBox.left - 16),
+        maxX: Math.round(nodeBox.left + 18),
+        minY: Math.round(nodeBox.centerY - 36),
+        maxY: Math.round(nodeBox.centerY + 36),
+      }, 'ew-resize');
 
       await page.mouse.down();
-      await page.mouse.move(resizePoint.x + 90, resizePoint.y + 48, { steps: 18 });
+      await page.mouse.move(leftHandle.x - 72, leftHandle.y, { steps: 18 });
       await page.mouse.up();
 
-      const resized = await waitForNodeCardSize(
+      const widened = await waitForNodeCardSize(
         graphId,
         nodeId,
-        (size) => (size.width ?? 0) >= 280 && (size.height ?? 0) >= 110,
+        (size) => (size.width ?? 0) >= 290,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      const movedLeft = await waitForNodePosition(
+        graphId,
+        nodeId,
+        (position) => position.x <= initialPosition.x - 40,
         E2E_ASSERT_TIMEOUT_MS
       );
 
-      assert.ok((resized.width ?? 0) >= 280, `Expected resized width >= 280. Received: ${resized.width}`);
-      assert.ok((resized.height ?? 0) >= 110, `Expected resized height >= 110. Received: ${resized.height}`);
+      assert.ok((widened.width ?? 0) >= 290, `Expected width >= 290 after left resize. Received: ${widened.width}`);
+      assert.ok(movedLeft.x <= initialPosition.x - 40, 'Expected node x to decrease after left resize.');
+
+      const topHandle = await locateCursorPoint(page, {
+        minX: Math.round(nodeBox.centerX - 84),
+        maxX: Math.round(nodeBox.centerX + 36),
+        minY: Math.round(nodeBox.top - 20),
+        maxY: Math.round(nodeBox.centerY - 18),
+      }, 'ns-resize');
+
+      await page.mouse.move(topHandle.x, topHandle.y);
+      await page.mouse.down();
+      await page.mouse.move(topHandle.x, topHandle.y - 48, { steps: 16 });
+      await page.mouse.up();
+
+      const taller = await waitForNodeCardSize(
+        graphId,
+        nodeId,
+        (size) => (size.height ?? 0) >= 150,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+      const movedUp = await waitForNodePosition(
+        graphId,
+        nodeId,
+        (position) => position.y <= initialPosition.y - 24,
+        E2E_ASSERT_TIMEOUT_MS
+      );
+
+      assert.ok((taller.height ?? 0) >= 150, `Expected height >= 150 after top resize. Received: ${taller.height}`);
+      assert.ok(movedUp.y <= initialPosition.y - 24, 'Expected node y to decrease after top resize.');
 
       await context.close();
     } finally {

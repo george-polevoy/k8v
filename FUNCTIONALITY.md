@@ -65,14 +65,14 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
-- Node cards can be resized directly on canvas via drag handle; resized width/height persists per node with minimum-size guards and no fixed maximum cap.
+- Node cards can be resized directly on canvas via shared all-side drag handles (north/south/east/west + corners); resized width/height persists per node with minimum-size guards and no fixed maximum cap.
 - `annotation` nodes render markdown note cards (including TeX/LaTeX math) directly on canvas via an HTML overlay synchronized to pan/zoom.
 - Annotation cards display note content only (no card title) and render no overlay text when content is empty.
 - New annotation cards are created with empty text content (no default template).
 - `annotation` node cards support configurable background, border, and font colors.
 - Annotation color controls support opacity (alpha) and use the shared color dialog used by drawing/canvas background workflows.
 - `annotation` node cards support configurable font size.
-- `annotation` node cards support all-side resize handles (north/south/east/west + corners) and persist updated size/position.
+- `annotation` node cards use the shared all-side resize handles and persist updated size/position.
 - All node cards support presentation-only connection arrows from any card edge, with persisted edge anchors and arrowheads indicating direction.
 - Minimap/navigation assistant with click-to-center behavior.
 - Current graph viewport pan/zoom state persists across browser refresh as part of the active camera.

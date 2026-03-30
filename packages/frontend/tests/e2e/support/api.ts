@@ -58,13 +58,18 @@ interface InlineNodePayload {
   position: { x: number; y: number };
   metadata: {
     name: string;
-    inputs: Array<{ name: string; schema: { type: 'number' } }>;
-    outputs: Array<{ name: string; schema: { type: 'number' } }>;
+    inputs: Array<{ name: string; schema: { type: string } }>;
+    outputs: Array<{ name: string; schema: { type: string } }>;
   };
   config: {
     type: 'inline_code';
     code: string;
     runtime: 'javascript_vm';
+    config?: {
+      autoRecompute?: boolean;
+      cardWidth?: number;
+      cardHeight?: number;
+    };
   };
   version: string;
 }
@@ -492,6 +497,48 @@ export async function createNumericInputGraph(options?: {
     name: `e2e_numeric_slider_${Date.now()}`,
     nodes: [node],
     context: 'Create graph',
+  });
+  return { graphId: graph.id, nodeId };
+}
+
+export async function createInlineCodeGraph(options?: {
+  nodeName?: string;
+  nodePosition?: { x: number; y: number };
+  code?: string;
+  cardWidth?: number;
+  cardHeight?: number;
+  inputNames?: string[];
+  outputNames?: string[];
+}): Promise<{ graphId: string; nodeId: string }> {
+  const nodeId = randomUUID();
+  const inputNames = options?.inputNames?.length ? options.inputNames : ['input'];
+  const outputNames = options?.outputNames?.length ? options.outputNames : ['output'];
+  const sizeConfig = {
+    ...(typeof options?.cardWidth === 'number' ? { cardWidth: options.cardWidth } : {}),
+    ...(typeof options?.cardHeight === 'number' ? { cardHeight: options.cardHeight } : {}),
+  };
+  const node: InlineNodePayload = {
+    id: nodeId,
+    type: 'inline_code',
+    position: options?.nodePosition ?? { x: 120, y: 140 },
+    metadata: {
+      name: options?.nodeName ?? 'Inline Code',
+      inputs: inputNames.map((name) => ({ name, schema: { type: 'object' } })),
+      outputs: outputNames.map((name) => ({ name, schema: { type: 'object' } })),
+    },
+    config: {
+      type: 'inline_code',
+      code: options?.code ?? 'outputs.output = inputs.input ?? null;',
+      runtime: 'javascript_vm',
+      ...(Object.keys(sizeConfig).length > 0 ? { config: sizeConfig } : {}),
+    },
+    version: Date.now().toString(),
+  };
+
+  const graph = await createSeededGraph({
+    name: `e2e_inline_code_${Date.now()}`,
+    nodes: [node],
+    context: 'Create inline-code graph',
   });
   return { graphId: graph.id, nodeId };
 }

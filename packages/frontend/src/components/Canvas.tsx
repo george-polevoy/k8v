@@ -86,7 +86,6 @@ import {
   MINIMAP_WIDTH,
   MIN_ZOOM,
   NODE_GRAPHICS_FALLBACK_ASPECT_RATIO,
-  NODE_RESIZE_HANDLE_MARGIN,
   NODE_RESIZE_HANDLE_SIZE,
   NODE_TITLE_CHAR_WIDTH_ESTIMATE,
   NODE_TITLE_TEXT_STYLE,
@@ -135,6 +134,7 @@ import {
   getViewportWorldBounds,
   isRenderablePythonGraphicsOutput,
   resolveNodeCardDimensions,
+  resolveResizeHandlePlacements,
   type ResizeHandleDirection,
   resolveResizeCursor,
 } from './canvasShared';
@@ -1035,6 +1035,54 @@ function Canvas({
     const selectedNodeIdValue = selectedNodeIdRef.current;
     const selectedNodeIdSet = new Set(selectedNodeIdsRef.current);
     const activeNodeDragState = nodeDragStateRef.current;
+    const addResizeHandles = ({
+      target,
+      bounds,
+      fillColor,
+      fillAlpha,
+      strokeAlpha,
+      onPointerOver,
+      onPointerOut,
+      onPointerDown,
+    }: {
+      target: Container;
+      bounds: { x: number; y: number; width: number; height: number };
+      fillColor: number;
+      fillAlpha: number;
+      strokeAlpha: number;
+      onPointerOver: (event: FederatedPointerEvent, handle: ResizeHandleDirection) => void;
+      onPointerOut: (event: FederatedPointerEvent, handle: ResizeHandleDirection) => void;
+      onPointerDown: (event: FederatedPointerEvent, handle: ResizeHandleDirection) => void;
+    }) => {
+      for (const placement of resolveResizeHandlePlacements(bounds, NODE_RESIZE_HANDLE_SIZE)) {
+        const resizeHandle = new Graphics();
+        resizeHandle.lineStyle(1, 0x1e3a8a, strokeAlpha);
+        resizeHandle.beginFill(fillColor, fillAlpha);
+        resizeHandle.drawRoundedRect(
+          placement.x,
+          placement.y,
+          NODE_RESIZE_HANDLE_SIZE,
+          NODE_RESIZE_HANDLE_SIZE,
+          2
+        );
+        resizeHandle.endFill();
+        resizeHandle.eventMode = 'static';
+        resizeHandle.cursor = resolveResizeCursor(placement.handle);
+        resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+          onPointerOver(event, placement.handle);
+        });
+        resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+          onPointerOut(event, placement.handle);
+        });
+        resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+          onPointerDown(event, placement.handle);
+        });
+        resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
+          event.stopPropagation();
+        });
+        target.addChild(resizeHandle);
+      }
+    };
 
     for (const node of currentGraph.nodes) {
       const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
@@ -1646,28 +1694,21 @@ function Canvas({
 
       if (isSelected && selectedNodeIdSet.size === 1) {
         const currentPosition = nodePositionsRef.current.get(node.id) ?? node.position;
-        const handleSize = NODE_RESIZE_HANDLE_SIZE;
-        const createResizeHandle = (
-          handleX: number,
-          handleY: number,
-          handleDirection: ResizeHandleDirection
-        ) => {
-          const resizeHandle = new Graphics();
-          resizeHandle.lineStyle(1, 0x1e3a8a, 0.7);
-          resizeHandle.beginFill(0x1d4ed8, 0.9);
-          resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
-          resizeHandle.endFill();
-          resizeHandle.eventMode = 'static';
-          resizeHandle.cursor = resolveResizeCursor(handleDirection);
-          resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+        addResizeHandles({
+          target: container,
+          bounds: { x: 0, y: 0, width, height },
+          fillColor: 0x1d4ed8,
+          fillAlpha: 0.9,
+          strokeAlpha: 0.7,
+          onPointerOver: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
             event.stopPropagation();
             hoveredNodeResizeHandleRef.current = { nodeId: node.id, handle: handleDirection };
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+          },
+          onPointerOut: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
@@ -1685,8 +1726,8 @@ function Canvas({
               hoveredNodeResizeHandleRef.current = null;
             }
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+          },
+          onPointerDown: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
@@ -1724,28 +1765,8 @@ function Canvas({
             hoveredNodeResizeHandleRef.current = { nodeId: node.id, handle: handleDirection };
             requestCanvasAnimationLoop();
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
-            event.stopPropagation();
-          });
-          container.addChild(resizeHandle);
-        };
-
-        if (node.type === NodeType.ANNOTATION) {
-          const edgeOffset = handleSize * 0.5;
-          createResizeHandle(-edgeOffset, -edgeOffset, 'nw');
-          createResizeHandle((width * 0.5) - edgeOffset, -edgeOffset, 'n');
-          createResizeHandle(width - edgeOffset, -edgeOffset, 'ne');
-          createResizeHandle(width - edgeOffset, (height * 0.5) - edgeOffset, 'e');
-          createResizeHandle(width - edgeOffset, height - edgeOffset, 'se');
-          createResizeHandle((width * 0.5) - edgeOffset, height - edgeOffset, 's');
-          createResizeHandle(-edgeOffset, height - edgeOffset, 'sw');
-          createResizeHandle(-edgeOffset, (height * 0.5) - edgeOffset, 'w');
-        } else {
-          const handleX = width - handleSize - NODE_RESIZE_HANDLE_MARGIN;
-          const handleY = height - handleSize - NODE_RESIZE_HANDLE_MARGIN;
-          createResizeHandle(handleX, handleY, 'se');
-        }
+          },
+        });
       }
 
       if (projectedGraphicsTexture) {
@@ -2006,28 +2027,21 @@ function Canvas({
         selectionFrame.eventMode = 'none';
         drawingHandleLayer.addChild(selectionFrame);
 
-        const createSelectionResizeHandle = (
-          handleX: number,
-          handleY: number,
-          handleDirection: ResizeHandleDirection
-        ) => {
-          const handleSize = NODE_RESIZE_HANDLE_SIZE;
-          const resizeHandle = new Graphics();
-          resizeHandle.lineStyle(1, 0x1e3a8a, 0.8);
-          resizeHandle.beginFill(0x2563eb, 0.92);
-          resizeHandle.drawRoundedRect(handleX, handleY, handleSize, handleSize, 2);
-          resizeHandle.endFill();
-          resizeHandle.eventMode = 'static';
-          resizeHandle.cursor = resolveResizeCursor(handleDirection);
-          resizeHandle.on('pointerover', (event: FederatedPointerEvent) => {
+        addResizeHandles({
+          target: drawingHandleLayer,
+          bounds: selectionBounds,
+          fillColor: 0x2563eb,
+          fillAlpha: 0.92,
+          strokeAlpha: 0.8,
+          onPointerOver: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
             event.stopPropagation();
             hoveredSelectionResizeHandleRef.current = { handle: handleDirection };
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointerout', (event: FederatedPointerEvent) => {
+          },
+          onPointerOut: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
@@ -2039,8 +2053,8 @@ function Canvas({
               hoveredSelectionResizeHandleRef.current = null;
             }
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointerdown', (event: FederatedPointerEvent) => {
+          },
+          onPointerDown: (event: FederatedPointerEvent, handleDirection: ResizeHandleDirection) => {
             if (drawingEnabledRef.current) {
               return;
             }
@@ -2095,50 +2109,8 @@ function Canvas({
             hoveredSelectionResizeHandleRef.current = { handle: handleDirection };
             requestCanvasAnimationLoop();
             applyCanvasCursor();
-          });
-          resizeHandle.on('pointertap', (event: FederatedPointerEvent) => {
-            event.stopPropagation();
-          });
-          drawingHandleLayer.addChild(resizeHandle);
-        };
-
-        const handleOffset = NODE_RESIZE_HANDLE_SIZE * 0.5;
-        createSelectionResizeHandle(selectionBounds.x - handleOffset, selectionBounds.y - handleOffset, 'nw');
-        createSelectionResizeHandle(
-          selectionBounds.x + (selectionBounds.width * 0.5) - handleOffset,
-          selectionBounds.y - handleOffset,
-          'n'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x + selectionBounds.width - handleOffset,
-          selectionBounds.y - handleOffset,
-          'ne'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x + selectionBounds.width - handleOffset,
-          selectionBounds.y + (selectionBounds.height * 0.5) - handleOffset,
-          'e'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x + selectionBounds.width - handleOffset,
-          selectionBounds.y + selectionBounds.height - handleOffset,
-          'se'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x + (selectionBounds.width * 0.5) - handleOffset,
-          selectionBounds.y + selectionBounds.height - handleOffset,
-          's'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x - handleOffset,
-          selectionBounds.y + selectionBounds.height - handleOffset,
-          'sw'
-        );
-        createSelectionResizeHandle(
-          selectionBounds.x - handleOffset,
-          selectionBounds.y + (selectionBounds.height * 0.5) - handleOffset,
-          'w'
-        );
+          },
+        });
       }
     }
 

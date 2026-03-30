@@ -5,6 +5,19 @@ import type { ConnectionGeometry } from '../utils/canvasEffects';
 import type { WorldBounds } from '../utils/canvasNodeRender';
 import type { ResizeHandleDirection } from './canvasTypes';
 
+export interface ResizeHandleBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ResizeHandlePlacement {
+  x: number;
+  y: number;
+  handle: ResizeHandleDirection;
+}
+
 export function resolveResizeCursor(handle: ResizeHandleDirection): string {
   if (handle === 'n' || handle === 's') {
     return 'ns-resize';
@@ -16,6 +29,23 @@ export function resolveResizeCursor(handle: ResizeHandleDirection): string {
     return 'nesw-resize';
   }
   return 'nwse-resize';
+}
+
+export function resolveResizeHandlePlacements(
+  bounds: ResizeHandleBounds,
+  handleSize: number
+): ResizeHandlePlacement[] {
+  const handleOffset = handleSize * 0.5;
+  return [
+    { x: bounds.x - handleOffset, y: bounds.y - handleOffset, handle: 'nw' },
+    { x: bounds.x + (bounds.width * 0.5) - handleOffset, y: bounds.y - handleOffset, handle: 'n' },
+    { x: bounds.x + bounds.width - handleOffset, y: bounds.y - handleOffset, handle: 'ne' },
+    { x: bounds.x + bounds.width - handleOffset, y: bounds.y + (bounds.height * 0.5) - handleOffset, handle: 'e' },
+    { x: bounds.x + bounds.width - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 'se' },
+    { x: bounds.x + (bounds.width * 0.5) - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 's' },
+    { x: bounds.x - handleOffset, y: bounds.y + bounds.height - handleOffset, handle: 'sw' },
+    { x: bounds.x - handleOffset, y: bounds.y + (bounds.height * 0.5) - handleOffset, handle: 'w' },
+  ];
 }
 
 export function getTextureDimensions(texture: Texture): { width: number; height: number; valid: boolean } {
