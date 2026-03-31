@@ -9,6 +9,7 @@ import {
 } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
+import type { ExecutionMeta } from './execution/types.js';
 import { JavaScriptVmRuntime } from './execution/JavaScriptVmRuntime.js';
 import { PythonProcessRuntime } from './execution/PythonProcessRuntime.js';
 import { clampRecomputeConcurrency } from './recompute/recomputePlanning.js';
@@ -98,6 +99,7 @@ export class NodeExecutor {
     const runtimeResult = await runtime.execute({
       code: node.config.code,
       inputs,
+      meta: this.buildExecutionMeta(node, graph),
       timeoutMs: this.resolveTimeoutMs(graph),
       graphId: graph?.id,
       workerConcurrencyHint: clampRecomputeConcurrency(graph?.recomputeConcurrency),
@@ -216,6 +218,30 @@ export class NodeExecutor {
 
   private resolveTimeoutMs(graph?: Graph): number {
     return normalizeGraphExecutionTimeoutMs(graph?.executionTimeoutMs);
+  }
+
+  private buildExecutionMeta(node: GraphNode, graph?: Graph): ExecutionMeta {
+    return {
+      custom: this.cloneJsonRecord(node.metadata.custom),
+      graph: {
+        id: graph?.id ?? null,
+        name: graph?.name ?? null,
+      },
+      node: {
+        id: node.id,
+        name: node.metadata.name,
+      },
+    };
+  }
+
+  private cloneJsonRecord(value: Record<string, unknown> | undefined): Record<string, unknown> {
+    if (!value) {
+      return {};
+    }
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   }
 
   private initializeRuntimes(

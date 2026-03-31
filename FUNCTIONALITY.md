@@ -97,6 +97,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 ## Node Editing (Node Panel)
 
 - Edit node display name (card title).
+- Nodes persist `metadata.custom` as a JSON dictionary (default `{}`).
 - Edit inline-code runtime (currently JavaScript VM).
 - For `python_process` inline nodes, select a named graph-level Python environment (`pythonEnv`) or fall back to backend default Python.
 - Edit inline-code source with local draft state and persist on blur.
@@ -170,6 +171,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `annotation` nodes are presentation-only and excluded from backend recompute execution.
 - Default inline runtime: JavaScript VM runtime (`javascript_vm`) retained as an interim runtime, not a production isolation boundary.
 - Additional inline runtime: Python warm-service runtime (`python_process`) for backend execution.
+- Inline runtimes expose `meta.custom` plus `meta.graph.{id,name}` and `meta.node.{id,name}` to code-node executions.
 - Graph-level script execution timeout (`executionTimeoutMs`) defaults to 30 seconds and is editable in graph settings.
 - Graph-level Python environment list supports named entries with `name`, `pythonPath`, and `cwd`.
 - Python runtime supports `inputs`, `outputs`, `print`/`log`, `outputGraphics`/`outputImage`, timeout, and error capture.

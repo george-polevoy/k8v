@@ -1,6 +1,19 @@
+export interface ExecutionMeta {
+  custom: Record<string, unknown>;
+  graph: {
+    id: string | null;
+    name: string | null;
+  };
+  node: {
+    id: string;
+    name: string;
+  };
+}
+
 export interface ExecutionRequest {
   code: string;
   inputs: Record<string, any>;
+  meta?: ExecutionMeta;
   timeoutMs?: number;
   pythonBin?: string;
   cwd?: string;

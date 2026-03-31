@@ -24,6 +24,17 @@ export class JavaScriptVmRuntime implements ExecutionRuntime {
     const contextObject = {
       inputs: request.inputs,
       outputs,
+      meta: request.meta ?? {
+        custom: {},
+        graph: {
+          id: null,
+          name: null,
+        },
+        node: {
+          id: '',
+          name: '',
+        },
+      },
       print: logFn,
       log: logFn,
       console: {

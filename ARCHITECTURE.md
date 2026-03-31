@@ -126,8 +126,13 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Execute JavaScript code directly
 - Access inputs via `inputs` object
 - Set outputs via `outputs` object
+- Access node metadata/runtime context via `meta`
+- `meta.custom` contains the node's persisted JSON metadata dictionary
+- `meta.graph` contains the current graph `id` and `name`
+- `meta.node` contains the current node `id` and `name`
 - Example:
   ```javascript
+  log(meta.graph.name, meta.node.id);
   outputs.sum = inputs.a + inputs.b;
   outputs.product = inputs.a * inputs.b;
   ```

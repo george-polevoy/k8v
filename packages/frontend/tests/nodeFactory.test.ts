@@ -31,6 +31,25 @@ test('createInlineCodeNode stores explicit python env name when provided', () =>
   assert.equal(node.config.pythonEnv, 'analytics');
 });
 
+test('createInlineCodeNode stores explicit custom metadata when provided', () => {
+  const node = createInlineCodeNode({
+    position: { x: 6, y: 4 },
+    custom: {
+      owner: 'frontend',
+      nested: {
+        enabled: true,
+      },
+    },
+  });
+
+  assert.deepEqual(node.metadata.custom, {
+    owner: 'frontend',
+    nested: {
+      enabled: true,
+    },
+  });
+});
+
 test('createInlineCodeNode honors explicit input and output port names', () => {
   const node = createInlineCodeNode({
     position: { x: 12, y: 8 },

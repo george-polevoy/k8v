@@ -2,6 +2,7 @@ import { NodeType } from './index.js';
 import type {
   Connection,
   GraphNode,
+  JsonValue,
   PortDefinition,
 } from './index.js';
 
@@ -44,6 +45,7 @@ interface InlineCodeNodeOptions extends GeneratedNodeOptions {
   code?: string;
   runtime?: string;
   pythonEnv?: string;
+  custom?: Record<string, JsonValue>;
   inputNames?: string[];
   outputNames?: string[];
   autoRecompute?: boolean;
@@ -55,6 +57,7 @@ interface AnnotationNodeOptions extends GeneratedNodeOptions {
   borderColor?: string;
   fontColor?: string;
   fontSize?: number;
+  custom?: Record<string, JsonValue>;
 }
 
 interface AnnotationConfigUpdates {
@@ -73,6 +76,7 @@ interface NumericInputNodeOptions extends GeneratedNodeOptions {
   autoRecompute?: boolean;
   propagateWhileDragging?: boolean;
   dragDebounceSeconds?: number;
+  custom?: Record<string, JsonValue>;
 }
 
 export interface NumericInputConfig {
@@ -188,6 +192,18 @@ function createNumberPortDefinition(name: string): PortDefinition {
   };
 }
 
+function cloneCustomMetadata(
+  custom?: Record<string, JsonValue>
+): Record<string, JsonValue> {
+  if (!custom) {
+    return {};
+  }
+  if (typeof structuredClone === 'function') {
+    return structuredClone(custom);
+  }
+  return JSON.parse(JSON.stringify(custom)) as Record<string, JsonValue>;
+}
+
 export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode {
   const inputNames = options.inputNames && options.inputNames.length > 0
     ? options.inputNames
@@ -205,6 +221,7 @@ export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode 
       name: options.name ?? 'Inline Code',
       inputs: inputNames.map(createObjectPortDefinition),
       outputs: outputNames.map(createObjectPortDefinition),
+      custom: cloneCustomMetadata(options.custom),
     },
     config: {
       type: NodeType.INLINE_CODE,
@@ -374,6 +391,7 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
       name: options.name ?? 'Annotation',
       inputs: [],
       outputs: [],
+      custom: cloneCustomMetadata(options.custom),
     },
     config: {
       type: NodeType.ANNOTATION,
@@ -515,6 +533,7 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
       name: options.name ?? 'Numeric Input',
       inputs: [],
       outputs: [createNumberPortDefinition('value')],
+      custom: cloneCustomMetadata(options.custom),
     },
     config: {
       type: NodeType.NUMERIC_INPUT,

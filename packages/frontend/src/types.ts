@@ -91,6 +91,7 @@ export type {
   ConnectionAnchorSide,
   DrawingPoint as Position,
   GraphQueryRequest,
+  JsonValue,
 } from '../../domain/dist/index.js';
 
 export type {

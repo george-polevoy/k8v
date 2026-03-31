@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
-import type { ExecutionResult } from './types.js';
+import type { ExecutionMeta, ExecutionResult } from './types.js';
 
 const DEFAULT_IDLE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
@@ -238,6 +238,7 @@ def execute_request(request):
         "__builtins__": __builtins__,
         "inputs": to_attr(request.get("inputs", {})),
         "outputs": outputs,
+        "meta": to_attr(request.get("meta", {})),
         "print": log_fn,
         "log": log_fn,
         "outputGraphics": output_graphics,
@@ -385,12 +386,13 @@ class WorkerProcess:
     def is_alive(self):
         return self.process.poll() is None
 
-    def execute(self, code, inputs, timeout_ms):
+    def execute(self, code, inputs, meta, timeout_ms):
         marker = f"<{uuid.uuid4()}>"
         payload = json.dumps({
             "marker": marker,
             "code": code,
             "inputs": inputs,
+            "meta": meta,
         })
         with self._lock:
             if self._closed or self.process.poll() is not None:
@@ -549,6 +551,7 @@ class Handler(BaseHTTPRequestHandler):
             result = worker.execute(
                 payload.get("code", ""),
                 payload.get("inputs", {}),
+                payload.get("meta", {}),
                 int(payload.get("timeoutMs", 30000)),
             )
             worker_pool.release(worker)
@@ -623,6 +626,7 @@ export interface PythonExecutionManagerOptions {
 interface ManagedPythonExecutionRequest {
   code: string;
   inputs: Record<string, unknown>;
+  meta?: ExecutionMeta;
   timeoutMs: number;
   pythonBin: string;
   cwd?: string;
@@ -865,6 +869,7 @@ class PythonServiceHandle {
         {
           code: request.code,
           inputs: request.inputs,
+          meta: request.meta ?? {},
           timeoutMs: request.timeoutMs,
         },
         request.timeoutMs + this.requestPaddingMs

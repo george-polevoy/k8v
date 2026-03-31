@@ -1,4 +1,4 @@
-import type { GraphNode, RuntimeId } from '../types';
+import type { GraphNode, JsonValue, RuntimeId } from '../types';
 import {
   createAnnotationNode as createDomainAnnotationNode,
   createInlineCodeNode as createDomainInlineCodeNode,
@@ -20,6 +20,7 @@ export interface CreateNodeOptions {
   code?: string;
   runtime?: RuntimeId | string;
   pythonEnv?: string;
+  custom?: Record<string, JsonValue>;
   inputNames?: string[];
   outputNames?: string[];
   annotationText?: string;
@@ -44,6 +45,7 @@ export function createAnnotationNode(options: CreateNodeOptions): GraphNode {
     position: options.position,
     cardWidth: options.cardWidth,
     cardHeight: options.cardHeight,
+    custom: options.custom,
     text: options.annotationText,
     backgroundColor: options.annotationBackgroundColor,
     borderColor: options.annotationBorderColor,

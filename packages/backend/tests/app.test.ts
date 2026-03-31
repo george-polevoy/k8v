@@ -446,6 +446,74 @@ test('POST /api/graphs/:id/commands accepts initial card dimensions on add-node 
   }
 });
 
+test('graph APIs persist node metadata.custom JSON payloads and add-node commands accept custom metadata', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const inlineNode = createValidInlineNode();
+    inlineNode.metadata.custom = {
+      workflow: 'seeded',
+      nested: {
+        enabled: true,
+      },
+    };
+    const numericNode = createNumericInputNode('numeric-seeded', 7);
+    numericNode.metadata.custom = {
+      kind: 'parameter',
+      range: [0, 100],
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [inlineNode, numericNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const seededGraph = await createResponse.json();
+
+    const seededInlineNode = seededGraph.nodes.find((node: any) => node.id === 'node-1');
+    const seededNumericNode = seededGraph.nodes.find((node: any) => node.id === 'numeric-seeded');
+    assert.deepEqual(seededInlineNode?.metadata?.custom, {
+      workflow: 'seeded',
+      nested: {
+        enabled: true,
+      },
+    });
+    assert.deepEqual(seededNumericNode?.metadata?.custom, {
+      kind: 'parameter',
+      range: [0, 100],
+    });
+
+    const updateResponse = await submitGraphCommands(
+      ctx.baseUrl,
+      seededGraph.id,
+      seededGraph.revision ?? 0,
+      [
+        {
+          kind: 'node_add_annotation',
+          nodeId: 'annotation-custom',
+          name: 'Annotation Custom',
+          x: 20,
+          y: 40,
+          text: 'Meta',
+          custom: {
+            owner: 'qa',
+            tags: ['sticky', 'review'],
+          },
+        },
+      ] as GraphCommand[]
+    );
+    assert.equal(updateResponse.status, 200);
+    const updatedGraph = (await updateResponse.json()).graph;
+
+    const annotationNode = updatedGraph.nodes.find((node: any) => node.id === 'annotation-custom');
+    assert.deepEqual(annotationNode?.metadata?.custom, {
+      owner: 'qa',
+      tags: ['sticky', 'review'],
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs accepts python_process runtime in node config', async () => {
   const ctx = await setupTestServer();
 

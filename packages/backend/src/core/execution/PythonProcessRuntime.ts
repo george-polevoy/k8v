@@ -30,6 +30,7 @@ export class PythonProcessRuntime implements ExecutionRuntime {
           return await this.executionManager.execute({
             code: request.code,
             inputs: request.inputs ?? {},
+            meta: request.meta,
             timeoutMs,
             pythonBin,
             cwd: request.cwd,

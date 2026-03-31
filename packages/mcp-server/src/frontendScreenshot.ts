@@ -96,13 +96,14 @@ export async function renderGraphRegionScreenshotFromFrontend(params: {
 
     try {
       const page = await context.newPage();
-      await page.addInitScript((bootstrap) => {
-        (window as any).__k8vScreenshotHarnessBootstrap = bootstrap;
-      }, {
+      const bootstrapPayload: unknown = {
         graph: graphData,
         runtimeState,
         backendUrl: params.backendUrl,
-      });
+      };
+      await page.addInitScript((bootstrap: unknown) => {
+        (window as any).__k8vScreenshotHarnessBootstrap = bootstrap;
+      }, bootstrapPayload);
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
 

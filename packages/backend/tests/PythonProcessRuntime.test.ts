@@ -131,6 +131,46 @@ outputGraphics("data:image/png;base64,abc123")
   }
 });
 
+test('PythonProcessRuntime exposes meta to inline code', { skip: skipPythonTests }, async () => {
+  const runtime = new PythonProcessRuntime();
+
+  try {
+    const result = await runtime.execute({
+      code: `
+outputs.answer = meta.custom.multiplier * inputs.value
+outputs.graphName = meta.graph.name
+outputs.nodeId = meta.node.id
+outputs.nestedEnabled = meta.custom.nested.enabled
+`,
+      inputs: { value: 7 },
+      meta: {
+        custom: {
+          multiplier: 6,
+          nested: {
+            enabled: true,
+          },
+        },
+        graph: {
+          id: 'graph-a',
+          name: 'Graph A',
+        },
+        node: {
+          id: 'node-b',
+          name: 'Node B',
+        },
+      },
+      timeoutMs: 1000,
+    });
+
+    assert.equal(result.outputs.answer, 42);
+    assert.equal(result.outputs.graphName, 'Graph A');
+    assert.equal(result.outputs.nodeId, 'node-b');
+    assert.equal(result.outputs.nestedEnabled, true);
+  } finally {
+    await runtime.dispose();
+  }
+});
+
 test('PythonProcessRuntime ignores non-protocol stdout writes and still parses wrapped JSON payload', { skip: skipPythonTests }, async () => {
   const runtime = new PythonProcessRuntime();
 

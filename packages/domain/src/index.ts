@@ -10,6 +10,27 @@ export const DataSchema = z.object({
 
 export type DataSchema = z.infer<typeof DataSchema>;
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(JsonValueSchema),
+  ])
+);
+
+export const JsonObjectSchema: z.ZodType<Record<string, JsonValue>> = z.record(JsonValueSchema);
+
 export const PortDefinition = z.object({
   name: z.string(),
   schema: DataSchema,
@@ -23,6 +44,7 @@ export const NodeMetadata = z.object({
   description: z.string().optional(),
   inputs: z.array(PortDefinition),
   outputs: z.array(PortDefinition),
+  custom: JsonObjectSchema.default({}),
   category: z.string().optional(),
   version: z.string().optional(),
 });
@@ -395,6 +417,7 @@ const NodeAddInlineCommand = z.object({
   y: z.number(),
   cardWidth: z.number().finite().positive().optional(),
   cardHeight: z.number().finite().positive().optional(),
+  custom: JsonObjectSchema.optional(),
   inputNames: z.array(z.string()).optional(),
   outputNames: z.array(z.string()).optional(),
   code: z.string().optional(),
@@ -411,6 +434,7 @@ const NodeAddNumericInputCommand = z.object({
   y: z.number(),
   cardWidth: z.number().finite().positive().optional(),
   cardHeight: z.number().finite().positive().optional(),
+  custom: JsonObjectSchema.optional(),
   value: z.number().optional(),
   min: z.number().optional(),
   max: z.number().optional(),
@@ -426,6 +450,7 @@ const NodeAddAnnotationCommand = z.object({
   y: z.number(),
   cardWidth: z.number().finite().positive().optional(),
   cardHeight: z.number().finite().positive().optional(),
+  custom: JsonObjectSchema.optional(),
   text: z.string().optional(),
   backgroundColor: z.string().optional(),
   borderColor: z.string().optional(),

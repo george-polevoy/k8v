@@ -138,6 +138,11 @@ interface ExecutionRequest {
   code?: string;           // Source code (for interpreted runtimes)
   artifact?: Artifact;     // Compiled artifact (for compiled runtimes)
   inputs: Record<string, any>;
+  meta?: {
+    custom: Record<string, any>;
+    graph: { id: string | null; name: string | null };
+    node: { id: string; name: string };
+  };
   timeout?: number;        // Max execution time (ms)
   memoryLimit?: number;    // Max memory (bytes)
 }

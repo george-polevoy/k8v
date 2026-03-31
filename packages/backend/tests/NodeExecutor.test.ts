@@ -191,6 +191,65 @@ test('NodeExecutor uses graph-level execution timeout for inline code', async ()
   }
 });
 
+test('NodeExecutor passes execution meta with custom metadata and graph/node identity to runtime', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const runtime = new StubRuntime({ outputs: { output: 42 } });
+  const executor = new NodeExecutor(dataStore, {
+    javascript_vm: runtime,
+  });
+  const node = createInlineNode();
+  node.metadata.name = 'Custom Inline';
+  node.metadata.custom = {
+    threshold: 0.25,
+    tags: ['alpha', 2, null],
+    nested: {
+      enabled: true,
+    },
+  };
+  const graph = createGraphWithPythonEnv(node);
+
+  try {
+    const result = await executor.execute(node, { input: 5 }, graph);
+    assert.equal(result.outputs.output, 42);
+    assert.deepEqual(runtime.lastRequest?.meta, {
+      custom: {
+        threshold: 0.25,
+        tags: ['alpha', 2, null],
+        nested: {
+          enabled: true,
+        },
+      },
+      graph: {
+        id: 'graph-1',
+        name: 'Graph with envs',
+      },
+      node: {
+        id: 'node-1',
+        name: 'Custom Inline',
+      },
+    });
+
+    const requestMeta = runtime.lastRequest?.meta;
+    assert.ok(requestMeta, 'expected NodeExecutor to pass runtime meta');
+    const requestMetaCustom = requestMeta?.custom as {
+      nested: {
+        enabled: boolean;
+      };
+    };
+    requestMetaCustom.nested.enabled = false;
+    assert.equal(
+      (node.metadata.custom.nested as { enabled: boolean }).enabled,
+      true,
+      'runtime meta should be cloned from persisted node metadata'
+    );
+  } finally {
+    await executor.dispose();
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('NodeExecutor throws for unknown runtime in node config', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-node-executor-test-'));
   const dataStore = new DataStore(':memory:', tmpDir);

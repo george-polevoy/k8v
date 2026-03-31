@@ -71,6 +71,7 @@ function cloneNodeMetadata(metadata: NodeMetadata): NodeMetadata {
     description: metadata.description,
     inputs: metadata.inputs.map(clonePortDefinition),
     outputs: metadata.outputs.map(clonePortDefinition),
+    custom: cloneUnknownValue(metadata.custom ?? {}),
     category: metadata.category,
     version: metadata.version,
   };

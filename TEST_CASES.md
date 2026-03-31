@@ -60,6 +60,7 @@ Last reviewed: March 30, 2026.
 - `A-FE-15` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults (`value`, `min`, `max`, `step`) and node type.
 - `A-FE-44` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory can persist the `propagateWhileDragging` mode flag.
 - `A-FE-45` `packages/frontend/tests/nodeFactory.test.ts`: numeric input node factory defaults and persists drag debounce seconds.
+- `A-FE-47` `packages/frontend/tests/nodeFactory.test.ts`: inline node factory persists explicit `metadata.custom` JSON payloads.
 - `A-FE-16` `packages/frontend/tests/graphStore.test.ts`: `deleteGraph` removes graph summaries and loads fallback graph when deleting current graph.
 - `A-FE-17` `packages/frontend/tests/textLayout.test.ts`: title truncation helper ellipsizes long text to fit bounded width.
 - `A-FE-18` `packages/frontend/tests/diagnostics.test.ts`: diagnostics formatter converts technical backend error strings into user-readable messages.
@@ -139,6 +140,7 @@ Last reviewed: March 30, 2026.
 - `A-BE-49` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph execution timeout (`executionTimeoutMs = 30000`).
 - `A-BE-50` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` persists graph execution timeout updates and accepts large values (no max cap).
 - `A-BE-51` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor forwards graph-level `executionTimeoutMs` to runtime requests and defaults to 30 seconds when absent.
+- `A-BE-83` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor forwards `meta.custom` plus graph/node identity to inline-runtime requests and clones persisted metadata before execution.
 - `A-BE-52` `packages/backend/tests/app.test.ts`: annotation nodes are accepted by graph API and rejected as non-executable for node-targeted compute calls.
 - `A-BE-53` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor treats annotation nodes as non-computing no-op outputs and does not invoke runtimes.
 - `A-BE-54` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime retries once after timeout and only reports timeout after retry attempts are exhausted.
@@ -170,6 +172,9 @@ Last reviewed: March 30, 2026.
 - `A-BE-80` `packages/backend/tests/app.test.ts`: rapid graph updates replace older pending graph-update recompute tasks so only the active run plus the latest pending graph-update run remain queued.
 - `A-BE-81` `packages/backend/tests/app.test.ts`: when graph updates collapse pending recompute work, the replacement pending task is rebuilt from the latest graph-wide stale set rather than only the latest change roots.
 - `A-BE-82` `packages/backend/tests/DataStore.test.ts`: DataStore honors `K8V_STORAGE_DIR` so managed browser-test backends can keep their SQLite/artifact storage separate from the default app storage.
+- `A-BE-84` `packages/backend/tests/JavaScriptVmRuntime.test.ts`: JavaScript runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
+- `A-BE-85` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
+- `A-BE-86` `packages/backend/tests/app.test.ts`: graph update APIs persist node `metadata.custom` JSON payloads and add-node commands accept custom metadata.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -340,6 +345,7 @@ Last reviewed: March 30, 2026.
 | Persistent drawing objects (create/select/move/delete) | `A-FE-09`, `A-FE-10`, `A-BE-31`, `A-BE-32`, `A-BE-33`, `M-CANVAS-16`, `M-CANVAS-17`, `M-CANVAS-18` | Automated + Manual |
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
+| Persist node `metadata.custom` JSON dictionaries | `A-FE-47`, `A-BE-86` | Automated |
 | Edit inline-code node `pythonEnv` binding | `A-FE-08`, `A-BE-21`, `M-PANEL-08` | Automated + Manual |
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |
@@ -388,6 +394,7 @@ Last reviewed: March 30, 2026.
 | Annotation nodes are non-executable presentation nodes and presentation-only edges stay out of DAG validation/execution | `A-BE-52`, `A-BE-53`, `A-BE-65`, `A-BE-66` | Automated |
 | Default inline runtime `javascript_vm` | `A-FE-03`, `A-BE-10` | Automated |
 | Python inline runtime `python_process` | `A-BE-16`, `A-BE-17`, `A-BE-18`, `A-BE-19`, `A-BE-20`, `A-BE-21`, `A-BE-25`, `A-BE-28`, `A-BE-29`, `A-BE-30` | Automated |
+| Inline runtimes expose node metadata and graph/node identity through `meta` | `A-BE-83`, `A-BE-84`, `A-BE-85` | Automated |
 | Pluggable runtime architecture in place | `A-BE-10`, `A-BE-11`, `A-BE-12` | Automated |
 | Managed Playwright e2e harness uses dedicated local ports and a separate backend storage root | `A-FE-46`, `A-BE-82` | Automated |
 | Playwright-based canvas snapshot script | `README.md` snapshot command + `packages/frontend/scripts/captureCanvasSnapshot.mjs` | Manual |

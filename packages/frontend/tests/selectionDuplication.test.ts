@@ -17,6 +17,12 @@ function makeNode(
       name,
       inputs: [],
       outputs: [{ name: 'value', schema: { type: 'number' } }],
+      custom: {
+        sourceId: id,
+        nested: {
+          label: name,
+        },
+      },
     },
     config: {
       type: NodeType.NUMERIC_INPUT,
@@ -135,7 +141,14 @@ test('duplicateNodeSelectionInGraph clones selected nodes, internal connections,
   assert.equal(duplicatedNodeA.version, '9876-0');
   assert.equal(duplicatedNodeB.version, '9876-1');
   assert.notEqual(duplicatedNodeA.metadata, graph.nodes[0].metadata, 'metadata should be cloned');
+  assert.notEqual(duplicatedNodeA.metadata.custom, graph.nodes[0].metadata.custom, 'custom metadata should be cloned');
   assert.notEqual(duplicatedNodeA.config, graph.nodes[0].config, 'config should be cloned');
+  assert.deepEqual(duplicatedNodeA.metadata.custom, {
+    sourceId: 'node-a',
+    nested: {
+      label: 'Node A',
+    },
+  });
 
   assert.equal(duplicateResult.graph.connections.length, 3);
   const duplicatedConnection = duplicateResult.graph.connections.find((connection) => connection.id === 'connection-copy');
