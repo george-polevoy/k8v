@@ -244,6 +244,94 @@ test('bulk_edit uses explicit baseRevision and forwards noRecompute query flag',
   });
 });
 
+test('bulk_edit accepts node_set_custom as a granular metadata update command', async () => {
+  const server = new FakeMcpServer();
+  const requests: RecordedRequest[] = [];
+  const commands = [
+    GraphCommand.parse({
+      kind: 'node_set_custom',
+      nodeId: 'node-1',
+      custom: {
+        owner: 'agent',
+        nested: {
+          enabled: true,
+        },
+      },
+    }),
+  ];
+
+  registerGraphTools(server as unknown as any, {
+    resolveBackendUrl: (backendUrl?: string) => backendUrl ?? 'http://backend.test',
+    submitGraphCommands: async (
+      backendUrl: string,
+      graphId: string,
+      baseRevision: number,
+      nextCommands: GraphCommand[]
+    ) => {
+      requests.push({
+        url: `${backendUrl}/api/graphs/${graphId}/commands`,
+        method: 'POST',
+        body: {
+          baseRevision,
+          commands: nextCommands,
+        },
+      });
+      return {
+        graph: createGraphFixture({
+          revision: 4,
+          nodes: [
+            {
+              id: 'node-1',
+              type: 'inline_code',
+              position: { x: 0, y: 0 },
+              metadata: {
+                name: 'Inline',
+                inputs: [],
+                outputs: [],
+                custom: {
+                  owner: 'agent',
+                  nested: {
+                    enabled: true,
+                  },
+                },
+              },
+              config: {
+                type: 'inline_code',
+                code: 'outputs.output = 1;',
+                runtime: 'javascript_vm',
+              },
+              version: '2',
+            },
+          ],
+        }) as any,
+      };
+    },
+  });
+
+  const bulkEdit = server.tools.get('bulk_edit');
+  assert.ok(bulkEdit);
+
+  const result = await bulkEdit.handler({
+    graphId: 'graph-1',
+    baseRevision: 3,
+    commands,
+    backendUrl: 'http://backend.test',
+  });
+  const parsed = parseToolJson(result) as Record<string, any>;
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0]?.body, {
+    baseRevision: 3,
+    commands,
+  });
+  assert.deepEqual(parsed.graph.nodes[0].metadata.custom, {
+    owner: 'agent',
+    nested: {
+      enabled: true,
+    },
+  });
+});
+
 test('graph_query uses shared GraphQueryRequestSchema contract', async () => {
   const parsed = GraphQueryRequestSchema.parse({
     operation: 'traverse_bfs',

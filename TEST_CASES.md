@@ -175,6 +175,7 @@ Last reviewed: March 30, 2026.
 - `A-BE-84` `packages/backend/tests/JavaScriptVmRuntime.test.ts`: JavaScript runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
 - `A-BE-85` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
 - `A-BE-86` `packages/backend/tests/app.test.ts`: graph update APIs persist node `metadata.custom` JSON payloads and add-node commands accept custom metadata.
+- `A-BE-87` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` updates existing node `metadata.custom` dictionaries via `node_set_custom`.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -183,6 +184,7 @@ Last reviewed: March 30, 2026.
 - `A-MCP-06` `packages/mcp-server/tests/screenshotParity.test.ts`: MCP `graph_screenshot_region` matches direct frontend canvas capture, respects requested bitmap dimensions, and works when loading the graph from backend.
 - `A-MCP-07` `packages/mcp-server/tests/mcpDocumentationResources.test.ts`: MCP publishes documentation resources/templates for command schema, query schema, annotation workflow examples, and transient wasm-invocation docs/examples.
 - `A-MCP-08` `packages/mcp-server/tests/algoInjectionTools.test.ts`: MCP exposes only transient `algo_injection_run` and forwards the absolute-path invocation payload to the backend.
+- `A-MCP-09` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts `node_set_custom` for granular existing-node metadata updates.
 ## MCP Coverage Notes
 - Backend/MCP tests cover `graph_create` producing an empty graph and `bulk_edit` forwarding ordered `GraphCommand[]` batches (including compute commands) to the backend command service.
 - Backend/MCP tests cover transient wasm invocation by absolute path, wasm validation, staged edits, timeout behavior, and documentation discoverability.
@@ -345,7 +347,7 @@ Last reviewed: March 30, 2026.
 | Persistent drawing objects (create/select/move/delete) | `A-FE-09`, `A-FE-10`, `A-BE-31`, `A-BE-32`, `A-BE-33`, `M-CANVAS-16`, `M-CANVAS-17`, `M-CANVAS-18` | Automated + Manual |
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
-| Persist node `metadata.custom` JSON dictionaries | `A-FE-47`, `A-BE-86` | Automated |
+| Persist and update node `metadata.custom` JSON dictionaries | `A-FE-47`, `A-BE-86`, `A-BE-87`, `A-MCP-09` | Automated |
 | Edit inline-code node `pythonEnv` binding | `A-FE-08`, `A-BE-21`, `M-PANEL-08` | Automated + Manual |
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |

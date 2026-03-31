@@ -514,6 +514,60 @@ test('graph APIs persist node metadata.custom JSON payloads and add-node command
   }
 });
 
+test('graph command API updates existing node metadata.custom via node_set_custom', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const inlineNode = createValidInlineNode();
+    inlineNode.metadata.custom = {
+      workflow: 'before',
+      nested: {
+        enabled: false,
+      },
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [inlineNode],
+    });
+    assert.equal(createResponse.status, 200);
+    const graph = await createResponse.json();
+
+    const updateResponse = await submitGraphCommands(
+      ctx.baseUrl,
+      graph.id,
+      graph.revision ?? 0,
+      [
+        {
+          kind: 'node_set_custom',
+          nodeId: 'node-1',
+          custom: {
+            workflow: 'after',
+            nested: {
+              enabled: true,
+            },
+            tags: ['mcp', 'bulk-edit'],
+          },
+        },
+      ] as GraphCommand[]
+    );
+    assert.equal(updateResponse.status, 200);
+
+    const updatedGraph = (await updateResponse.json()).graph;
+    const updatedNode = updatedGraph.nodes.find((node: any) => node.id === 'node-1');
+    assert.ok(updatedNode);
+    assert.equal(updatedNode.metadata.name, 'Inline');
+    assert.deepEqual(updatedNode.metadata.custom, {
+      workflow: 'after',
+      nested: {
+        enabled: true,
+      },
+      tags: ['mcp', 'bulk-edit'],
+    });
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs accepts python_process runtime in node config', async () => {
   const ctx = await setupTestServer();
 

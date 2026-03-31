@@ -38,6 +38,7 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.doesNotMatch(overviewText, /algo_injection_register/);
   assert.match(overviewText, /structured MCP objects/i);
   assert.match(overviewText, /do not stringify/i);
+  assert.match(overviewText, /node_set_custom/);
   assert.ok(
     overviewText.indexOf('k8v://docs/examples/bulk-edit-call') <
       overviewText.indexOf('k8v://docs/graph-command-schema.json')

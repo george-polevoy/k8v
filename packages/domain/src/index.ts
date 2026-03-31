@@ -471,6 +471,12 @@ const NodeSetNameCommand = z.object({
   name: z.string(),
 });
 
+const NodeSetCustomCommand = z.object({
+  kind: z.literal('node_set_custom'),
+  nodeId: z.string(),
+  custom: JsonObjectSchema,
+});
+
 const NodeSetCodeCommand = z.object({
   kind: z.literal('node_set_code'),
   nodeId: z.string(),
@@ -633,6 +639,7 @@ export const GraphCommand = z.discriminatedUnion('kind', [
   NodeAddAnnotationCommand,
   NodeMoveCommand,
   NodeSetNameCommand,
+  NodeSetCustomCommand,
   NodeSetCodeCommand,
   NodeSetAnnotationCommand,
   NodeSetAutoRecomputeCommand,

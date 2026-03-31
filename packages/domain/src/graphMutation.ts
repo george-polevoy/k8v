@@ -394,6 +394,18 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
         version: ensureNodeVersion(node),
       }));
 
+    case 'node_set_custom':
+      return replaceNode(graph, command.nodeId, (node) => ({
+        ...node,
+        metadata: {
+          ...node.metadata,
+          custom: typeof structuredClone === 'function'
+            ? structuredClone(command.custom)
+            : JSON.parse(JSON.stringify(command.custom)) as typeof command.custom,
+        },
+        version: ensureNodeVersion(node),
+      }));
+
     case 'node_set_code':
       return replaceNode(graph, command.nodeId, (node) => {
         if (node.type !== 'inline_code') {

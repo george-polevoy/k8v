@@ -33,6 +33,7 @@ function buildMcpOverviewText(): string {
     '- `graph_create` is the only non-bulk exception and creates an empty graph only.',
     '- `bulk_edit` is the only graph mutation tool and accepts ordered `GraphCommand[]`.',
     '- Pass `bulk_edit.commands` as structured MCP objects in the tool arguments; do not stringify each command as JSON text.',
+    '- Use `node_set_custom` for granular updates to an existing node\'s `metadata.custom` dictionary instead of replacing the whole node.',
     '- `algo_injection_run` invokes a wasm module transiently from an absolute filesystem path accessible to the backend host.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
     '- `connections_list` is for filtered connection inspection.',
