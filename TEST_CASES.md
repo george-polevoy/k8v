@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: March 30, 2026.
+Last reviewed: April 1, 2026.
 
 ## Coverage Legend
 
@@ -14,6 +14,7 @@ Last reviewed: March 30, 2026.
 - `A-E2E-01` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag maintains `ew-resize` cursor and persists dragged value.
 - `A-E2E-31` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag can either hold persisted value until release or propagate mid-drag when the numeric input toggle is enabled.
 - `A-E2E-32` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` live slider propagation respects the configured debounce interval before persisting mid-drag updates.
+- `A-E2E-33` `packages/frontend/tests/e2e/canvasTextOutputOverlay.test.ts`: per-node canvas text-output overlays render only for non-empty output, support capped versus scrollable multiline display, hide immediately when disabled, and still render whitespace-only output.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: the right sidebar icon rail switches sections and clicking the active icon collapses/reopens the wide content pane.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node preserves the current sidebar section instead of auto-switching to Node.
@@ -238,6 +239,7 @@ Last reviewed: March 30, 2026.
 - `M-CANVAS-29`: Empty-canvas drag marquee-selects nodes and does not pan the viewport when `Space` is not held.
 - `M-CANVAS-30`: Multi-selected nodes can be `Ctrl`-toggled/additively marquee-selected, moved/resized together, and deleted together.
 - `M-CANVAS-31`: `Alt`-dragging a selected node set leaves the originals in place, drags duplicated nodes, and preserves internal links between the duplicated nodes.
+- `M-CANVAS-32`: Enabling `Display Text Outputs` on a node renders non-empty text output beneath the card as a synced `<pre>` overlay, respects max-line cap versus scroll mode, and renders whitespace-only output while still skipping empty strings.
 - `M-PANEL-01`: Edit node display name and verify card title updates.
 - `M-PANEL-02`: Add input port and verify rendered connector/label.
 - `M-PANEL-03`: Rename input port and verify inbound connection target port updates.
@@ -328,6 +330,7 @@ Last reviewed: March 30, 2026.
 | Dragging a new edge onto an occupied input rewires that slot instead of persisting duplicate inbound edges | `A-E2E-26`, `A-FE-36`, `A-FE-37` | Automated + Manual |
 | Frontend cycle-prevention during connection creation | `M-CANVAS-09` | Manual |
 | Canvas projects `python_process` graphics outputs below node cards (no in-card frame/padding) | `A-FE-12`, `A-FE-13`, `A-FE-14`, `M-CANVAS-20` | Automated + Manual |
+| Canvas text outputs can render beneath node cards as synced HTML `<pre>` overlays with cap/scroll controls | `A-E2E-33`, `M-CANVAS-32` | Automated + Manual |
 | Graphics mip selection favors sharper levels for a given viewport budget | `A-E2E-09` | Automated |
 | Canvas `numeric_input` nodes render interactive in-card slider controls | `A-E2E-01`, `A-E2E-31`, `A-E2E-32`, `M-CANVAS-21` | Automated + Manual |
 | Canvas node cards support shared all-side drag-resize with persisted dimensions | `A-E2E-05`, `A-FE-23`, `M-CANVAS-22` | Automated + Manual |
@@ -358,6 +361,7 @@ Last reviewed: March 30, 2026.
 | Multi-selected annotation cards support shared font color and font-size edits in the node panel | `A-E2E-22` | Automated |
 | Input rename/delete propagation to connections | `M-PANEL-03`, `M-PANEL-05` | Manual |
 | Toggle auto-recompute per node | `M-PANEL-06` | Manual |
+| Per-node canvas text-output display controls (`Display Text Outputs`, max lines, cap/scroll overflow) | `A-E2E-33`, `M-CANVAS-32` | Automated + Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
 | Per-node execution state in store | `A-FE-06`, `A-FE-07`, `A-BE-48`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
 | Frontend runtime-state polling slows to an idle cadence and ignores unchanged backend snapshots | `A-FE-42`, `A-FE-43` | Automated |

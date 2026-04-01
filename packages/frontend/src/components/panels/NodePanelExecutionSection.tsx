@@ -1,16 +1,25 @@
 import type { NodeExecutionState, NodeGraphicsComputationDebug } from '../../store/graphStore';
 import type { GraphNode } from '../../types';
+import type { TextOutputOverflowMode } from '../../utils/textOutputDisplay';
 import { sectionCardStyle } from './panelSectionStyles';
 
 interface NodePanelExecutionSectionProps {
   selectedNode: GraphNode;
   autoRecomputeEnabled: boolean;
+  textOutputDisplayEnabled: boolean;
+  textOutputMaxLines: string;
+  textOutputOverflowMode: TextOutputOverflowMode;
   statusLightColor: string;
   nodeExecutionState: NodeExecutionState | null;
   selectedNodeGraphicsDebug: NodeGraphicsComputationDebug | null;
   isGraphicsDebugExpanded: boolean;
   setIsGraphicsDebugExpanded: (updater: (value: boolean) => boolean) => void;
   onSetAutoRecompute: (enabled: boolean) => void;
+  onSetDisplayTextOutputs: (enabled: boolean) => void;
+  onTextOutputMaxLinesChange: (value: string) => void;
+  onCommitTextOutputMaxLines: (value?: string) => void;
+  onResetTextOutputMaxLines: () => void;
+  onSetTextOutputOverflowMode: (mode: TextOutputOverflowMode) => void;
   onRunSelectedNode: () => void | Promise<void>;
   formatDebugMetricValue: (value: number | null, maxFractionDigits?: number) => string;
   formatDebugPixelList: (values: number[]) => string;
@@ -19,12 +28,20 @@ interface NodePanelExecutionSectionProps {
 function NodePanelExecutionSection({
   selectedNode,
   autoRecomputeEnabled,
+  textOutputDisplayEnabled,
+  textOutputMaxLines,
+  textOutputOverflowMode,
   statusLightColor,
   nodeExecutionState,
   selectedNodeGraphicsDebug,
   isGraphicsDebugExpanded,
   setIsGraphicsDebugExpanded,
   onSetAutoRecompute,
+  onSetDisplayTextOutputs,
+  onTextOutputMaxLinesChange,
+  onCommitTextOutputMaxLines,
+  onResetTextOutputMaxLines,
+  onSetTextOutputOverflowMode,
   onRunSelectedNode,
   formatDebugMetricValue,
   formatDebugPixelList,
@@ -51,6 +68,82 @@ function NodePanelExecutionSection({
         />
         Auto recompute when upstream changes
       </label>
+      <div
+        style={{
+          marginTop: '10px',
+          padding: '8px',
+          borderRadius: '4px',
+          border: '1px solid #dbe4ef',
+          background: '#f8fafc',
+        }}
+      >
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+          <input
+            data-testid="display-text-outputs-toggle"
+            type="checkbox"
+            checked={textOutputDisplayEnabled}
+            onChange={(event) => onSetDisplayTextOutputs(event.target.checked)}
+          />
+          Display Text Outputs
+        </label>
+        {textOutputDisplayEnabled && (
+          <div style={{ marginTop: '8px', paddingLeft: '24px', display: 'grid', gap: '8px' }}>
+            <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+              <span>Max lines displayed</span>
+              <input
+                data-testid="text-output-max-lines-input"
+                type="number"
+                min={1}
+                max={200}
+                step={1}
+                value={textOutputMaxLines}
+                onChange={(event) => onTextOutputMaxLinesChange(event.target.value)}
+                onBlur={(event) => onCommitTextOutputMaxLines(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    onCommitTextOutputMaxLines(event.currentTarget.value);
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === 'Escape') {
+                    onResetTextOutputMaxLines();
+                    event.currentTarget.blur();
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  boxSizing: 'border-box',
+                  fontSize: '12px',
+                }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+              <span>Overflow mode</span>
+              <select
+                data-testid="text-output-overflow-mode-select"
+                value={textOutputOverflowMode}
+                onChange={(event) =>
+                  onSetTextOutputOverflowMode(event.target.value === 'scroll' ? 'scroll' : 'cap')
+                }
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  boxSizing: 'border-box',
+                  fontSize: '12px',
+                  background: '#ffffff',
+                }}
+              >
+                <option value="cap">Cap</option>
+                <option value="scroll">Scroll</option>
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
       {nodeExecutionState?.hasError && nodeExecutionState.errorMessage && (
         <div
           data-testid="node-execution-error"
@@ -156,4 +249,3 @@ function NodePanelExecutionSection({
 }
 
 export default NodePanelExecutionSection;
-

@@ -66,6 +66,7 @@ interface NodeCardSizeDraft {
 interface NodeVisualLike {
   width: number;
   height: number;
+  projectedTextOutputHeight: number;
   projectedGraphicsHeight: number;
 }
 
@@ -226,7 +227,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
         const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
         const nodeWidth = visual?.width ?? dimensions.width;
         const nodeHeight = visual
-          ? visual.height + visual.projectedGraphicsHeight
+          ? visual.height + visual.projectedTextOutputHeight + visual.projectedGraphicsHeight
           : dimensions.height;
 
         minX = Math.min(minX, position.x);
@@ -299,7 +300,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
         const dimensions = resolveNodeCardDimensions(node, nodeCardDraftSizesRef.current.get(node.id));
         const nodeWidth = visual?.width ?? dimensions.width;
         const nodeHeight = visual
-          ? visual.height + visual.projectedGraphicsHeight
+          ? visual.height + visual.projectedTextOutputHeight + visual.projectedGraphicsHeight
           : dimensions.height;
 
         const x = offsetX + (position.x - minX) * scale;
@@ -437,7 +438,7 @@ export function useCanvasViewport(params: UseCanvasViewportParams) {
         y: position.y,
         width: visual.width,
         height: visual.height,
-        projectedGraphicsHeight: visual.projectedGraphicsHeight,
+        projectedOutputHeight: visual.projectedTextOutputHeight + visual.projectedGraphicsHeight,
       }];
     });
     const drawingBounds = (currentGraph.drawings ?? []).map((drawing) => ({

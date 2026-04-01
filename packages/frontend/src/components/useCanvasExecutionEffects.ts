@@ -12,6 +12,7 @@ const FALLBACK_NODE_EXECUTION_STATE: NodeExecutionState = {
 
 interface UseCanvasExecutionEffectsParams {
   nodeExecutionStates: Record<string, NodeExecutionState>;
+  nodeResults: Record<string, unknown>;
   nodeGraphicsOutputs: Record<string, unknown>;
   previousNodeExecutionStatesRef: MutableRefObject<Record<string, NodeExecutionState>>;
   renderGraphRef: MutableRefObject<() => void>;
@@ -21,6 +22,7 @@ interface UseCanvasExecutionEffectsParams {
 
 export function useCanvasExecutionEffects({
   nodeExecutionStates,
+  nodeResults,
   nodeGraphicsOutputs,
   previousNodeExecutionStatesRef,
   renderGraphRef,
@@ -52,6 +54,11 @@ export function useCanvasExecutionEffects({
     previousNodeExecutionStatesRef,
     renderGraphRef,
   ]);
+
+  useEffect(() => {
+    void nodeResults;
+    renderGraphRef.current();
+  }, [nodeResults, renderGraphRef]);
 
   useEffect(() => {
     void nodeGraphicsOutputs;

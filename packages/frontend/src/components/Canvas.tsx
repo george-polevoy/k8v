@@ -95,6 +95,8 @@ import {
   NUMERIC_SLIDER_Y_OFFSET,
   PIXEL_RATIO,
   PORT_RADIUS,
+  TEXT_OUTPUT_OVERLAY_LINE_HEIGHT_PX,
+  TEXT_OUTPUT_OVERLAY_PADDING_Y,
   VIEWPORT_GRAPHICS_SETTLE_MS,
   VIEWPORT_INTERACTION_SETTLE_MS,
 } from './canvasConstants';
@@ -123,7 +125,9 @@ import {
   type SelectionDragState,
   type SelectionMarqueeState,
   type SelectionResizeState,
+  type TextOutputOverlayEntry,
   areAnnotationOverlaysEqual,
+  areTextOutputOverlaysEqual,
   areNodeGraphicsDebugValuesEqual,
   blendPixiColors,
   drawInputPortMarker,
@@ -157,6 +161,11 @@ import {
   hasErroredNodeExecutionState,
   shouldKeepCanvasAnimationLoopRunning,
 } from '../utils/canvasAnimation';
+import {
+  countTextOutputLines,
+  normalizeTextOutputDisplayConfig,
+  truncateTextOutputToMaxLines,
+} from '../utils/textOutputDisplay';
 
 declare global {
   interface Window {
@@ -181,6 +190,7 @@ function Canvas({
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
   const selectedDrawingId = useGraphStore((state) => state.selectedDrawingId);
   const nodeExecutionStates = useGraphStore((state) => state.nodeExecutionStates);
+  const nodeResults = useGraphStore((state) => state.nodeResults);
   const nodeGraphicsOutputs = useGraphStore((state) => state.nodeGraphicsOutputs);
   const selectNode = useGraphStore((state) => state.selectNode);
   const setNodeSelection = useGraphStore((state) => state.setNodeSelection);
@@ -250,6 +260,7 @@ function Canvas({
   const drawingColorRef = useRef(drawingColor);
   const drawingThicknessRef = useRef(drawingThickness);
   const previousNodeExecutionStatesRef = useRef<Record<string, NodeExecutionState>>({});
+  const nodeResultsRef = useRef(nodeResults);
   const nodeGraphicsOutputsRef = useRef(nodeGraphicsOutputs);
   const nodeGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
   const nodePendingGraphicsTextureBindingsRef = useRef<Map<string, string>>(new Map());
@@ -277,6 +288,7 @@ function Canvas({
   const viewportInitializedRef = useRef(false);
   const handledDrawingCreateRequestRef = useRef(0);
   const annotationOverlaysRef = useRef<AnnotationOverlayEntry[]>([]);
+  const textOutputOverlaysRef = useRef<TextOutputOverlayEntry[]>([]);
   const annotationOverlayTransformRef = useRef<AnnotationOverlayTransform>({ x: 0, y: 0, scale: 1 });
   const annotationOverlayViewportRef = useRef<HTMLDivElement | null>(null);
   const viewportSyncRafRef = useRef<number | null>(null);
@@ -300,11 +312,13 @@ function Canvas({
   const updateTextResolutionForScaleRef = useRef<(scale: number) => void>(() => {});
   const [canvasReady, setCanvasReady] = useState(false);
   const [annotationOverlays, setAnnotationOverlays] = useState<AnnotationOverlayEntry[]>([]);
+  const [textOutputOverlays, setTextOutputOverlays] = useState<TextOutputOverlayEntry[]>([]);
   selectedCameraIdRef.current = selectedCameraId;
   selectedNodeIdRef.current = selectedNodeId;
   selectedNodeIdsRef.current = selectedNodeIds;
   selectedDrawingIdRef.current = selectedDrawingId;
   nodeExecutionStatesRef.current = nodeExecutionStates;
+  nodeResultsRef.current = nodeResults;
   nodeGraphicsOutputsRef.current = nodeGraphicsOutputs;
   graphRef.current = graph;
   drawingEnabledRef.current = drawingEnabled;
@@ -994,6 +1008,10 @@ function Canvas({
         annotationOverlaysRef.current = [];
         setAnnotationOverlays([]);
       }
+      if (textOutputOverlaysRef.current.length > 0) {
+        textOutputOverlaysRef.current = [];
+        setTextOutputOverlays([]);
+      }
       clearAllNodeGraphicsTextures();
       if (selectedNodeGraphicsDebugRef.current !== null) {
         selectedNodeGraphicsDebugRef.current = null;
@@ -1036,6 +1054,7 @@ function Canvas({
     const activeNodeGraphicsTextureIds = new Set<string>();
     let selectedNodeGraphicsDebugNext: NodeGraphicsComputationDebug | null = null;
     const nextAnnotationOverlays: AnnotationOverlayEntry[] = [];
+    const nextTextOutputOverlays: TextOutputOverlayEntry[] = [];
     const selectedNodeIdValue = selectedNodeIdRef.current;
     const selectedNodeIdSet = new Set(selectedNodeIdsRef.current);
     const activeNodeDragState = nodeDragStateRef.current;
@@ -1123,6 +1142,9 @@ function Canvas({
       const width = nodeFrame.width;
       const height = nodeFrame.height;
       const renderedPosition = nodeFrame.position;
+      const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
+      const rawTextOutput = nodeResultsRef.current[node.id]?.textOutput;
+      const shouldDisplayTextOutputs = nodeConfig.displayTextOutputs === true;
       const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
       const hasGraphicsOutput = Boolean(graphicsOutput);
       const shouldProjectGraphics = isRenderablePythonGraphicsOutput(node, graphicsOutput);
@@ -1148,6 +1170,31 @@ function Canvas({
       const shouldLoadProjectedGraphicsByViewport = graphicsProjectionPlan.shouldLoadProjectedGraphicsByViewport;
       const canReloadProjectedGraphics = graphicsProjectionPlan.canReloadProjectedGraphics;
       const shouldLoadProjectedGraphics = graphicsProjectionPlan.shouldLoadProjectedGraphics;
+      let projectedTextOutputHeight = 0;
+      if (
+        shouldDisplayTextOutputs &&
+        typeof rawTextOutput === 'string' &&
+        rawTextOutput.length > 0
+      ) {
+        const textOutputDisplayConfig = normalizeTextOutputDisplayConfig(nodeConfig);
+        const lineCount = countTextOutputLines(rawTextOutput);
+        const visibleLineCount = Math.max(1, Math.min(textOutputDisplayConfig.maxLines, lineCount));
+        const renderedText = textOutputDisplayConfig.overflowMode === 'cap'
+          ? truncateTextOutputToMaxLines(rawTextOutput, textOutputDisplayConfig.maxLines)
+          : rawTextOutput;
+        projectedTextOutputHeight =
+          (TEXT_OUTPUT_OVERLAY_PADDING_Y * 2) +
+          (visibleLineCount * TEXT_OUTPUT_OVERLAY_LINE_HEIGHT_PX);
+        nextTextOutputOverlays.push({
+          nodeId: node.id,
+          x: renderedPosition.x,
+          y: renderedPosition.y + height,
+          width,
+          height: projectedTextOutputHeight,
+          text: renderedText,
+          scrollable: textOutputDisplayConfig.overflowMode === 'scroll',
+        });
+      }
       if (node.type === NodeType.ANNOTATION) {
         const annotationConfig = normalizeAnnotationConfig(
           node.config.config as Record<string, unknown> | undefined
@@ -1242,6 +1289,7 @@ function Canvas({
         Boolean(projectedGraphicsTexture) ||
         (shouldLoadProjectedGraphics && Boolean(graphicsOutput))
       );
+      const hasProjectedFooterOutput = hasProjectedGraphics || projectedTextOutputHeight > 0;
       const nodeCardAppearance = resolveNodeCardAppearance(node);
       const nodeCardBackground = colorStringToPixi(
         nodeCardAppearance.backgroundColor,
@@ -1270,7 +1318,7 @@ function Canvas({
           : isSelected
             ? blendPixiColors(nodeCardBackground.color, 0xe2e8f0, 0.38)
             : nodeCardBackground.color,
-        hasProjectedGraphics,
+        hasProjectedFooterOutput,
         annotationConfig
           ? nodeCardBorder.alpha
           : isSelected
@@ -1796,7 +1844,7 @@ function Canvas({
           imageSprite.eventMode = 'none';
           const scale = width / resolvedTextureWidth;
           imageSprite.scale.set(scale);
-          imageSprite.position.set(0, height);
+          imageSprite.position.set(0, height + projectedTextOutputHeight);
           container.addChild(imageSprite);
         }
       }
@@ -1923,6 +1971,7 @@ function Canvas({
         container,
         width,
         height,
+        projectedTextOutputHeight,
         projectedGraphicsHeight,
         inputPortOffsets,
         outputPortOffsets,
@@ -1932,6 +1981,7 @@ function Canvas({
         container,
         width,
         height,
+        projectedTextOutputHeight,
         projectedGraphicsHeight,
         inputPortOffsets,
         outputPortOffsets,
@@ -2150,6 +2200,10 @@ function Canvas({
       annotationOverlaysRef.current = nextAnnotationOverlays;
       setAnnotationOverlays(nextAnnotationOverlays);
     }
+    if (!areTextOutputOverlaysEqual(textOutputOverlaysRef.current, nextTextOutputOverlays)) {
+      textOutputOverlaysRef.current = nextTextOutputOverlays;
+      setTextOutputOverlays(nextTextOutputOverlays);
+    }
 
     drawConnections();
     drawFreehandStrokes();
@@ -2279,6 +2333,7 @@ function Canvas({
 
   useCanvasExecutionEffects({
     nodeExecutionStates,
+    nodeResults,
     nodeGraphicsOutputs,
     previousNodeExecutionStatesRef,
     renderGraphRef,
@@ -2295,6 +2350,7 @@ function Canvas({
       canvasHostRef={canvasHostRef}
       minimapCanvasRef={minimapCanvasRef}
       annotationOverlays={annotationOverlays}
+      textOutputOverlays={textOutputOverlays}
       annotationOverlayViewportRef={annotationOverlayViewportRef}
       handleMinimapPointerDown={handleMinimapPointerDown}
       overlay={overlay}

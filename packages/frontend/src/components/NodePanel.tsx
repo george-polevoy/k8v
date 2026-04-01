@@ -33,6 +33,11 @@ import {
   normalizeAnnotationDraft,
   normalizeAnnotationFontSize,
 } from '../utils/annotation';
+import {
+  type TextOutputOverflowMode,
+  normalizeTextOutputDisplayConfig,
+  normalizeTextOutputMaxLines,
+} from '../utils/textOutputDisplay';
 
 const PORT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -55,6 +60,21 @@ function createNumericInputDraft(config?: unknown): NumericInputDraft {
     step: String(normalized.step),
     propagateWhileDragging: normalized.propagateWhileDragging,
     dragDebounceSeconds: String(normalized.dragDebounceSeconds),
+  };
+}
+
+interface TextOutputDisplayDraft {
+  maxLines: string;
+  overflowMode: TextOutputOverflowMode;
+}
+
+function createTextOutputDisplayDraft(config?: unknown): TextOutputDisplayDraft {
+  const normalized = normalizeTextOutputDisplayConfig(
+    config as Record<string, unknown> | undefined
+  );
+  return {
+    maxLines: String(normalized.maxLines),
+    overflowMode: normalized.overflowMode,
   };
 }
 
@@ -201,6 +221,9 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const [cardColorDialogTarget, setCardColorDialogTarget] = useState<CardColorTarget | null>(null);
   const [numericDraft, setNumericDraft] = useState<NumericInputDraft>(() => createNumericInputDraft());
   const [annotationDraft, setAnnotationDraft] = useState<AnnotationDraft>(() => createAnnotationDraft());
+  const [textOutputDisplayDraft, setTextOutputDisplayDraft] = useState<TextOutputDisplayDraft>(
+    () => createTextOutputDisplayDraft()
+  );
   const [annotationColorDialogTarget, setAnnotationColorDialogTarget] = useState<AnnotationColorTarget | null>(null);
   const [drawingNameValue, setDrawingNameValue] = useState('');
   const [inputDraftNames, setInputDraftNames] = useState<string[]>([]);
@@ -256,6 +279,14 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       setAnnotationDraft(createAnnotationDraft(
         selectedNode.config.config as Record<string, unknown> | undefined
       ));
+    }
+
+    if (selectedNode) {
+      setTextOutputDisplayDraft(createTextOutputDisplayDraft(
+        selectedNode.config.config as Record<string, unknown> | undefined
+      ));
+    } else {
+      setTextOutputDisplayDraft(createTextOutputDisplayDraft());
     }
 
     setInputValidationError(null);
@@ -428,6 +459,90 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         config: {
           ...(selectedNode.config.config || {}),
           autoRecompute: enabled,
+        },
+      },
+    });
+  }, [selectedNode, updateNode]);
+
+  const setDisplayTextOutputs = useCallback((enabled: boolean) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    const current = normalizeTextOutputDisplayConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    if (current.displayTextOutputs === enabled) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config || {}),
+          displayTextOutputs: enabled,
+        },
+      },
+    });
+  }, [selectedNode, updateNode]);
+
+  const commitTextOutputMaxLines = useCallback((overrideValue?: string) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    const current = normalizeTextOutputDisplayConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    const nextMaxLines = normalizeTextOutputMaxLines(
+      overrideValue ?? textOutputDisplayDraft.maxLines,
+      current.maxLines
+    );
+
+    setTextOutputDisplayDraft((draft) => ({
+      ...draft,
+      maxLines: String(nextMaxLines),
+    }));
+
+    if (nextMaxLines === current.maxLines) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config || {}),
+          textOutputMaxLines: nextMaxLines,
+        },
+      },
+    });
+  }, [selectedNode, textOutputDisplayDraft.maxLines, updateNode]);
+
+  const setTextOutputOverflowMode = useCallback((mode: TextOutputOverflowMode) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    setTextOutputDisplayDraft((draft) => ({
+      ...draft,
+      overflowMode: mode,
+    }));
+
+    const current = normalizeTextOutputDisplayConfig(
+      selectedNode.config.config as Record<string, unknown> | undefined
+    );
+    if (current.overflowMode === mode) {
+      return;
+    }
+
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        config: {
+          ...(selectedNode.config.config || {}),
+          textOutputOverflowMode: mode,
         },
       },
     });
@@ -753,6 +868,9 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   };
 
   const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
+  const textOutputDisplayConfig = normalizeTextOutputDisplayConfig(
+    selectedNode?.config.config as Record<string, unknown> | undefined
+  );
   const isNumericInputNode = selectedNode?.config.type === NodeType.NUMERIC_INPUT;
   const isAnnotationNode = selectedNode?.config.type === NodeType.ANNOTATION;
   const selectedNodeAppearances = selectedNodes.map((node) => resolveNodeCardAppearance(node));
@@ -1121,12 +1239,29 @@ function NodePanel({ embedded = false }: NodePanelProps) {
             <NodePanelExecutionSection
               selectedNode={selectedNode}
               autoRecomputeEnabled={autoRecomputeEnabled}
+              textOutputDisplayEnabled={textOutputDisplayConfig.displayTextOutputs}
+              textOutputMaxLines={textOutputDisplayDraft.maxLines}
+              textOutputOverflowMode={textOutputDisplayDraft.overflowMode}
               statusLightColor={statusLightColor}
               nodeExecutionState={nodeExecutionState}
               selectedNodeGraphicsDebug={selectedNodeGraphicsDebug}
               isGraphicsDebugExpanded={isGraphicsDebugExpanded}
               setIsGraphicsDebugExpanded={setIsGraphicsDebugExpanded}
               onSetAutoRecompute={setAutoRecompute}
+              onSetDisplayTextOutputs={setDisplayTextOutputs}
+              onTextOutputMaxLinesChange={(value) => {
+                setTextOutputDisplayDraft((draft) => ({
+                  ...draft,
+                  maxLines: value,
+                }));
+              }}
+              onCommitTextOutputMaxLines={commitTextOutputMaxLines}
+              onResetTextOutputMaxLines={() => {
+                setTextOutputDisplayDraft(createTextOutputDisplayDraft(
+                  selectedNode.config.config as Record<string, unknown> | undefined
+                ));
+              }}
+              onSetTextOutputOverflowMode={setTextOutputOverflowMode}
               onRunSelectedNode={() => computeNode(selectedNode.id)}
               formatDebugMetricValue={formatDebugMetricValue}
               formatDebugPixelList={formatDebugPixelList}

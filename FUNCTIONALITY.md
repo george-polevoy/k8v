@@ -1,6 +1,6 @@
 # k8v Functionality Inventory
 
-This file tracks what is currently implemented in the codebase as of March 30, 2026.
+This file tracks what is currently implemented in the codebase as of April 1, 2026.
 Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Graph Lifecycle
@@ -63,6 +63,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Non-annotation input slots are single-inbound; dragging a new edge onto an occupied input rewires that slot instead of storing duplicate inbound edges.
 - Frontend cycle-prevention during connection creation.
 - `python_process` nodes project latest graphics outputs directly on canvas beneath the node card.
+- Non-annotation nodes can optionally render non-empty text outputs on canvas beneath the node card as synchronized HTML `<pre>` overlays, with per-node max-line and cap/scroll controls.
 - Graphics mip-level selection is quality-biased: UI requests use a 2x pixel-budget multiplier before choosing the nearest stored mip level.
 - `numeric_input` nodes render an in-card slider on canvas for direct value adjustment.
 - Node cards can be resized directly on canvas via shared all-side drag handles (north/south/east/west + corners); resized width/height persists per node with minimum-size guards and no fixed maximum cap.
@@ -114,6 +115,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
   - configure live-drag debounce in seconds for propagated slider updates
 - Input rename/delete propagates to connections targeting that input.
 - Toggle auto-recompute per node.
+- Per-node text-output display controls: toggle canvas text overlays, set max visible lines, and choose capped versus scrollable overflow.
 - Run selected node manually.
 - Edit selected drawing name and delete selected drawing from node panel.
 - Node panel shows selected-node graphics budget debug values (`maxPixels` inputs/selection) for projected graphics troubleshooting.
@@ -141,6 +143,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Backend invalidates target-node compute cache on inbound connection topology changes by bumping affected node versions on graph command mutations.
 - Persist outputs, inferred schema, text output, and graphics output.
 - Output panel shows text and graphics result for selected node.
+- When enabled per node, non-empty text output (including whitespace-only output) renders on canvas as an attached HTML `<pre>` overlay; empty-string output renders nothing.
 - Canvas renders `python_process` node image outputs as raw projections below the card (no in-card frame/padding).
 - Output refresh retries after compute to account for persistence lag.
 

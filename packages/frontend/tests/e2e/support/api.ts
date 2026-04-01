@@ -69,6 +69,9 @@ interface InlineNodePayload {
       autoRecompute?: boolean;
       cardWidth?: number;
       cardHeight?: number;
+      displayTextOutputs?: boolean;
+      textOutputMaxLines?: number;
+      textOutputOverflowMode?: 'cap' | 'scroll';
     };
   };
   version: string;
@@ -509,6 +512,9 @@ export async function createInlineCodeGraph(options?: {
   cardHeight?: number;
   inputNames?: string[];
   outputNames?: string[];
+  displayTextOutputs?: boolean;
+  textOutputMaxLines?: number;
+  textOutputOverflowMode?: 'cap' | 'scroll';
 }): Promise<{ graphId: string; nodeId: string }> {
   const nodeId = randomUUID();
   const inputNames = options?.inputNames?.length ? options.inputNames : ['input'];
@@ -516,6 +522,11 @@ export async function createInlineCodeGraph(options?: {
   const sizeConfig = {
     ...(typeof options?.cardWidth === 'number' ? { cardWidth: options.cardWidth } : {}),
     ...(typeof options?.cardHeight === 'number' ? { cardHeight: options.cardHeight } : {}),
+    ...(options?.displayTextOutputs === true ? { displayTextOutputs: true } : {}),
+    ...(typeof options?.textOutputMaxLines === 'number'
+      ? { textOutputMaxLines: options.textOutputMaxLines }
+      : {}),
+    ...(options?.textOutputOverflowMode ? { textOutputOverflowMode: options.textOutputOverflowMode } : {}),
   };
   const node: InlineNodePayload = {
     id: nodeId,

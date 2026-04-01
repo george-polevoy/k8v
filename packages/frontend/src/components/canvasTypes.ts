@@ -12,6 +12,7 @@ export interface NodeVisual {
   container: Container;
   width: number;
   height: number;
+  projectedTextOutputHeight: number;
   projectedGraphicsHeight: number;
   inputPortOffsets: Map<string, number>;
   outputPortOffsets: Map<string, number>;
@@ -117,6 +118,16 @@ export interface AnnotationOverlayEntry {
   backgroundColor: string;
   fontColor: string;
   fontSize: number;
+}
+
+export interface TextOutputOverlayEntry {
+  nodeId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  scrollable: boolean;
 }
 
 export interface AnnotationOverlayTransform {

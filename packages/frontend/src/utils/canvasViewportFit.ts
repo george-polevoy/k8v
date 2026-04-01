@@ -7,7 +7,7 @@ export interface ViewportFitNodeBounds {
   y: number;
   width: number;
   height: number;
-  projectedGraphicsHeight: number;
+  projectedOutputHeight: number;
 }
 
 export interface ViewportFitDrawingPath {
@@ -47,7 +47,7 @@ export function resolveGraphWorldBounds(
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + node.width);
-    maxY = Math.max(maxY, node.y + node.height + node.projectedGraphicsHeight);
+    maxY = Math.max(maxY, node.y + node.height + node.projectedOutputHeight);
   }
 
   for (const drawing of drawings) {

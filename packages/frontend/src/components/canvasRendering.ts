@@ -29,6 +29,7 @@ import {
   type AnnotationOverlayEntry,
   type NodeCardDimensions,
   type NumericSliderVisual,
+  type TextOutputOverlayEntry,
 } from './canvasTypes';
 import { getBezierGeometry } from './canvasGeometry';
 
@@ -164,6 +165,33 @@ export function areAnnotationOverlaysEqual(
       leftItem.backgroundColor !== rightItem.backgroundColor ||
       leftItem.fontColor !== rightItem.fontColor ||
       leftItem.fontSize !== rightItem.fontSize
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function areTextOutputOverlaysEqual(
+  left: TextOutputOverlayEntry[],
+  right: TextOutputOverlayEntry[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+    if (
+      leftItem.nodeId !== rightItem.nodeId ||
+      leftItem.x !== rightItem.x ||
+      leftItem.y !== rightItem.y ||
+      leftItem.width !== rightItem.width ||
+      leftItem.height !== rightItem.height ||
+      leftItem.text !== rightItem.text ||
+      leftItem.scrollable !== rightItem.scrollable
     ) {
       return false;
     }

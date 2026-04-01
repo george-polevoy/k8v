@@ -17,7 +17,7 @@ test('resolveGraphWorldBounds includes node projected graphics and drawing path 
         y: 200,
         width: 120,
         height: 80,
-        projectedGraphicsHeight: 60,
+        projectedOutputHeight: 60,
       },
     ],
     [

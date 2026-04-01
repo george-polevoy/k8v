@@ -10,6 +10,8 @@ k8v now includes comprehensive output visualization for each node. When you run 
 - Captures all `print()` and `log()` statements from node execution
 - Displays errors and exceptions
 - Shows in a collapsible panel with monospace font
+- Can optionally render non-empty node text output directly on canvas as an attached HTML `<pre>` overlay
+- Per-node canvas controls let you toggle text overlays, cap visible lines, or keep a scrollable multiline view
 - Dark theme for better readability
 
 ### Graphics Output
@@ -29,7 +31,9 @@ k8v now includes comprehensive output visualization for each node. When you run 
 3. **View outputs** in the Output Panel on the right side:
    - Text Output: Shows all printed text and errors
    - Graphics Output: Uses the graphics id + metadata and requests an appropriate mip level by pixel budget
-4. For `python_process` nodes with graphics output, the latest image is projected on canvas directly below that node card.
+4. In the node panel, enable **Display Text Outputs** if you want non-empty text output rendered on canvas for that node.
+5. For nodes with canvas output enabled, text is rendered below the node card as a synchronized HTML `<pre>` overlay.
+6. For `python_process` nodes with graphics output, the latest image is projected on canvas directly below that node card (or below the text overlay if one is visible).
 
 ## Code Examples
 

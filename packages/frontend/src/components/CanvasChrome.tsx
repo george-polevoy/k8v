@@ -1,5 +1,11 @@
 import { Suspense, lazy, type PointerEventHandler, type ReactNode, type RefObject } from 'react';
-import type { AnnotationOverlayEntry } from './canvasTypes';
+import {
+  TEXT_OUTPUT_OVERLAY_FONT_SIZE,
+  TEXT_OUTPUT_OVERLAY_LINE_HEIGHT_PX,
+  TEXT_OUTPUT_OVERLAY_PADDING_X,
+  TEXT_OUTPUT_OVERLAY_PADDING_Y,
+} from './canvasConstants';
+import type { AnnotationOverlayEntry, TextOutputOverlayEntry } from './canvasTypes';
 
 const AnnotationMarkdown = lazy(() => import('./AnnotationMarkdown'));
 
@@ -7,6 +13,7 @@ interface CanvasChromeProps {
   canvasHostRef: RefObject<HTMLDivElement>;
   minimapCanvasRef: RefObject<HTMLCanvasElement>;
   annotationOverlays: AnnotationOverlayEntry[];
+  textOutputOverlays: TextOutputOverlayEntry[];
   annotationOverlayViewportRef: RefObject<HTMLDivElement>;
   handleMinimapPointerDown: PointerEventHandler<HTMLCanvasElement>;
   overlay: ReactNode;
@@ -18,6 +25,7 @@ export function CanvasChrome({
   canvasHostRef,
   minimapCanvasRef,
   annotationOverlays,
+  textOutputOverlays,
   annotationOverlayViewportRef,
   handleMinimapPointerDown,
   overlay,
@@ -85,6 +93,44 @@ export function CanvasChrome({
                   fontSize={overlayEntry.fontSize}
                 />
               </Suspense>
+            </div>
+          ))}
+          {textOutputOverlays.map((overlayEntry) => (
+            <div
+              key={overlayEntry.nodeId}
+              data-testid={`text-output-overlay-${overlayEntry.nodeId}`}
+              style={{
+                position: 'absolute',
+                left: `${overlayEntry.x}px`,
+                top: `${overlayEntry.y}px`,
+                width: `${overlayEntry.width}px`,
+                height: `${overlayEntry.height}px`,
+                overflow: overlayEntry.scrollable ? 'auto' : 'hidden',
+                pointerEvents: overlayEntry.scrollable ? 'auto' : 'none',
+                boxSizing: 'border-box',
+                border: '1px solid rgba(148, 163, 184, 0.28)',
+                borderTop: 'none',
+                borderRadius: '0 0 8px 8px',
+                background: 'rgba(15, 23, 42, 0.94)',
+                boxShadow: '0 12px 28px rgba(15, 23, 42, 0.28)',
+              }}
+            >
+              <pre
+                style={{
+                  margin: 0,
+                  minHeight: '100%',
+                  boxSizing: 'border-box',
+                  padding: `${TEXT_OUTPUT_OVERLAY_PADDING_Y}px ${TEXT_OUTPUT_OVERLAY_PADDING_X}px`,
+                  color: '#e2e8f0',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                  fontSize: `${TEXT_OUTPUT_OVERLAY_FONT_SIZE}px`,
+                  lineHeight: `${TEXT_OUTPUT_OVERLAY_LINE_HEIGHT_PX}px`,
+                  whiteSpace: 'pre',
+                  pointerEvents: 'none',
+                }}
+              >
+                {overlayEntry.text}
+              </pre>
             </div>
           ))}
         </div>
