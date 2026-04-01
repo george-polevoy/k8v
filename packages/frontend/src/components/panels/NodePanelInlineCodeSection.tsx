@@ -1,7 +1,10 @@
+import { NodeType } from '../../types';
 import type { GraphNode, PythonEnvironment } from '../../types';
 
+type InlineCodeNode = Extract<GraphNode, { type: NodeType.INLINE_CODE }>;
+
 interface NodePanelInlineCodeSectionProps {
-  selectedNode: GraphNode;
+  selectedNode: InlineCodeNode;
   graphPythonEnvs: PythonEnvironment[];
   selectedPythonEnvExists: boolean;
   codeValue: string;
@@ -107,4 +110,3 @@ function NodePanelInlineCodeSection({
 }
 
 export default NodePanelInlineCodeSection;
-

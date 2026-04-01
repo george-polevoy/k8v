@@ -1,8 +1,12 @@
 import { NodeType } from './index.js';
 import type {
+  AnnotationGraphNode,
   Connection,
   GraphNode,
+  InlineCodeGraphNode,
   JsonValue,
+  NumericInputNodeConfig,
+  NumericInputGraphNode,
   PortDefinition,
 } from './index.js';
 
@@ -204,7 +208,7 @@ function cloneCustomMetadata(
   return JSON.parse(JSON.stringify(custom)) as Record<string, JsonValue>;
 }
 
-export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode {
+export function createInlineCodeNode(options: InlineCodeNodeOptions): InlineCodeGraphNode {
   const inputNames = options.inputNames && options.inputNames.length > 0
     ? options.inputNames
     : ['input'];
@@ -224,14 +228,11 @@ export function createInlineCodeNode(options: InlineCodeNodeOptions): GraphNode 
       custom: cloneCustomMetadata(options.custom),
     },
     config: {
-      type: NodeType.INLINE_CODE,
       code: options.code ?? 'outputs.output = inputs.input;',
       runtime: options.runtime ?? 'javascript_vm',
       ...(options.pythonEnv ? { pythonEnv: options.pythonEnv } : {}),
-      config: {
-        autoRecompute: options.autoRecompute ?? false,
-        ...resolveOptionalCardSizeConfig(options),
-      },
+      autoRecompute: options.autoRecompute ?? false,
+      ...resolveOptionalCardSizeConfig(options),
     },
     version: ensureNodeVersion({ id: nodeId }),
   };
@@ -278,13 +279,13 @@ function reconcileInlineOutputPorts(
 }
 
 export function updateInlineCodeNodeCode(
-  node: GraphNode,
+  node: InlineCodeGraphNode,
   code: string,
   connections: Connection[],
   outputNames?: string[],
   runtime?: string,
   pythonEnv?: string
-): GraphNode {
+): InlineCodeGraphNode {
   const existingByName = new Map(node.metadata.outputs.map((port) => [port.name, port]));
   const connectedOutputNames = new Set(
     connections
@@ -321,11 +322,9 @@ export function updateInlineCodeNodeCode(
   };
 
   const explicitOutputNames = resolveExplicitOutputNames();
-  const nextOutputs = node.type === 'inline_code'
-    ? explicitOutputNames
-      ? explicitOutputNames.map((name) => existingByName.get(name) ?? createObjectPortDefinition(name))
-      : reconcileInlineOutputPorts(node, code, connections)
-    : node.metadata.outputs;
+  const nextOutputs = explicitOutputNames
+    ? explicitOutputNames.map((name) => existingByName.get(name) ?? createObjectPortDefinition(name))
+    : reconcileInlineOutputPorts(node, code, connections);
   const outputNamesChanged =
     nextOutputs.length !== node.metadata.outputs.length ||
     nextOutputs.some((output, index) => output.name !== node.metadata.outputs[index]?.name);
@@ -379,7 +378,7 @@ export function normalizeAnnotationFontSize(
   return Math.min(MAX_ANNOTATION_FONT_SIZE, Math.max(MIN_ANNOTATION_FONT_SIZE, Math.round(parsed)));
 }
 
-export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode {
+export function createAnnotationNode(options: AnnotationNodeOptions): AnnotationGraphNode {
   const nodeId = options.nodeId?.trim() || createGeneratedId('node');
   const sizeConfig = resolveOptionalCardSizeConfig(options);
 
@@ -394,38 +393,35 @@ export function createAnnotationNode(options: AnnotationNodeOptions): GraphNode 
       custom: cloneCustomMetadata(options.custom),
     },
     config: {
-      type: NodeType.ANNOTATION,
-      config: {
-        text: options.text ?? DEFAULT_ANNOTATION_TEXT,
-        backgroundColor: normalizeAnnotationColor(
-          options.backgroundColor,
-          DEFAULT_ANNOTATION_BACKGROUND_COLOR
-        ),
-        borderColor: normalizeAnnotationColor(
-          options.borderColor,
-          DEFAULT_ANNOTATION_BORDER_COLOR
-        ),
-        fontColor: normalizeAnnotationColor(
-          options.fontColor,
-          DEFAULT_ANNOTATION_FONT_COLOR
-        ),
-        fontSize: normalizeAnnotationFontSize(options.fontSize),
-        cardWidth: sizeConfig.cardWidth ?? 320,
-        cardHeight: sizeConfig.cardHeight ?? 200,
-      },
+      text: options.text ?? DEFAULT_ANNOTATION_TEXT,
+      backgroundColor: normalizeAnnotationColor(
+        options.backgroundColor,
+        DEFAULT_ANNOTATION_BACKGROUND_COLOR
+      ),
+      borderColor: normalizeAnnotationColor(
+        options.borderColor,
+        DEFAULT_ANNOTATION_BORDER_COLOR
+      ),
+      fontColor: normalizeAnnotationColor(
+        options.fontColor,
+        DEFAULT_ANNOTATION_FONT_COLOR
+      ),
+      fontSize: normalizeAnnotationFontSize(options.fontSize),
+      cardWidth: sizeConfig.cardWidth ?? 320,
+      cardHeight: sizeConfig.cardHeight ?? 200,
     },
     version: ensureNodeVersion({ id: nodeId }),
   };
 }
 
 export function updateAnnotationNode(
-  node: GraphNode,
+  node: AnnotationGraphNode,
   updates: AnnotationConfigUpdates
-): GraphNode {
-  const currentConfig = (node.config.config ?? {}) as Record<string, unknown>;
+): AnnotationGraphNode {
+  const currentConfig = node.config;
   const nextText = updates.text !== undefined
     ? updates.text
-    : (typeof currentConfig.text === 'string' ? currentConfig.text : DEFAULT_ANNOTATION_TEXT);
+    : currentConfig.text;
   const nextBackgroundColor = updates.backgroundColor !== undefined
     ? normalizeAnnotationColor(updates.backgroundColor, DEFAULT_ANNOTATION_BACKGROUND_COLOR)
     : normalizeAnnotationColor(currentConfig.backgroundColor, DEFAULT_ANNOTATION_BACKGROUND_COLOR);
@@ -442,15 +438,12 @@ export function updateAnnotationNode(
   return {
     ...node,
     config: {
-      ...node.config,
-      config: {
-        ...currentConfig,
-        text: nextText,
-        backgroundColor: nextBackgroundColor,
-        borderColor: nextBorderColor,
-        fontColor: nextFontColor,
-        fontSize: nextFontSize,
-      },
+      ...currentConfig,
+      text: nextText,
+      backgroundColor: nextBackgroundColor,
+      borderColor: nextBorderColor,
+      fontColor: nextFontColor,
+      fontSize: nextFontSize,
     },
     version: ensureNodeVersion(node),
   };
@@ -488,7 +481,16 @@ export function snapNumericInputValue(value: number, min: number, max: number, s
   return Math.min(Math.max(rounded, min), max);
 }
 
-export function normalizeNumericInputConfig(config?: Record<string, unknown>): NumericInputConfig {
+export function normalizeNumericInputConfig(
+  config?: Partial<NumericInputConfig & {
+    min: number;
+    max: number;
+    step: number;
+    value: number;
+    propagateWhileDragging?: boolean;
+    dragDebounceSeconds?: number;
+  }> | Record<string, unknown>
+): NumericInputConfig {
   const min = toFiniteNumber(config?.min, 0);
   const maxCandidate = toFiniteNumber(config?.max, 100);
   const max = maxCandidate >= min ? maxCandidate : min;
@@ -514,7 +516,7 @@ export function formatNumericInputValue(value: number, step: number): string {
   return fixed.replace(/\.?0+$/, '');
 }
 
-export function createNumericInputNode(options: NumericInputNodeOptions): GraphNode {
+export function createNumericInputNode(options: NumericInputNodeOptions): NumericInputGraphNode {
   const nodeId = options.nodeId?.trim() || createGeneratedId('node');
   const numericConfig = normalizeNumericInputConfig({
     value: options.value,
@@ -536,21 +538,18 @@ export function createNumericInputNode(options: NumericInputNodeOptions): GraphN
       custom: cloneCustomMetadata(options.custom),
     },
     config: {
-      type: NodeType.NUMERIC_INPUT,
-      config: {
-        value: numericConfig.value,
-        min: numericConfig.min,
-        max: numericConfig.max,
-        step: numericConfig.step,
-        dragDebounceSeconds: numericConfig.dragDebounceSeconds,
-        ...(numericConfig.propagateWhileDragging
-          ? { propagateWhileDragging: true }
-          : {}),
-        ...(typeof options.autoRecompute === 'boolean'
-          ? { autoRecompute: options.autoRecompute }
-          : {}),
-        ...resolveOptionalCardSizeConfig(options),
-      },
+      value: numericConfig.value,
+      min: numericConfig.min,
+      max: numericConfig.max,
+      step: numericConfig.step,
+      dragDebounceSeconds: numericConfig.dragDebounceSeconds,
+      ...(numericConfig.propagateWhileDragging
+        ? { propagateWhileDragging: true }
+        : {}),
+      ...(typeof options.autoRecompute === 'boolean'
+        ? { autoRecompute: options.autoRecompute }
+        : {}),
+      ...resolveOptionalCardSizeConfig(options),
     },
     version: ensureNodeVersion({ id: nodeId }),
   };

@@ -75,13 +75,11 @@ async function createMultiNodeGraph(options?: {
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
-      config: {
-        value: 0,
-        min: 0,
-        max: 100,
-        step: 1,
-      },
+      value: 0,
+      min: 0,
+      max: 100,
+      step: 1,
+      dragDebounceSeconds: 0.1,
     },
     version: `${Date.now()}`,
   });

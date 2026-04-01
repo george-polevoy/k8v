@@ -57,7 +57,6 @@ async function createGraphWithGraphicsNode(): Promise<{ graphId: string; nodeId:
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code',
           runtime: 'python_process',
           code,
         },

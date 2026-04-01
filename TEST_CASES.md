@@ -351,6 +351,7 @@ Last reviewed: April 1, 2026.
 | Edit node display name | `M-PANEL-01` | Manual |
 | Edit runtime for inline-code node | `A-FE-03`, `A-FE-04`, `A-BE-01` | Automated |
 | Persist and update node `metadata.custom` JSON dictionaries | `A-FE-47`, `A-BE-86`, `A-BE-87`, `A-MCP-09` | Automated |
+| Flat exhaustive `node.config` schema keyed by `node.type` | `A-FE-15`, `A-FE-28`, `A-FE-44`, `A-FE-45`, `A-BE-01`, `A-BE-20`, `A-MCP-09` | Automated |
 | Edit inline-code node `pythonEnv` binding | `A-FE-08`, `A-BE-21`, `M-PANEL-08` | Automated + Manual |
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |

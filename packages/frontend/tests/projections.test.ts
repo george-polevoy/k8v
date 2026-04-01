@@ -20,7 +20,6 @@ function makeNode(id: string, x: number, y: number) {
       outputs: [],
     },
     config: {
-      type: NodeType.INLINE_CODE,
       code: 'outputs.output = 1;',
       runtime: 'javascript_vm',
     },
@@ -68,7 +67,8 @@ test('normalizeGraphProjectionState ensures default projection and valid active 
 
 test('normalizeGraphProjectionState preserves oversized fallback node card dimensions', () => {
   const node = makeNode('node-a', 1, 2);
-  node.config.config = {
+  node.config = {
+    ...node.config,
     cardWidth: 20_000,
     cardHeight: 20_000,
   };
@@ -101,16 +101,16 @@ test('applyProjectionToNodes updates node positions using projection coordinates
     { x: 101, y: 202 },
     { x: 303, y: 404 },
   ]);
-  assert.equal(projected[0].config.config?.cardWidth, 240);
-  assert.equal(projected[0].config.config?.cardHeight, 140);
-  assert.equal(projected[1].config.config?.cardWidth, 260);
-  assert.equal(projected[1].config.config?.cardHeight, 160);
+  assert.equal(projected[0].config.cardWidth, 240);
+  assert.equal(projected[0].config.cardHeight, 140);
+  assert.equal(projected[1].config.cardWidth, 260);
+  assert.equal(projected[1].config.cardHeight, 160);
 });
 
 test('syncActiveProjectionLayout updates only the active projection from current node layout', () => {
   const nodes = [makeNode('node-a', 111, 222), makeNode('node-b', 333, 444)];
-  nodes[0].config.config = { cardWidth: 260, cardHeight: 180 };
-  nodes[1].config.config = { cardWidth: 300, cardHeight: 210 };
+  nodes[0].config = { ...nodes[0].config, cardWidth: 260, cardHeight: 180 };
+  nodes[1].config = { ...nodes[1].config, cardWidth: 300, cardHeight: 210 };
 
   const synced = syncActiveProjectionLayout([
     {

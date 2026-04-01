@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const STORAGE_SCHEMA_VERSION = 3;
+export const STORAGE_SCHEMA_VERSION = 4;
 export const STORAGE_DB_FILE_NAME = 'k8v.sqlite';
 export const STORAGE_ARTIFACTS_DIR_NAME = 'artifacts';
 

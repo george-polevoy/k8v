@@ -74,7 +74,7 @@ function getNodeMinWidth(node: GraphNode): number {
 }
 
 function resolveNodeCardSizeFromNode(node: GraphNode): { width: number; height: number } {
-  const config = node.config.config as Record<string, unknown> | undefined;
+  const config = node.config;
   const minHeight = getNodeMinHeight(node);
   const rawWidth = typeof config?.cardWidth === 'number' && Number.isFinite(config.cardWidth)
     ? config.cardWidth
@@ -248,30 +248,63 @@ export function applyProjectionToNodes(
     const projectedPosition = projection.nodePositions[node.id] ?? node.position;
     const projectedNodeCardSize =
       projection.nodeCardSizes[node.id] ?? resolveNodeCardSizeFromNode(node);
-    const currentConfig = node.config.config ?? {};
-    const nextConfig = {
-      ...currentConfig,
-      cardWidth: projectedNodeCardSize.width,
-      cardHeight: projectedNodeCardSize.height,
-    };
+    const currentConfig = node.config;
+    const nextCardWidth = projectedNodeCardSize.width;
+    const nextCardHeight = projectedNodeCardSize.height;
 
     if (
       node.position.x === projectedPosition.x &&
       node.position.y === projectedPosition.y &&
-      currentConfig.cardWidth === nextConfig.cardWidth &&
-      currentConfig.cardHeight === nextConfig.cardHeight
+      currentConfig.cardWidth === nextCardWidth &&
+      currentConfig.cardHeight === nextCardHeight
     ) {
       return node;
     }
 
-    return {
-      ...node,
-      position: clonePosition(projectedPosition),
-      config: {
-        ...node.config,
-        config: nextConfig,
-      },
-    };
+    switch (node.type) {
+      case 'inline_code':
+        return {
+          ...node,
+          position: clonePosition(projectedPosition),
+          config: {
+            ...node.config,
+            cardWidth: nextCardWidth,
+            cardHeight: nextCardHeight,
+          },
+        };
+      case 'subgraph':
+        return {
+          ...node,
+          position: clonePosition(projectedPosition),
+          config: {
+            ...node.config,
+            cardWidth: nextCardWidth,
+            cardHeight: nextCardHeight,
+          },
+        };
+      case 'numeric_input':
+        return {
+          ...node,
+          position: clonePosition(projectedPosition),
+          config: {
+            ...node.config,
+            cardWidth: nextCardWidth,
+            cardHeight: nextCardHeight,
+          },
+        };
+      case 'annotation':
+        return {
+          ...node,
+          position: clonePosition(projectedPosition),
+          config: {
+            ...node.config,
+            cardWidth: nextCardWidth,
+            cardHeight: nextCardHeight,
+          },
+        };
+      default:
+        return node;
+    }
   });
 }
 

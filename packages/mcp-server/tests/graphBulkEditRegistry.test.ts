@@ -34,7 +34,7 @@ function createGraphFixture() {
           inputs: [{ name: 'in', schema: { type: 'number' } }],
           outputs: [{ name: 'out', schema: { type: 'number' } }],
         },
-        config: { type: 'inline_code', code: 'outputs.out = 1;', runtime: 'javascript_vm' },
+        config: { code: 'outputs.out = 1;', runtime: 'javascript_vm' },
         version: 'a-v1',
       },
       {
@@ -46,7 +46,7 @@ function createGraphFixture() {
           inputs: [{ name: 'in', schema: { type: 'number' } }],
           outputs: [{ name: 'out', schema: { type: 'number' } }],
         },
-        config: { type: 'inline_code', code: 'outputs.out = inputs.in;', runtime: 'javascript_vm' },
+        config: { code: 'outputs.out = inputs.in;', runtime: 'javascript_vm' },
         version: 'b-v1',
       },
     ],

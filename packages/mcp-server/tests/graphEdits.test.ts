@@ -296,7 +296,6 @@ test('bulk_edit accepts node_set_custom as a granular metadata update command', 
                 },
               },
               config: {
-                type: 'inline_code',
                 code: 'outputs.output = 1;',
                 runtime: 'javascript_vm',
               },

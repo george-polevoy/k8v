@@ -78,6 +78,10 @@ function removeInvalidNodePythonEnvReferences(
   validEnvNames: Set<string>
 ): GraphNode[] {
   return nodes.map((node) => {
+    if (node.type !== 'inline_code') {
+      return node;
+    }
+
     if (!node.config.pythonEnv || validEnvNames.has(node.config.pythonEnv)) {
       return node;
     }

@@ -81,9 +81,8 @@ function projectGraphNode(
         projected.position = node.position;
         break;
       case 'cardSize': {
-        const rawConfig = node.config.config;
-        const width = typeof rawConfig?.cardWidth === 'number' ? rawConfig.cardWidth : undefined;
-        const height = typeof rawConfig?.cardHeight === 'number' ? rawConfig.cardHeight : undefined;
+        const width = typeof node.config.cardWidth === 'number' ? node.config.cardWidth : undefined;
+        const height = typeof node.config.cardHeight === 'number' ? node.config.cardHeight : undefined;
         if (typeof width === 'number' || typeof height === 'number') {
           projected.cardSize = {
             ...(typeof width === 'number' ? { width } : {}),
@@ -93,9 +92,7 @@ function projectGraphNode(
         break;
       }
       case 'annotationText': {
-        const text = node.type === 'annotation' && typeof node.config.config?.text === 'string'
-          ? node.config.config.text
-          : undefined;
+        const text = node.type === 'annotation' ? node.config.text : undefined;
         if (typeof text === 'string') {
           projected.annotationText = text;
         }

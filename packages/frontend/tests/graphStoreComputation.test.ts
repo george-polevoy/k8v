@@ -75,7 +75,6 @@ test('computeNode sends a backend recompute request for only the selected node',
     nodes: [
       {
         id: 'node-c',
-        type: 'inline_code' as any,
         position: { x: 400, y: 0 },
         metadata: {
           name: 'C',
@@ -83,16 +82,14 @@ test('computeNode sends a backend recompute request for only the selected node',
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'c-v1',
       },
       {
         id: 'node-b',
-        type: 'inline_code' as any,
         position: { x: 200, y: 0 },
         metadata: {
           name: 'B',
@@ -100,16 +97,14 @@ test('computeNode sends a backend recompute request for only the selected node',
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'b-v1',
       },
       {
         id: 'node-a',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'A',
@@ -117,10 +112,9 @@ test('computeNode sends a backend recompute request for only the selected node',
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'a-v1',
       },
@@ -189,7 +183,6 @@ test('computeNode stores the returned runtime result for the computed node', asy
     nodes: [
       {
         id: 'node-a',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'A',
@@ -197,10 +190,9 @@ test('computeNode stores the returned runtime result for the computed node', asy
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'a-v1',
       },
@@ -255,7 +247,6 @@ test('computeGraph sends a single backend recompute request', async () => {
     nodes: [
       {
         id: 'node-a',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'A',
@@ -263,16 +254,14 @@ test('computeGraph sends a single backend recompute request', async () => {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'a-v1',
       },
       {
         id: 'node-b',
-        type: 'inline_code' as any,
         position: { x: 200, y: 0 },
         metadata: {
           name: 'B',
@@ -280,16 +269,14 @@ test('computeGraph sends a single backend recompute request', async () => {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'b-v1',
       },
       {
         id: 'node-c',
-        type: 'inline_code' as any,
         position: { x: 400, y: 0 },
         metadata: {
           name: 'C',
@@ -297,10 +284,9 @@ test('computeGraph sends a single backend recompute request', async () => {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'c-v1',
       },
@@ -376,7 +362,6 @@ test('computeGraph stores runtime results for returned nodes', async () => {
     nodes: [
       {
         id: 'node-a',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'A',
@@ -384,16 +369,14 @@ test('computeGraph stores runtime results for returned nodes', async () => {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'a-v1',
       },
       {
         id: 'node-b',
-        type: 'inline_code' as any,
         position: { x: 200, y: 0 },
         metadata: {
           name: 'B',
@@ -401,10 +384,9 @@ test('computeGraph stores runtime results for returned nodes', async () => {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'b-v1',
       },
@@ -471,7 +453,6 @@ test('runtime-state refresh preserves prior node results when results payload om
     nodes: [
       {
         id: 'node-a',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'A',
@@ -479,7 +460,6 @@ test('runtime-state refresh preserves prior node results when results payload om
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'python_process',
         },
@@ -559,7 +539,6 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
     nodes: [
       {
         id: 'node-python',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'Python Node',
@@ -567,7 +546,6 @@ test('loadGraph hydrates node graphics outputs from persisted node results', asy
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           runtime: 'python_process',
           code: 'outputPng("abc")',
         },
@@ -633,7 +611,6 @@ test('computeNode updates graphics output cache for the computed node', async ()
     nodes: [
       {
         id: 'node-python',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'Python Node',
@@ -641,7 +618,6 @@ test('computeNode updates graphics output cache for the computed node', async ()
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           runtime: 'python_process',
           code: 'outputPng("abc")',
         },
@@ -710,7 +686,6 @@ test('computeGraph clears cached graphics output when latest result has no graph
     nodes: [
       {
         id: 'node-python',
-        type: 'inline_code' as any,
         position: { x: 0, y: 0 },
         metadata: {
           name: 'Python Node',
@@ -718,7 +693,6 @@ test('computeGraph clears cached graphics output when latest result has no graph
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           runtime: 'python_process',
           code: 'print("hi")',
         },

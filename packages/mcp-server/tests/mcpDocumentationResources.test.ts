@@ -24,6 +24,7 @@ test('documentation resources register discoverability docs and schemas', async 
   registerDocumentationResources(server as unknown as any);
 
   assert.ok(server.resources.has('mcp-overview'));
+  assert.ok(server.resources.has('node-config-schema'));
   assert.ok(server.resources.has('graph-command-schema'));
   assert.ok(server.resources.has('graph-query-schema'));
   assert.ok(server.resources.has('annotation-workflows'));
@@ -39,10 +40,35 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.match(overviewText, /structured MCP objects/i);
   assert.match(overviewText, /do not stringify/i);
   assert.match(overviewText, /node_set_custom/);
-  assert.ok(
-    overviewText.indexOf('k8v://docs/examples/bulk-edit-call') <
-      overviewText.indexOf('k8v://docs/graph-command-schema.json')
+  assert.match(overviewText, /flat exhaustive `config` keyed by top-level `node\.type`/i);
+  assert.match(overviewText, /k8v:\/\/docs\/node-config-schema\.json/);
+  const recommendedReadingIndex = overviewText.indexOf('Recommended reading order:');
+  const referenceSchemasIndex = overviewText.indexOf(
+    'Reference schemas for uncommon commands or validation details:'
   );
+  const recommendedBulkEditExampleIndex = overviewText.indexOf(
+    'k8v://docs/examples/bulk-edit-call',
+    recommendedReadingIndex
+  );
+  const referenceNodeConfigSchemaIndex = overviewText.indexOf(
+    'k8v://docs/node-config-schema.json',
+    referenceSchemasIndex
+  );
+  assert.ok(
+    recommendedReadingIndex >= 0 &&
+      referenceSchemasIndex > recommendedReadingIndex &&
+      recommendedBulkEditExampleIndex > recommendedReadingIndex &&
+      referenceNodeConfigSchemaIndex > referenceSchemasIndex &&
+      recommendedBulkEditExampleIndex < referenceNodeConfigSchemaIndex
+  );
+
+  const nodeConfigSchema = await server.resources.get('node-config-schema')!.callback();
+  const nodeConfigSchemaText =
+    (nodeConfigSchema as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  assert.match(nodeConfigSchemaText, /inline_code/);
+  assert.match(nodeConfigSchemaText, /numeric_input/);
+  assert.match(nodeConfigSchemaText, /annotation/);
+  assert.match(nodeConfigSchemaText, /displayTextOutputs/);
 
   const annotation = await server.resources.get('annotation-workflows')!.callback();
   const annotationText = (annotation as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';

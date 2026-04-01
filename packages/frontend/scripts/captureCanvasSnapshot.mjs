@@ -37,13 +37,10 @@ function loadGraph(graphPath) {
             outputs: [{ name: 'value', schema: { type: 'number' } }],
           },
           config: {
-            type: 'numeric_input',
-            config: {
-              value: 5,
-              min: 0,
-              max: 10,
-              step: 1,
-            },
+            value: 5,
+            min: 0,
+            max: 10,
+            step: 1,
           },
           version: String(now),
         },
@@ -57,7 +54,6 @@ function loadGraph(graphPath) {
             outputs: [{ name: 'output', schema: { type: 'number' } }],
           },
           config: {
-            type: 'inline_code',
             runtime: 'javascript_vm',
             code: 'outputs.output = (inputs.input ?? 0) * 2;',
           },
@@ -73,7 +69,6 @@ function loadGraph(graphPath) {
             outputs: [{ name: 'output', schema: { type: 'number' } }],
           },
           config: {
-            type: 'inline_code',
             runtime: 'javascript_vm',
             code: 'outputs.output = inputs.input;',
           },

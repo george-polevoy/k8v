@@ -37,13 +37,11 @@ function createNumericInputNode(id: string, value: number) {
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
-      config: {
-        value,
-        min: 0,
-        max: 100,
-        step: 1,
-      },
+      value,
+      min: 0,
+      max: 100,
+      step: 1,
+      dragDebounceSeconds: 0.1,
     },
     version: '1',
   };

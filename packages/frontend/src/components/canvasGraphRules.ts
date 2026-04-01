@@ -1,4 +1,5 @@
 import type { Connection, GraphDrawing, GraphNode, GraphicsArtifact } from '../types';
+import { NodeType } from '../types';
 import {
   isPresentationArrowConnection,
 } from '../utils/annotationConnections';
@@ -19,7 +20,8 @@ export function isRenderablePythonGraphicsOutput(
   node: GraphNode,
   graphicsOutput: GraphicsArtifact | null | undefined
 ): graphicsOutput is GraphicsArtifact {
-  return node.config.runtime === 'python_process' &&
+  return node.type === NodeType.INLINE_CODE &&
+    node.config.runtime === 'python_process' &&
     isRenderableGraphicsArtifact(graphicsOutput);
 }
 

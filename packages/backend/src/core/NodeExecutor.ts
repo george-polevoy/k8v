@@ -1,7 +1,10 @@
 import {
+  InlineCodeGraphNode,
   GraphNode,
   Graph,
+  NumericInputGraphNode,
   NodeType,
+  SubgraphGraphNode,
   ComputationResult,
   DataSchema,
   normalizeGraphExecutionTimeoutMs,
@@ -44,7 +47,7 @@ export class NodeExecutor {
     let textOutput: string | undefined;
     let graphicsOutput: string | undefined;
 
-    switch (node.config.type) {
+    switch (node.type) {
       case NodeType.INLINE_CODE: {
         const result = await this.executeInlineCode(node, inputs, graph);
         outputs = result.outputs;
@@ -62,7 +65,7 @@ export class NodeExecutor {
         outputs = await this.executeAnnotationNode();
         break;
       default:
-        throw new Error(`Unknown node type: ${node.config.type}`);
+        throw new Error('Unknown node type');
     }
 
     // Infer schema from outputs
@@ -83,7 +86,7 @@ export class NodeExecutor {
    * Execute inline code node
    */
   private async executeInlineCode(
-    node: GraphNode,
+    node: InlineCodeGraphNode,
     inputs: Record<string, any>,
     graph?: Graph
   ): Promise<{
@@ -116,7 +119,10 @@ export class NodeExecutor {
   /**
    * Execute subgraph node
    */
-  private async executeSubgraph(node: GraphNode, _inputs: Record<string, any>): Promise<Record<string, any>> {
+  private async executeSubgraph(
+    node: SubgraphGraphNode,
+    _inputs: Record<string, any>
+  ): Promise<Record<string, any>> {
     if (!node.config.subgraphId) {
       throw new Error(`Subgraph node ${node.id} has no subgraphId`);
     }
@@ -138,10 +144,8 @@ export class NodeExecutor {
   /**
    * Execute numeric input node
    */
-  private async executeNumericInput(node: GraphNode): Promise<Record<string, any>> {
-    const { value } = normalizeNumericInputConfig(
-      node.config.config as Record<string, unknown> | undefined
-    );
+  private async executeNumericInput(node: NumericInputGraphNode): Promise<Record<string, any>> {
+    const { value } = normalizeNumericInputConfig(node.config);
     const outputName = node.metadata.outputs[0]?.name ?? 'value';
     return { [outputName]: value };
   }
@@ -293,7 +297,7 @@ export class NodeExecutor {
     return typeof (runtimeOrRegistry as ExecutionRuntime).execute === 'function';
   }
 
-  private resolveRuntime(node: GraphNode): ExecutionRuntime {
+  private resolveRuntime(node: InlineCodeGraphNode): ExecutionRuntime {
     const runtimeId = node.config.runtime ?? this.defaultRuntimeId;
 
     if (node.config.pythonEnv && runtimeId !== PYTHON_RUNTIME_ID) {
@@ -312,7 +316,7 @@ export class NodeExecutor {
   }
 
   private resolvePythonExecutionContext(
-    node: GraphNode,
+    node: InlineCodeGraphNode,
     graph?: Graph
   ): { pythonBin?: string; cwd?: string } {
     if ((node.config.runtime ?? this.defaultRuntimeId) !== PYTHON_RUNTIME_ID) {

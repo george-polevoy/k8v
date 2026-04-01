@@ -131,13 +131,12 @@ export function resolveNodeCardDimensions(
 ): NodeCardDimensions {
   const minWidth = getNodeMinWidth(node);
   const minHeight = getNodeMinHeight(node);
-  const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
   const widthCandidate = draftSize
     ? draftSize.width
-    : toFiniteNumber(nodeConfig.cardWidth, NODE_WIDTH);
+    : toFiniteNumber(node.config.cardWidth, NODE_WIDTH);
   const heightCandidate = draftSize
     ? draftSize.height
-    : toFiniteNumber(nodeConfig.cardHeight, minHeight);
+    : toFiniteNumber(node.config.cardHeight, minHeight);
 
   const width = Math.max(minWidth, snapToPixel(widthCandidate));
   const height = Math.max(minHeight, snapToPixel(heightCandidate));

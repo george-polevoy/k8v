@@ -28,16 +28,12 @@ export function normalizeNodeCardAppearanceConfig(
 
 export function resolveNodeCardAppearance(node: GraphNode): NodeCardAppearance {
   if (node.type === NodeType.ANNOTATION) {
-    const annotationConfig = normalizeAnnotationConfig(
-      node.config.config as Record<string, unknown> | undefined
-    );
+    const annotationConfig = normalizeAnnotationConfig(node.config);
     return {
       backgroundColor: annotationConfig.backgroundColor,
       borderColor: annotationConfig.borderColor,
     };
   }
 
-  return normalizeNodeCardAppearanceConfig(
-    node.config.config as Record<string, unknown> | undefined
-  );
+  return normalizeNodeCardAppearanceConfig(node.config);
 }

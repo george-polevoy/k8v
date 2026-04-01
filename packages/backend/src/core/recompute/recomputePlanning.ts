@@ -188,7 +188,16 @@ export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph
 }
 
 function getAutoRecomputeEnabled(node: GraphNode): boolean {
-  return Boolean(node.config.config?.autoRecompute);
+  switch (node.type) {
+    case NodeType.INLINE_CODE:
+    case NodeType.NUMERIC_INPUT:
+    case NodeType.SUBGRAPH:
+      return Boolean(node.config.autoRecompute);
+    case NodeType.ANNOTATION:
+      return false;
+    default:
+      return false;
+  }
 }
 
 function collectImpactedDescendants(graph: Graph, roots: string[]): Set<string> {

@@ -32,13 +32,10 @@ function createGraph(initialInput: number): Graph {
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.NUMERIC_INPUT,
-          config: {
-            value: initialInput,
-            min: 0,
-            max: 100,
-            step: 1,
-          },
+          value: initialInput,
+          min: 0,
+          max: 100,
+          step: 1,
         },
         version: 'input-v1',
       },
@@ -52,7 +49,6 @@ function createGraph(initialInput: number): Graph {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.INLINE_CODE,
           code: 'outputs.output = (inputs.input ?? 0) + 1;',
           runtime: 'javascript_vm',
         },
@@ -68,7 +64,6 @@ function createGraph(initialInput: number): Graph {
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.INLINE_CODE,
           code: 'outputs.output = (inputs.input ?? 0) * 10;',
           runtime: 'javascript_vm',
         },
@@ -113,10 +108,7 @@ test('GraphEngine recomputes downstream node after upstream result changes', asy
     assert.ok(inputNode, 'expected input node to exist');
     inputNode.config = {
       ...inputNode.config,
-      config: {
-        ...inputNode.config.config,
-        value: 2,
-      },
+      value: 2,
     };
     inputNode.version = 'input-v2';
     graph.updatedAt = Date.now();
@@ -174,7 +166,6 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
           outputs: [{ name: 'count', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.INLINE_CODE,
           code: 'outputs.count = 1;',
           runtime: 'javascript_vm',
         },
@@ -237,7 +228,6 @@ test('GraphEngine ignores presentation-link cycles when computing executable nod
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.INLINE_CODE,
           code: 'outputs.output = inputs.input ?? 1;',
           runtime: 'javascript_vm',
         },
@@ -253,7 +243,6 @@ test('GraphEngine ignores presentation-link cycles when computing executable nod
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: NodeType.INLINE_CODE,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
         },

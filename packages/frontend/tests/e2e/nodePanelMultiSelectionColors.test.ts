@@ -42,13 +42,11 @@ async function createTwoCardGraph(): Promise<CreatedGraph> {
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
-      config: {
-        value: 0,
-        min: 0,
-        max: 100,
-        step: 1,
-      },
+      value: 0,
+      min: 0,
+      max: 100,
+      step: 1,
+      dragDebounceSeconds: 0.1,
     },
     version: `${Date.now()}`,
   });
@@ -88,14 +86,13 @@ async function createTwoAnnotationGraph(): Promise<CreatedGraph> {
       outputs: [],
     },
     config: {
-      type: 'annotation',
-      config: {
-        text: name,
-        backgroundColor: '#fef3c7',
-        borderColor: '#334155',
-        fontColor,
-        fontSize,
-      },
+      text: name,
+      backgroundColor: '#fef3c7',
+      borderColor: '#334155',
+      fontColor,
+      fontSize,
+      cardWidth: 320,
+      cardHeight: 200,
     },
     version: `${Date.now()}`,
   });
@@ -141,18 +138,16 @@ async function getNodeCardColors(
     nodes?: Array<{
       id?: string;
       config?: {
-        config?: {
-          backgroundColor?: string;
-          borderColor?: string;
-        };
+        backgroundColor?: string;
+        borderColor?: string;
       };
     }>;
   };
   const node = graph.nodes?.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Expected node ${nodeId} in graph ${graphId}`);
   return {
-    backgroundColor: node.config?.config?.backgroundColor ?? null,
-    borderColor: node.config?.config?.borderColor ?? null,
+    backgroundColor: node.config?.backgroundColor ?? null,
+    borderColor: node.config?.borderColor ?? null,
   };
 }
 
@@ -184,18 +179,16 @@ async function getAnnotationTextStyle(
     nodes?: Array<{
       id?: string;
       config?: {
-        config?: {
-          fontColor?: string;
-          fontSize?: number;
-        };
+        fontColor?: string;
+        fontSize?: number;
       };
     }>;
   };
   const node = graph.nodes?.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Expected node ${nodeId} in graph ${graphId}`);
   return {
-    fontColor: node.config?.config?.fontColor ?? null,
-    fontSize: node.config?.config?.fontSize ?? null,
+    fontColor: node.config?.fontColor ?? null,
+    fontSize: node.config?.fontSize ?? null,
   };
 }
 

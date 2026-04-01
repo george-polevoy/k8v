@@ -3,11 +3,16 @@ import { z, type ZodTypeAny } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   ANNOTATION_CONNECTION_PORT,
+  AnnotationNodeConfigSchema,
   GraphCommand,
   GraphQueryRequestSchema,
+  InlineCodeNodeConfigSchema,
+  NumericInputNodeConfigSchema,
+  SubgraphNodeConfigSchema,
 } from '../../domain/dist/index.js';
 
 const MCP_OVERVIEW_URI = 'k8v://docs/mcp-overview.md';
+const NODE_CONFIG_SCHEMA_URI = 'k8v://docs/node-config-schema.json';
 const GRAPH_COMMAND_SCHEMA_URI = 'k8v://docs/graph-command-schema.json';
 const GRAPH_QUERY_SCHEMA_URI = 'k8v://docs/graph-query-schema.json';
 const ANNOTATION_WORKFLOWS_URI = 'k8v://docs/annotation-workflows.md';
@@ -24,6 +29,24 @@ type ExampleTopic =
 
 const GraphCommandDocumentationSchema: ZodTypeAny = GraphCommand as z.ZodTypeAny;
 const GraphQueryDocumentationSchema: ZodTypeAny = GraphQueryRequestSchema as z.ZodTypeAny;
+const NodeConfigDocumentationSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('inline_code'),
+    config: InlineCodeNodeConfigSchema,
+  }),
+  z.object({
+    type: z.literal('subgraph'),
+    config: SubgraphNodeConfigSchema,
+  }),
+  z.object({
+    type: z.literal('numeric_input'),
+    config: NumericInputNodeConfigSchema,
+  }),
+  z.object({
+    type: z.literal('annotation'),
+    config: AnnotationNodeConfigSchema,
+  }),
+]);
 const renderJsonSchema = zodToJsonSchema as unknown as (schema: ZodTypeAny, name: string) => unknown;
 
 function buildMcpOverviewText(): string {
@@ -36,6 +59,8 @@ function buildMcpOverviewText(): string {
     '- Use `node_set_custom` for granular updates to an existing node\'s `metadata.custom` dictionary instead of replacing the whole node.',
     '- `algo_injection_run` invokes a wasm module transiently from an absolute filesystem path accessible to the backend host.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
+    '- Nodes use a flat exhaustive `config` keyed by top-level `node.type`; MCP does not expose `node.config` as an untyped property bag.',
+    '- Use `k8v://docs/node-config-schema.json` when reading `graph_get`, `graph_query nodeFields=[\'config\']`, or authoring `replace_nodes` payloads.',
     '- `connections_list` is for filtered connection inspection.',
     '- `graph_screenshot_region` renders through the dedicated screenshot harness and can start its own harness server when no explicit frontend URL override is provided.',
     '',
@@ -48,6 +73,7 @@ function buildMcpOverviewText(): string {
     `- \`${ANNOTATION_WORKFLOWS_URI}\``,
     '',
     'Reference schemas for uncommon commands or validation details:',
+    `- \`${NODE_CONFIG_SCHEMA_URI}\``,
     `- \`${GRAPH_COMMAND_SCHEMA_URI}\``,
     `- \`${GRAPH_QUERY_SCHEMA_URI}\``,
     '',
@@ -356,6 +382,22 @@ export function registerDocumentationResources(server: any): void {
       mimeType: 'text/markdown',
     },
     async () => createTextResource(MCP_OVERVIEW_URI, buildMcpOverviewText())
+  );
+
+  server.registerResource(
+    'node-config-schema',
+    NODE_CONFIG_SCHEMA_URI,
+    {
+      title: 'Node Config Schema',
+      description: 'JSON schema for flat exhaustive node.config shapes keyed by top-level node.type.',
+      mimeType: 'application/json',
+    },
+    async () =>
+      createJsonSchemaResource(
+        NODE_CONFIG_SCHEMA_URI,
+        NodeConfigDocumentationSchema,
+        'NodeConfigByType'
+      )
   );
 
   server.registerResource(

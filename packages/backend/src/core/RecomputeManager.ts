@@ -637,8 +637,18 @@ export class RecomputeManager {
       }
 
       staleNodeIds.add(nodeId);
-      if (node.config.config?.autoRecompute) {
-        scheduledNodeIds.add(nodeId);
+      switch (node.type) {
+        case 'inline_code':
+        case 'numeric_input':
+        case 'subgraph':
+          if (node.config.autoRecompute) {
+            scheduledNodeIds.add(nodeId);
+          }
+          break;
+        case 'annotation':
+          break;
+        default:
+          break;
       }
     }
 

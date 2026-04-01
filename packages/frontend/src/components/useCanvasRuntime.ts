@@ -239,7 +239,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     }
 
     const currentConfig = normalizeNumericInputConfig(
-      node.config.config as Record<string, unknown> | undefined
+      node.config
     );
     const value = snapNumericInputValue(nextValue, currentConfig.min, currentConfig.max, currentConfig.step);
     if (value === currentConfig.value) {
@@ -249,18 +249,15 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     return [{
       kind: 'replace_nodes',
       nodes: graph.nodes.map((candidate) =>
-        candidate.id === nodeId
+        candidate.id === nodeId && candidate.type === NodeType.NUMERIC_INPUT
           ? {
               ...candidate,
               config: {
                 ...candidate.config,
-                config: {
-                  ...(candidate.config.config ?? {}),
-                  value,
-                  min: currentConfig.min,
-                  max: currentConfig.max,
-                  step: currentConfig.step,
-                },
+                value,
+                min: currentConfig.min,
+                max: currentConfig.max,
+                step: currentConfig.step,
               },
               version: Date.now().toString(),
             }
@@ -1125,7 +1122,7 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
       return;
     }
 
-    const currentConfig = normalizeNumericInputConfig(node.config.config as Record<string, unknown> | undefined);
+    const currentConfig = normalizeNumericInputConfig(node.config);
     const value = snapNumericInputValue(nextValue, currentConfig.min, currentConfig.max, currentConfig.step);
     if (value === currentConfig.value) {
       return;
@@ -1134,13 +1131,10 @@ export function useCanvasRuntime(params: UseCanvasRuntimeParams) {
     updateNode(nodeId, {
       config: {
         ...node.config,
-        config: {
-          ...(node.config.config ?? {}),
-          min: currentConfig.min,
-          max: currentConfig.max,
-          step: currentConfig.step,
-          value,
-        },
+        min: currentConfig.min,
+        max: currentConfig.max,
+        step: currentConfig.step,
+        value,
       },
     });
   }, [graphRef, updateNode]);

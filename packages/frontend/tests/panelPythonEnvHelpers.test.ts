@@ -21,9 +21,8 @@ function createInlineNode(id: string, pythonEnv?: string): GraphNode {
       outputs: [],
     },
     config: {
-      type: NodeType.INLINE_CODE,
       pythonEnv,
-      config: {},
+      code: 'outputs.output = 1;',
     },
     version: `${id}-v1`,
   };

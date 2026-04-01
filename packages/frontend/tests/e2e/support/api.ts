@@ -15,15 +15,12 @@ interface GraphNodePayload {
     outputs: Array<{ name: string; schema: { type: 'number' } }>;
   };
   config: {
-    type: 'numeric_input';
-    config: {
-      value: number;
-      min: number;
-      max: number;
-      step: number;
-      propagateWhileDragging?: boolean;
-      dragDebounceSeconds?: number;
-    };
+    value: number;
+    min: number;
+    max: number;
+    step: number;
+    propagateWhileDragging?: boolean;
+    dragDebounceSeconds?: number;
   };
   version: string;
 }
@@ -38,16 +35,13 @@ interface AnnotationNodePayload {
     outputs: [];
   };
   config: {
-    type: 'annotation';
-    config: {
-      text: string;
-      backgroundColor: string;
-      borderColor: string;
-      fontColor: string;
-      fontSize?: number;
-      cardWidth?: number;
-      cardHeight?: number;
-    };
+    text: string;
+    backgroundColor: string;
+    borderColor: string;
+    fontColor: string;
+    fontSize: number;
+    cardWidth: number;
+    cardHeight: number;
   };
   version: string;
 }
@@ -62,17 +56,14 @@ interface InlineNodePayload {
     outputs: Array<{ name: string; schema: { type: string } }>;
   };
   config: {
-    type: 'inline_code';
     code: string;
     runtime: 'javascript_vm';
-    config?: {
-      autoRecompute?: boolean;
-      cardWidth?: number;
-      cardHeight?: number;
-      displayTextOutputs?: boolean;
-      textOutputMaxLines?: number;
-      textOutputOverflowMode?: 'cap' | 'scroll';
-    };
+    autoRecompute?: boolean;
+    cardWidth?: number;
+    cardHeight?: number;
+    displayTextOutputs?: boolean;
+    textOutputMaxLines?: number;
+    textOutputOverflowMode?: 'cap' | 'scroll';
   };
   version: string;
 }
@@ -108,15 +99,12 @@ interface GraphResponse {
       outputs?: Array<{ name?: string }>;
     };
     config: {
-      type?: string;
       runtime?: string;
-      config?: {
-        value?: unknown;
-        cardWidth?: unknown;
-        cardHeight?: unknown;
-        text?: unknown;
-        fontSize?: unknown;
-      };
+      value?: unknown;
+      cardWidth?: unknown;
+      cardHeight?: unknown;
+      text?: unknown;
+      fontSize?: unknown;
     };
   }>;
   connections?: Array<{
@@ -481,17 +469,14 @@ export async function createNumericInputGraph(options?: {
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
-      config: {
-        value: options?.value ?? 0,
-        min: options?.min ?? 0,
-        max: options?.max ?? 100,
-        step: options?.step ?? 1,
-        dragDebounceSeconds: options?.dragDebounceSeconds ?? 0.1,
-        ...(options?.propagateWhileDragging === true
-          ? { propagateWhileDragging: true }
-          : {}),
-      },
+      value: options?.value ?? 0,
+      min: options?.min ?? 0,
+      max: options?.max ?? 100,
+      step: options?.step ?? 1,
+      dragDebounceSeconds: options?.dragDebounceSeconds ?? 0.1,
+      ...(options?.propagateWhileDragging === true
+        ? { propagateWhileDragging: true }
+        : {}),
     },
     version: Date.now().toString(),
   };
@@ -538,10 +523,9 @@ export async function createInlineCodeGraph(options?: {
       outputs: outputNames.map((name) => ({ name, schema: { type: 'object' } })),
     },
     config: {
-      type: 'inline_code',
       code: options?.code ?? 'outputs.output = inputs.input ?? null;',
       runtime: 'javascript_vm',
-      ...(Object.keys(sizeConfig).length > 0 ? { config: sizeConfig } : {}),
+      ...sizeConfig,
     },
     version: Date.now().toString(),
   };
@@ -584,16 +568,13 @@ export async function createAnnotationGraph(options?: {
       outputs: [],
     },
     config: {
-      type: 'annotation',
-      config: {
-        text: options?.text ?? '',
-        backgroundColor: options?.backgroundColor ?? '#fef3c7',
-        borderColor: options?.borderColor ?? '#334155',
-        fontColor: options?.fontColor ?? '#1f2937',
-        ...(typeof options?.fontSize === 'number' ? { fontSize: options.fontSize } : {}),
-        ...(typeof options?.cardWidth === 'number' ? { cardWidth: options.cardWidth } : {}),
-        ...(typeof options?.cardHeight === 'number' ? { cardHeight: options.cardHeight } : {}),
-      },
+      text: options?.text ?? '',
+      backgroundColor: options?.backgroundColor ?? '#fef3c7',
+      borderColor: options?.borderColor ?? '#334155',
+      fontColor: options?.fontColor ?? '#1f2937',
+      fontSize: options?.fontSize ?? 14,
+      cardWidth: options?.cardWidth ?? 320,
+      cardHeight: options?.cardHeight ?? 200,
     },
     version: Date.now().toString(),
   };
@@ -626,7 +607,6 @@ export async function createAnnotationArrowGraph(): Promise<{
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = inputs.input ?? 0;',
       runtime: 'javascript_vm',
     },
@@ -643,7 +623,6 @@ export async function createAnnotationArrowGraph(): Promise<{
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = inputs.input ?? 0;',
       runtime: 'javascript_vm',
     },
@@ -660,15 +639,13 @@ export async function createAnnotationArrowGraph(): Promise<{
       outputs: [],
     },
     config: {
-      type: 'annotation',
-      config: {
-        text: 'Right note',
-        backgroundColor: '#fef3c7',
-        borderColor: '#334155',
-        fontColor: '#1f2937',
-        cardWidth: 320,
-        cardHeight: 200,
-      },
+      text: 'Right note',
+      backgroundColor: '#fef3c7',
+      borderColor: '#334155',
+      fontColor: '#1f2937',
+      fontSize: 14,
+      cardWidth: 320,
+      cardHeight: 200,
     },
     version: Date.now().toString(),
   };
@@ -706,7 +683,6 @@ export async function createInlineInputReplacementGraph(): Promise<{
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = 1;',
       runtime: 'javascript_vm',
     },
@@ -723,7 +699,6 @@ export async function createInlineInputReplacementGraph(): Promise<{
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = 2;',
       runtime: 'javascript_vm',
     },
@@ -740,7 +715,6 @@ export async function createInlineInputReplacementGraph(): Promise<{
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = inputs.input ?? 0;',
       runtime: 'javascript_vm',
     },
@@ -852,7 +826,7 @@ export async function getNumericNodeValue(graphId: string, nodeId: string): Prom
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
 
-  const value = node.config?.config?.value;
+  const value = node.config?.value;
   assert.equal(typeof value, 'number', `Node ${nodeId} value must be a number`);
   return value;
 }
@@ -887,8 +861,8 @@ export async function getNodeCardSize(
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
 
-  const widthCandidate = node.config?.config?.cardWidth;
-  const heightCandidate = node.config?.config?.cardHeight;
+  const widthCandidate = node.config?.cardWidth;
+  const heightCandidate = node.config?.cardHeight;
   const width = typeof widthCandidate === 'number' && Number.isFinite(widthCandidate) ? widthCandidate : null;
   const height = typeof heightCandidate === 'number' && Number.isFinite(heightCandidate) ? heightCandidate : null;
   return { width, height };
@@ -920,7 +894,7 @@ export async function getAnnotationNodeText(
   const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
-  const text = node.config?.config?.text;
+  const text = node.config?.text;
   assert.equal(typeof text, 'string', `Node ${nodeId} annotation text must be a string`);
   return text;
 }
@@ -932,7 +906,7 @@ export async function getAnnotationNodeFontSize(
   const graph = await readGraphSnapshot(graphId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   assert.ok(node, `Graph ${graphId} is missing node ${nodeId}`);
-  const fontSize = node.config?.config?.fontSize;
+  const fontSize = node.config?.fontSize;
   assert.equal(typeof fontSize, 'number', `Node ${nodeId} annotation fontSize must be a number`);
   return fontSize;
 }

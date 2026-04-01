@@ -193,6 +193,10 @@ export function validateGraphStructure(graph: Graph): string | null {
   }
 
   for (const node of graph.nodes) {
+    if (node.type !== 'inline_code') {
+      continue;
+    }
+
     const pythonEnvName = node.config.pythonEnv;
     if (!pythonEnvName) {
       continue;

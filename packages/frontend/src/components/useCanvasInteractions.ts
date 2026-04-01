@@ -11,6 +11,7 @@ import type {
   DrawingPath,
   Graph,
   GraphCommand,
+  GraphNode,
   Position,
 } from '../types';
 import { resolveCardEdgeDropTarget } from '../utils/annotationConnections';
@@ -199,7 +200,7 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
       return;
     }
 
-    const nextNodes = currentGraph.nodes.map((node) => {
+    const nextNodes: GraphNode[] = currentGraph.nodes.map((node) => {
       const nodeState = nodeStates.get(node.id);
       if (!nodeState) {
         return node;
@@ -211,14 +212,11 @@ export function useCanvasInteractions(params: UseCanvasInteractionsParams) {
         config: nodeState.size
           ? {
             ...node.config,
-            config: {
-              ...(node.config.config ?? {}),
-              cardWidth: nodeState.size.width,
-              cardHeight: nodeState.size.height,
-            },
+            cardWidth: nodeState.size.width,
+            cardHeight: nodeState.size.height,
           }
           : node.config,
-      };
+      } as GraphNode;
     });
 
     void submitGraphCommands([{

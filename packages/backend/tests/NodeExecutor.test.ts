@@ -32,7 +32,6 @@ function createInlineNode(runtime?: string): GraphNode {
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: NodeType.INLINE_CODE,
       code: 'outputs.output = inputs.input;',
       runtime,
     },
@@ -50,15 +49,12 @@ function createNumericInputNode(config?: Record<string, unknown>): GraphNode {
       inputs: [],
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
-    config: {
-      type: NodeType.NUMERIC_INPUT,
-      config: config ?? {
-        value: 0,
-        min: 0,
-        max: 100,
-        step: 1,
-      },
-    },
+    config: (config ?? {
+      value: 0,
+      min: 0,
+      max: 100,
+      step: 1,
+    }) as any,
     version: '1',
   };
 }
@@ -74,10 +70,13 @@ function createAnnotationNode(): GraphNode {
       outputs: [],
     },
     config: {
-      type: NodeType.ANNOTATION,
-      config: {
-        text: 'hello',
-      },
+      text: 'hello',
+      backgroundColor: '#fef3c7',
+      borderColor: '#334155',
+      fontColor: '#1f2937',
+      fontSize: 14,
+      cardWidth: 320,
+      cardHeight: 200,
     },
     version: '1',
   };
@@ -161,9 +160,6 @@ test('NodeExecutor uses graph-level execution timeout for inline code', async ()
     javascript_vm: runtime,
   });
   const node = createInlineNode();
-  node.config.config = {
-    timeoutMs: 1,
-  };
   const now = Date.now();
   const graph: Graph = {
     id: 'graph-timeout',
@@ -390,7 +386,8 @@ test('NodeExecutor executes numeric_input nodes with normalized min/max/step/val
     const result = await executor.execute(numericNode, {});
     assert.equal(result.outputs.value, 8);
 
-    numericNode.config.config = {
+    numericNode.config = {
+      ...numericNode.config,
       value: 12,
       min: 3,
       max: 1,

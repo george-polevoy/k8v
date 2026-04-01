@@ -32,6 +32,7 @@ k8v now includes comprehensive output visualization for each node. When you run 
    - Text Output: Shows all printed text and errors
    - Graphics Output: Uses the graphics id + metadata and requests an appropriate mip level by pixel budget
 4. In the node panel, enable **Display Text Outputs** if you want non-empty text output rendered on canvas for that node.
+   - This persists directly on the node as flat config keys: `displayTextOutputs`, `textOutputMaxLines`, and `textOutputOverflowMode`.
 5. For nodes with canvas output enabled, text is rendered below the node card as a synchronized HTML `<pre>` overlay.
 6. For `python_process` nodes with graphics output, the latest image is projected on canvas directly below that node card (or below the text overlay if one is visible).
 

@@ -66,7 +66,9 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
   server.registerTool(
     'graph_get',
     {
-      description: 'Get a graph by id, or the latest graph when graphId is omitted.',
+      description:
+        'Get a graph by id, or the latest graph when graphId is omitted. ' +
+        'Nodes use a flat exhaustive `config` keyed by top-level `type`; see k8v://docs/node-config-schema.json.',
       inputSchema: {
         graphId: z.string().optional(),
         backendUrl: z.string().optional(),
@@ -87,7 +89,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
     {
       description:
         'Run lightweight graph queries (overview, BFS/DFS traversal, starting vertices) and return only requested fields. ' +
-        'For schema details and examples, read k8v://docs/mcp-overview.md and k8v://docs/annotation-workflows.md.',
+        'For schema details and examples, read k8v://docs/mcp-overview.md, k8v://docs/node-config-schema.json, and k8v://docs/annotation-workflows.md.',
       inputSchema: {
         graphId: z.string(),
         operation: z.enum(['overview', 'starting_vertices', 'traverse_bfs', 'traverse_dfs']),
@@ -158,7 +160,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
       description:
         'Apply an ordered GraphCommand[] batch to one graph. Pass `commands` as structured objects in the MCP arguments; do not stringify each command. ' +
         'This is the only MCP graph mutation tool. ' +
-        'See k8v://docs/graph-command-schema.json and k8v://docs/annotation-workflows.md for command shapes and examples.',
+        'See k8v://docs/node-config-schema.json, k8v://docs/graph-command-schema.json, and k8v://docs/annotation-workflows.md for command shapes and examples.',
       inputSchema: {
         graphId: z.string(),
         baseRevision: z.number().int().nonnegative().optional(),

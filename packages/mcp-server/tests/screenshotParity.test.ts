@@ -284,13 +284,10 @@ function createInlineNode(params: {
       outputs: (params.outputs ?? []).map((name) => ({ name, schema: { type: 'number' } })),
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = 1;',
       runtime: 'javascript_vm',
-      config: {
-        ...(typeof params.cardWidth === 'number' ? { cardWidth: params.cardWidth } : {}),
-        ...(typeof params.cardHeight === 'number' ? { cardHeight: params.cardHeight } : {}),
-      },
+      ...(typeof params.cardWidth === 'number' ? { cardWidth: params.cardWidth } : {}),
+      ...(typeof params.cardHeight === 'number' ? { cardHeight: params.cardHeight } : {}),
     },
     version: `${params.id}-v1`,
   };

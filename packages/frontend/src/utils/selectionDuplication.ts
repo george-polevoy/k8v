@@ -92,14 +92,7 @@ function cloneUnknownValue<T>(value: T): T {
 }
 
 function cloneNodeConfig(config: NodeConfig): NodeConfig {
-  return {
-    type: config.type,
-    code: config.code,
-    subgraphId: config.subgraphId,
-    runtime: config.runtime,
-    pythonEnv: config.pythonEnv,
-    config: cloneUnknownValue(config.config),
-  };
+  return cloneUnknownValue(config);
 }
 
 function cloneProjectionNodeCardSize(size: ProjectionNodeCardSize): ProjectionNodeCardSize {
@@ -124,7 +117,7 @@ function cloneNode(
     config: cloneNodeConfig(node.config),
     version: `${versionSeed}-${index}`,
     lastComputed: undefined,
-  };
+  } as GraphNode;
 }
 
 export function duplicateNodeSelectionInGraph({

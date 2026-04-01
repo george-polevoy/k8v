@@ -21,8 +21,10 @@ function createGraph(): Graph {
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'numeric_input',
-          config: { value: 1, min: 0, max: 10, step: 1 },
+          value: 1,
+          min: 0,
+          max: 10,
+          step: 1,
         },
         version: 'source-v1',
       },
@@ -36,10 +38,9 @@ function createGraph(): Graph {
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code',
           code: 'outputs.value = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: true },
+          autoRecompute: true,
         },
         version: 'middle-v1',
       },
@@ -53,10 +54,9 @@ function createGraph(): Graph {
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code',
           code: 'outputs.value = inputs.input;',
           runtime: 'javascript_vm',
-          config: { autoRecompute: false },
+          autoRecompute: false,
         },
         version: 'leaf-v1',
       },
@@ -105,4 +105,3 @@ test('collectStaleNodeIdsFromErrorStates marks downstream descendants of errored
 
   assert.deepEqual([...stale].sort(), ['leaf', 'middle']);
 });
-

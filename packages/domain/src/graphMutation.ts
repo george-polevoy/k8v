@@ -248,7 +248,7 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
           nextEnvName === command.envName
             ? graph.nodes
             : graph.nodes.map((node) =>
-                node.config.pythonEnv === command.envName
+                node.type === 'inline_code' && node.config.pythonEnv === command.envName
                   ? {
                       ...node,
                       config: {
@@ -272,7 +272,7 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
         ...graph,
         pythonEnvs: existingEnvs.filter((env) => env.name !== command.envName),
         nodes: graph.nodes.map((node) =>
-          node.config.pythonEnv === command.envName
+          node.type === 'inline_code' && node.config.pythonEnv === command.envName
             ? {
                 ...node,
                 config: {
@@ -436,17 +436,48 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
       });
 
     case 'node_set_auto_recompute':
-      return replaceNode(graph, command.nodeId, (node) => ({
-        ...node,
-        config: {
-          ...node.config,
-          config: {
-            ...(node.config.config ?? {}),
-            autoRecompute: command.enabled,
-          },
-        },
-        version: ensureNodeVersion(node),
-      }));
+      return {
+        ...graph,
+        nodes: graph.nodes.map((node) => {
+          if (node.id !== command.nodeId) {
+            return node;
+          }
+
+          switch (node.type) {
+            case 'inline_code':
+              return {
+                ...node,
+                config: {
+                  ...node.config,
+                  autoRecompute: command.enabled,
+                },
+                version: ensureNodeVersion(node),
+              };
+            case 'numeric_input':
+              return {
+                ...node,
+                config: {
+                  ...node.config,
+                  autoRecompute: command.enabled,
+                },
+                version: ensureNodeVersion(node),
+              };
+            case 'subgraph':
+              return {
+                ...node,
+                config: {
+                  ...node.config,
+                  autoRecompute: command.enabled,
+                },
+                version: ensureNodeVersion(node),
+              };
+            case 'annotation':
+              throw new Error(`Node ${command.nodeId} does not support auto recompute`);
+            default:
+              return node;
+          }
+        }),
+      };
 
     case 'node_add_input': {
       assertValidPortName(command.inputName, 'input');

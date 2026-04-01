@@ -110,7 +110,6 @@ test('updateNodePosition persists position without changing node version', async
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
         },
@@ -173,7 +172,6 @@ test('updateNodePosition persists position to active projection nodePositions', 
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
         },
@@ -278,7 +276,6 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
         },
@@ -300,10 +297,8 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
           ...initialGraph.nodes[0],
           config: {
             ...initialGraph.nodes[0].config,
-            config: {
-              cardWidth: 360,
-              cardHeight: 200,
-            },
+            cardWidth: 360,
+            cardHeight: 200,
           },
         },
       ],
@@ -319,8 +314,8 @@ test('updateNodeCardSize persists dimensions without changing node version', asy
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(capturedPayload.nodes[0].config.config.cardWidth, 360);
-    assert.equal(capturedPayload.nodes[0].config.config.cardHeight, 200);
+    assert.equal(capturedPayload.nodes[0].config.cardWidth, 360);
+    assert.equal(capturedPayload.nodes[0].config.cardHeight, 200);
     assert.equal(capturedPayload.nodes[0].version, 'node-size-version-1');
     assert.equal(state.graph?.nodes[0].version, 'node-size-version-1');
   } finally {
@@ -347,13 +342,10 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
-          config: {
-            cardWidth: 220,
-            cardHeight: 80,
-          },
+          cardWidth: 220,
+          cardHeight: 80,
         },
         version: 'node-size-version-1',
       },
@@ -390,11 +382,8 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
           ...initialGraph.nodes[0],
           config: {
             ...initialGraph.nodes[0].config,
-            config: {
-              ...(initialGraph.nodes[0].config.config ?? {}),
-              cardWidth: 360,
-              cardHeight: 200,
-            },
+            cardWidth: 360,
+            cardHeight: 200,
           },
         },
       ],
@@ -419,8 +408,8 @@ test('updateNodeCardSize persists dimensions to active projection nodeCardSizes'
 
     const state = useGraphStore.getState();
     assert.ok(capturedPayload, 'expected updateGraph payload');
-    assert.equal(capturedPayload.nodes?.[0]?.config?.config?.cardWidth, 360);
-    assert.equal(capturedPayload.nodes?.[0]?.config?.config?.cardHeight, 200);
+    assert.equal(capturedPayload.nodes?.[0]?.config?.cardWidth, 360);
+    assert.equal(capturedPayload.nodes?.[0]?.config?.cardHeight, 200);
     assert.equal(
       state.graph?.projections?.find((projection) => projection.id === 'default')?.nodeCardSizes['n-size'].width,
       220
@@ -461,8 +450,10 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'numeric_input' as any,
-          config: { value: 1, min: 0, max: 10, step: 1 },
+          value: 1,
+          min: 0,
+          max: 10,
+          step: 1,
         },
         version: 'source-a-v1',
       },
@@ -476,8 +467,10 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'numeric_input' as any,
-          config: { value: 2, min: 0, max: 10, step: 1 },
+          value: 2,
+          min: 0,
+          max: 10,
+          step: 1,
         },
         version: 'source-b-v1',
       },
@@ -491,7 +484,6 @@ test('addConnection rewires an occupied input instead of appending duplicate inb
           outputs: [{ name: 'output', schema: { type: 'number' } }],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = inputs.input;',
           runtime: 'javascript_vm',
         },
@@ -780,7 +772,6 @@ test('deleteNode reconciles multi-select state when a selected node is removed',
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 1;',
           runtime: 'javascript_vm',
         },
@@ -796,7 +787,6 @@ test('deleteNode reconciles multi-select state when a selected node is removed',
           outputs: [],
         },
         config: {
-          type: 'inline_code' as any,
           code: 'outputs.output = 2;',
           runtime: 'javascript_vm',
         },

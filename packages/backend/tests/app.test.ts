@@ -42,7 +42,6 @@ function createValidInlineNode() {
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = 1;',
       runtime: 'javascript_vm',
     },
@@ -61,7 +60,6 @@ function createPassThroughNode(id: string) {
       outputs: [{ name: 'output', schema: { type: 'number' } }],
     },
     config: {
-      type: 'inline_code',
       code: 'outputs.output = inputs.input;',
       runtime: 'javascript_vm',
     },
@@ -80,13 +78,11 @@ function createNumericInputNode(id: string, value: number) {
       outputs: [{ name: 'value', schema: { type: 'number' } }],
     },
     config: {
-      type: 'numeric_input',
-      config: {
-        value,
-        min: 0,
-        max: 100,
-        step: 1,
-      },
+      value,
+      min: 0,
+      max: 100,
+      step: 1,
+      dragDebounceSeconds: 0.1,
     },
     version: '1',
   };
@@ -103,12 +99,13 @@ function createAnnotationNode(id: string) {
       outputs: [],
     },
     config: {
-      type: 'annotation',
-      config: {
-        text: '# Note',
-        backgroundColor: '#fef3c7',
-        fontColor: '#1f2937',
-      },
+      text: '# Note',
+      backgroundColor: '#fef3c7',
+      borderColor: '#334155',
+      fontColor: '#1f2937',
+      fontSize: 14,
+      cardWidth: 320,
+      cardHeight: 200,
     },
     version: '1',
   };
@@ -125,7 +122,6 @@ function createPngGraphicsNode(id: string) {
       outputs: [],
     },
     config: {
-      type: 'inline_code',
       runtime: 'javascript_vm',
       code: `outputGraphics("data:image/png;base64,${PNG_4X4_BASE64}");`,
     },
@@ -429,12 +425,12 @@ test('POST /api/graphs/:id/commands accepts initial card dimensions on add-node 
     assert.ok(numericNode);
     assert.ok(annotationNode);
     assert.ok(defaultProjection);
-    assert.equal(inlineNode.config?.config?.cardWidth, 420);
-    assert.equal(inlineNode.config?.config?.cardHeight, 180);
-    assert.equal(numericNode.config?.config?.cardWidth, 340);
-    assert.equal(numericNode.config?.config?.cardHeight, 150);
-    assert.equal(annotationNode.config?.config?.cardWidth, 460);
-    assert.equal(annotationNode.config?.config?.cardHeight, 240);
+    assert.equal(inlineNode.config?.cardWidth, 420);
+    assert.equal(inlineNode.config?.cardHeight, 180);
+    assert.equal(numericNode.config?.cardWidth, 340);
+    assert.equal(numericNode.config?.cardHeight, 150);
+    assert.equal(annotationNode.config?.cardWidth, 460);
+    assert.equal(annotationNode.config?.cardHeight, 240);
     assert.equal(defaultProjection.nodeCardSizes['inline-1'].width, 420);
     assert.equal(defaultProjection.nodeCardSizes['inline-1'].height, 180);
     assert.equal(defaultProjection.nodeCardSizes['numeric-1'].width, 340);
@@ -928,8 +924,8 @@ test('POST /api/graphs/:id/query can project annotation text, position, card siz
   try {
     const annotationNode = createAnnotationNode('annotation-query');
     annotationNode.position = { x: 320, y: 180 };
-    annotationNode.config.config = {
-      ...annotationNode.config.config,
+    annotationNode.config = {
+      ...annotationNode.config,
       text: '## Query me',
       cardWidth: 360,
       cardHeight: 220,
@@ -1542,7 +1538,8 @@ test('POST /api/graphs preserves oversized fallback node card dimensions', async
 
   try {
     const node = createValidInlineNode();
-    node.config.config = {
+    node.config = {
+      ...node.config,
       cardWidth: 20_000,
       cardHeight: 20_000,
     };
@@ -1555,8 +1552,8 @@ test('POST /api/graphs preserves oversized fallback node card dimensions', async
 
     assert.equal(graph.projections[0].nodeCardSizes['node-1'].width, 20_000);
     assert.equal(graph.projections[0].nodeCardSizes['node-1'].height, 20_000);
-    assert.equal(graph.nodes[0].config.config.cardWidth, 20_000);
-    assert.equal(graph.nodes[0].config.config.cardHeight, 20_000);
+    assert.equal(graph.nodes[0].config.cardWidth, 20_000);
+    assert.equal(graph.nodes[0].config.cardHeight, 20_000);
   } finally {
     await ctx.close();
   }
@@ -1682,10 +1679,9 @@ test('POST /api/graphs/:id/commands enqueues backend recompute for all impacted 
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'python_process',
         code: 'import time\\ntime.sleep(0.25)\\noutputs.output = 2',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'a-v1',
     };
@@ -1699,10 +1695,9 @@ test('POST /api/graphs/:id/commands enqueues backend recompute for all impacted 
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'b-v1',
     };
@@ -1716,10 +1711,9 @@ test('POST /api/graphs/:id/commands enqueues backend recompute for all impacted 
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'c-v1',
     };
@@ -1828,10 +1822,9 @@ test('POST /api/graphs/:id/commands replaces pending graph-update recomputes wit
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'python_process',
         code: 'import time\ntime.sleep(0.35)\noutputs.output = 1',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'a-v1',
     };
@@ -1845,10 +1838,9 @@ test('POST /api/graphs/:id/commands replaces pending graph-update recomputes wit
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'b-v1',
     };
@@ -1977,10 +1969,9 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'python_process',
         code: `import time\ntime.sleep(${sleepSeconds})\noutputs.output = ${output}`,
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: `${id}-v1`,
     });
@@ -1994,10 +1985,9 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: `${id}-v1`,
     });
@@ -2131,10 +2121,9 @@ test('POST /api/graphs/:id/commands supports noRecompute query flag for topology
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'python_process',
         code: 'import time\\ntime.sleep(0.25)\\noutputs.output = 2',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'a-v1',
     };
@@ -2148,10 +2137,9 @@ test('POST /api/graphs/:id/commands supports noRecompute query flag for topology
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: { autoRecompute: true },
+        autoRecompute: true,
       },
       version: 'b-v1',
     };
@@ -2222,13 +2210,10 @@ test('POST /api/graphs/:id/commands preserves node layout and projection metadat
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = 1;',
-        config: {
-          cardWidth: 260,
-          cardHeight: 160,
-        },
+        cardWidth: 260,
+        cardHeight: 160,
       },
       version: 'a-v1',
     };
@@ -2242,13 +2227,10 @@ test('POST /api/graphs/:id/commands preserves node layout and projection metadat
         outputs: [{ name: 'output', schema: { type: 'number' } }],
       },
       config: {
-        type: 'inline_code',
         runtime: 'javascript_vm',
         code: 'outputs.output = inputs.input;',
-        config: {
-          cardWidth: 320,
-          cardHeight: 210,
-        },
+        cardWidth: 320,
+        cardHeight: 210,
       },
       version: 'b-v1',
     };
@@ -2319,8 +2301,8 @@ test('POST /api/graphs/:id/commands preserves node layout and projection metadat
         .map((node: any) => ({
           id: node.id,
           position: node.position,
-          cardWidth: node.config?.config?.cardWidth,
-          cardHeight: node.config?.config?.cardHeight,
+          cardWidth: node.config?.cardWidth,
+          cardHeight: node.config?.cardHeight,
         }))
         .sort((left: any, right: any) => String(left.id).localeCompare(String(right.id)));
 
@@ -2338,7 +2320,8 @@ test('POST /api/graphs/:id/commands syncs active projection layout on nodes-only
   try {
     const node = createValidInlineNode();
     node.position = { x: 320, y: 180 };
-    node.config.config = {
+    node.config = {
+      ...node.config,
       cardWidth: 360,
       cardHeight: 200,
     };
@@ -2389,11 +2372,8 @@ test('POST /api/graphs/:id/commands syncs active projection layout on nodes-only
                 position: { x: 520, y: 360 },
                 config: {
                   ...candidate.config,
-                  config: {
-                    ...(candidate.config?.config ?? {}),
-                    cardWidth: 410,
-                    cardHeight: 260,
-                  },
+                  cardWidth: 410,
+                  cardHeight: 260,
                 },
               }
             : candidate
@@ -2409,8 +2389,8 @@ test('POST /api/graphs/:id/commands syncs active projection layout on nodes-only
     assert.ok(altProjection);
     assert.equal(updatedGraph.nodes[0].position.x, 520);
     assert.equal(updatedGraph.nodes[0].position.y, 360);
-    assert.equal(updatedGraph.nodes[0].config?.config?.cardWidth, 410);
-    assert.equal(updatedGraph.nodes[0].config?.config?.cardHeight, 260);
+    assert.equal(updatedGraph.nodes[0].config?.cardWidth, 410);
+    assert.equal(updatedGraph.nodes[0].config?.cardHeight, 260);
     assert.equal(defaultProjection.nodePositions['node-1'].x, 40);
     assert.equal(defaultProjection.nodePositions['node-1'].y, 80);
     assert.equal(defaultProjection.nodeCardSizes['node-1'].width, 220);
@@ -2479,8 +2459,8 @@ test('POST /api/graphs/:id/commands switches active projection and applies proje
     assert.equal(updatedGraph.activeProjectionId, altProjectionId);
     assert.equal(updatedGraph.nodes[0].position.x, 320);
     assert.equal(updatedGraph.nodes[0].position.y, 180);
-    assert.equal(updatedGraph.nodes[0].config.config.cardWidth, 360);
-    assert.equal(updatedGraph.nodes[0].config.config.cardHeight, 200);
+    assert.equal(updatedGraph.nodes[0].config.cardWidth, 360);
+    assert.equal(updatedGraph.nodes[0].config.cardHeight, 200);
     assert.deepEqual(updatedGraph.canvasBackground, {
       mode: 'solid',
       baseColor: '#204060',

@@ -67,14 +67,13 @@ test('createNumericInputNode uses numeric defaults and numeric_input type', () =
   });
 
   assert.equal(node.type, NodeType.NUMERIC_INPUT);
-  assert.equal(node.config.type, NodeType.NUMERIC_INPUT);
   assert.equal(node.metadata.outputs.length, 1);
   assert.equal(node.metadata.outputs[0]?.name, 'value');
-  assert.equal(node.config.config?.value, 0);
-  assert.equal(node.config.config?.min, 0);
-  assert.equal(node.config.config?.max, 100);
-  assert.equal(node.config.config?.step, 1);
-  assert.equal(node.config.config?.dragDebounceSeconds, 0.1);
+  assert.equal(node.config.value, 0);
+  assert.equal(node.config.min, 0);
+  assert.equal(node.config.max, 100);
+  assert.equal(node.config.step, 1);
+  assert.equal(node.config.dragDebounceSeconds, 0.1);
 });
 
 test('createNumericInputNode stores propagateWhileDragging when enabled', () => {
@@ -83,7 +82,7 @@ test('createNumericInputNode stores propagateWhileDragging when enabled', () => 
     propagateWhileDragging: true,
   });
 
-  assert.equal(node.config.config?.propagateWhileDragging, true);
+  assert.equal(node.config.propagateWhileDragging, true);
 });
 
 test('createNumericInputNode stores explicit drag debounce seconds when provided', () => {
@@ -92,7 +91,7 @@ test('createNumericInputNode stores explicit drag debounce seconds when provided
     dragDebounceSeconds: 0.35,
   });
 
-  assert.equal(node.config.config?.dragDebounceSeconds, 0.35);
+  assert.equal(node.config.dragDebounceSeconds, 0.35);
 });
 
 test('createAnnotationNode uses markdown/text color defaults and annotation type', () => {
@@ -101,12 +100,11 @@ test('createAnnotationNode uses markdown/text color defaults and annotation type
   });
 
   assert.equal(node.type, NodeType.ANNOTATION);
-  assert.equal(node.config.type, NodeType.ANNOTATION);
   assert.equal(node.metadata.inputs.length, 0);
   assert.equal(node.metadata.outputs.length, 0);
-  assert.equal(node.config.config?.text, '');
-  assert.equal(node.config.config?.backgroundColor, '#fef3c7');
-  assert.equal(node.config.config?.borderColor, '#334155');
-  assert.equal(node.config.config?.fontColor, '#1f2937');
-  assert.equal(node.config.config?.fontSize, 14);
+  assert.equal(node.config.text, '');
+  assert.equal(node.config.backgroundColor, '#fef3c7');
+  assert.equal(node.config.borderColor, '#334155');
+  assert.equal(node.config.fontColor, '#1f2937');
+  assert.equal(node.config.fontSize, 14);
 });

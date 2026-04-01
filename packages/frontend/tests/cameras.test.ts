@@ -233,13 +233,10 @@ test('graph store restores and clears the current node selection per window', as
           outputs: [{ name: 'value', schema: { type: 'number' } }],
         },
         config: {
-          type: 'numeric_input' as const,
-          config: {
-            value: 10,
-            min: 0,
-            max: 100,
-            step: 1,
-          },
+          value: 10,
+          min: 0,
+          max: 100,
+          step: 1,
         },
         version: 'node-1-v1',
       },

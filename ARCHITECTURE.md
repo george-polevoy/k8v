@@ -139,6 +139,7 @@ k8v is a flow-based modeling software that enables visual programming through an
 
 ### Numeric Input Nodes
 - Provide persisted scalar values directly from node configuration
+- Node configuration is stored flat on `node.config` and discriminated by top-level `node.type`
 - Useful for simple graph parameters and demos without additional boundary-node types
 
 ### Annotation Nodes

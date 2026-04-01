@@ -85,7 +85,15 @@ interface GraphStore extends GraphStorePersistenceState, GraphStoreComputationSt
   updateGraph: (graph: Partial<Graph>) => Promise<void>;
   initializeGraph: () => Promise<void>;
   addNode: (node: GraphNode) => void;
-  updateNode: (nodeId: string, updates: Partial<GraphNode>) => void;
+  updateNode: (
+    nodeId: string,
+    updates: {
+      position?: GraphNode['position'];
+      metadata?: GraphNode['metadata'];
+      config?: GraphNode['config'];
+      lastComputed?: GraphNode['lastComputed'];
+    }
+  ) => void;
   updateNodePosition: (nodeId: string, position: Position) => void;
   updateNodeCardSize: (nodeId: string, width: number, height: number) => void;
   deleteNode: (nodeId: string) => void;

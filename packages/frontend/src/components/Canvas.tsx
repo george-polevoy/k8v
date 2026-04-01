@@ -1142,7 +1142,7 @@ function Canvas({
       const width = nodeFrame.width;
       const height = nodeFrame.height;
       const renderedPosition = nodeFrame.position;
-      const nodeConfig = (node.config.config ?? {}) as Record<string, unknown>;
+      const nodeConfig = node.config as Record<string, unknown>;
       const rawTextOutput = nodeResultsRef.current[node.id]?.textOutput;
       const shouldDisplayTextOutputs = nodeConfig.displayTextOutputs === true;
       const graphicsOutput = nodeGraphicsOutputsRef.current[node.id];
@@ -1196,9 +1196,7 @@ function Canvas({
         });
       }
       if (node.type === NodeType.ANNOTATION) {
-        const annotationConfig = normalizeAnnotationConfig(
-          node.config.config as Record<string, unknown> | undefined
-        );
+        const annotationConfig = normalizeAnnotationConfig(node.config);
         if (annotationConfig.text.length > 0) {
           nextAnnotationOverlays.push({
             nodeId: node.id,
@@ -1300,7 +1298,7 @@ function Canvas({
         DEFAULT_NODE_CARD_BORDER_COLOR
       );
       const annotationConfig = node.type === NodeType.ANNOTATION
-        ? normalizeAnnotationConfig(node.config.config as Record<string, unknown> | undefined)
+        ? normalizeAnnotationConfig(node.config)
         : null;
 
       const frame = new Graphics();
@@ -1332,7 +1330,8 @@ function Canvas({
       container.addChild(frame);
 
       const nodeExecutionState = nodeExecutionStatesRef.current[node.id];
-      const autoRecomputeEnabled = Boolean(node.config.config?.autoRecompute);
+      const autoRecomputeEnabled = node.type !== NodeType.ANNOTATION &&
+        node.config.autoRecompute === true;
       const statusLightColor = nodeExecutionState?.hasError
         ? 0xef4444
         : (nodeExecutionState?.isPending || nodeExecutionState?.isComputing)
@@ -1613,7 +1612,7 @@ function Canvas({
             ? activeNumericSliderDragState
             : null;
         const numericConfigBase = normalizeNumericInputConfig(
-          node.config.config as Record<string, unknown> | undefined
+          node.config
         );
         const numericConfig = numericSliderDragStateForNode
           ? {

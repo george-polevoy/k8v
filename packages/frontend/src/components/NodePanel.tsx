@@ -175,6 +175,11 @@ interface NodePanelProps {
   embedded?: boolean;
 }
 
+type InlineCodeNode = Extract<GraphNode, { type: NodeType.INLINE_CODE }>;
+type NumericInputNode = Extract<GraphNode, { type: NodeType.NUMERIC_INPUT }>;
+type AnnotationNode = Extract<GraphNode, { type: NodeType.ANNOTATION }>;
+type ExecutableNode = Exclude<GraphNode, AnnotationNode>;
+
 function NodePanel({ embedded = false }: NodePanelProps) {
   const graph = useGraphStore((state) => state.graph);
   const submitGraphCommands = useGraphStore((state) => state.submitGraphCommands);
@@ -197,6 +202,22 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     const node = selectedNodeMap.get(nodeId);
     return node ? [node] : [];
   });
+  const selectedInlineCodeNode: InlineCodeNode | null = selectedNode?.type === NodeType.INLINE_CODE
+    ? selectedNode
+    : null;
+  const selectedNumericInputNode: NumericInputNode | null = selectedNode?.type === NodeType.NUMERIC_INPUT
+    ? selectedNode
+    : null;
+  const selectedAnnotationNode: AnnotationNode | null = selectedNode?.type === NodeType.ANNOTATION
+    ? selectedNode
+    : null;
+  const selectedExecutableNode: ExecutableNode | null =
+    selectedNode && selectedNode.type !== NodeType.ANNOTATION
+      ? selectedNode
+      : null;
+  const selectedAnnotationNodes = selectedNodes.filter(
+    (node): node is AnnotationNode => node.type === NodeType.ANNOTATION
+  );
   const firstSelectedNodeAppearance = selectedNodes[0]
     ? resolveNodeCardAppearance(selectedNodes[0])
     : null;
@@ -206,10 +227,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const selectedDrawing = graph?.drawings?.find((drawing) => drawing.id === selectedDrawingId) || null;
   const isMultiNodeSelection = selectedNodes.length > 1;
   const selectedAnnotationConfigs = isMultiNodeSelection &&
-    selectedNodes.every((node) => node.config.type === NodeType.ANNOTATION)
-    ? selectedNodes.map((node) =>
-        normalizeAnnotationConfig(node.config.config as Record<string, unknown> | undefined)
-      )
+    selectedAnnotationNodes.length === selectedNodes.length
+    ? selectedAnnotationNodes.map((node) => normalizeAnnotationConfig(node.config))
     : null;
   const isMultiAnnotationSelection = selectedAnnotationConfigs !== null;
   const selectedNodeSetSummary = formatSelectedNodeSetSummary(selectedNodes);
@@ -251,8 +270,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     }
     hydratedNodeDraftSourceRef.current = draftSourceKey;
 
-    if (selectedNode?.config.code !== undefined) {
-      setCodeValue(selectedNode.config.code);
+    if (selectedInlineCodeNode) {
+      setCodeValue(selectedInlineCodeNode.config.code);
     } else {
       setCodeValue('');
     }
@@ -269,28 +288,22 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       setInputDraftNames([]);
     }
 
-    if (selectedNode?.config.type === NodeType.NUMERIC_INPUT) {
-      setNumericDraft(createNumericInputDraft(
-        selectedNode.config.config as Record<string, unknown> | undefined
-      ));
+    if (selectedNumericInputNode) {
+      setNumericDraft(createNumericInputDraft(selectedNumericInputNode.config));
     }
 
-    if (selectedNode?.config.type === NodeType.ANNOTATION) {
-      setAnnotationDraft(createAnnotationDraft(
-        selectedNode.config.config as Record<string, unknown> | undefined
-      ));
+    if (selectedAnnotationNode) {
+      setAnnotationDraft(createAnnotationDraft(selectedAnnotationNode.config));
     }
 
     if (selectedNode) {
-      setTextOutputDisplayDraft(createTextOutputDisplayDraft(
-        selectedNode.config.config as Record<string, unknown> | undefined
-      ));
+      setTextOutputDisplayDraft(createTextOutputDisplayDraft(selectedNode.config));
     } else {
       setTextOutputDisplayDraft(createTextOutputDisplayDraft());
     }
 
     setInputValidationError(null);
-  }, [selectedNode]);
+  }, [selectedAnnotationNode, selectedInlineCodeNode, selectedNode, selectedNumericInputNode]);
 
   useEffect(() => {
     if (!hasFirstSelectedNodeAppearance) {
@@ -340,35 +353,35 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   }, [selectedNodeId]);
 
   const commitInlineCode = useCallback(() => {
-    if (!selectedNode || selectedNode.config.type !== NodeType.INLINE_CODE) {
+    if (!selectedInlineCodeNode) {
       return;
     }
 
-    const currentCode = selectedNode.config.code ?? '';
+    const currentCode = selectedInlineCodeNode.config.code ?? '';
     if (codeValue === currentCode) {
       return;
     }
 
-    const nextOutputs = reconcileInlineOutputPorts(selectedNode, codeValue, graph?.connections ?? []);
+    const nextOutputs = reconcileInlineOutputPorts(selectedInlineCodeNode, codeValue, graph?.connections ?? []);
     const outputNamesChanged =
-      nextOutputs.length !== selectedNode.metadata.outputs.length ||
-      nextOutputs.some((output, index) => output.name !== selectedNode.metadata.outputs[index]?.name);
+      nextOutputs.length !== selectedInlineCodeNode.metadata.outputs.length ||
+      nextOutputs.some((output, index) => output.name !== selectedInlineCodeNode.metadata.outputs[index]?.name);
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedInlineCodeNode.id, {
       config: {
-        ...selectedNode.config,
+        ...selectedInlineCodeNode.config,
         code: codeValue,
       },
       ...(outputNamesChanged
         ? {
             metadata: {
-              ...selectedNode.metadata,
+              ...selectedInlineCodeNode.metadata,
               outputs: nextOutputs,
             },
           }
         : {}),
     });
-  }, [codeValue, graph?.connections, selectedNode, updateNode]);
+  }, [codeValue, graph?.connections, selectedInlineCodeNode, updateNode]);
 
   const updateSelectedNodeInputs = useCallback((
     nextInputs: PortDefinition[],
@@ -449,52 +462,42 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   }, [drawingNameValue, selectedDrawing, updateDrawing]);
 
   const setAutoRecompute = useCallback((enabled: boolean) => {
-    if (!selectedNode) {
+    if (!selectedExecutableNode) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedExecutableNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          autoRecompute: enabled,
-        },
+        ...selectedExecutableNode.config,
+        autoRecompute: enabled,
       },
     });
-  }, [selectedNode, updateNode]);
+  }, [selectedExecutableNode, updateNode]);
 
   const setDisplayTextOutputs = useCallback((enabled: boolean) => {
-    if (!selectedNode) {
+    if (!selectedExecutableNode) {
       return;
     }
 
-    const current = normalizeTextOutputDisplayConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeTextOutputDisplayConfig(selectedExecutableNode.config);
     if (current.displayTextOutputs === enabled) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedExecutableNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          displayTextOutputs: enabled,
-        },
+        ...selectedExecutableNode.config,
+        displayTextOutputs: enabled,
       },
     });
-  }, [selectedNode, updateNode]);
+  }, [selectedExecutableNode, updateNode]);
 
   const commitTextOutputMaxLines = useCallback((overrideValue?: string) => {
-    if (!selectedNode) {
+    if (!selectedExecutableNode) {
       return;
     }
 
-    const current = normalizeTextOutputDisplayConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeTextOutputDisplayConfig(selectedExecutableNode.config);
     const nextMaxLines = normalizeTextOutputMaxLines(
       overrideValue ?? textOutputDisplayDraft.maxLines,
       current.maxLines
@@ -509,19 +512,16 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedExecutableNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          textOutputMaxLines: nextMaxLines,
-        },
+        ...selectedExecutableNode.config,
+        textOutputMaxLines: nextMaxLines,
       },
     });
-  }, [selectedNode, textOutputDisplayDraft.maxLines, updateNode]);
+  }, [selectedExecutableNode, textOutputDisplayDraft.maxLines, updateNode]);
 
   const setTextOutputOverflowMode = useCallback((mode: TextOutputOverflowMode) => {
-    if (!selectedNode) {
+    if (!selectedExecutableNode) {
       return;
     }
 
@@ -530,29 +530,24 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       overflowMode: mode,
     }));
 
-    const current = normalizeTextOutputDisplayConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeTextOutputDisplayConfig(selectedExecutableNode.config);
     if (current.overflowMode === mode) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedExecutableNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          textOutputOverflowMode: mode,
-        },
+        ...selectedExecutableNode.config,
+        textOutputOverflowMode: mode,
       },
     });
-  }, [selectedNode, updateNode]);
+  }, [selectedExecutableNode, updateNode]);
 
   const commitNumericInputConfig = useCallback((
     overrideField?: keyof Pick<NumericInputDraft, 'value' | 'step' | 'min' | 'max' | 'dragDebounceSeconds'>,
     overrideValue?: string
   ) => {
-    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+    if (!selectedNumericInputNode) {
       return;
     }
 
@@ -563,9 +558,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         }
       : numericDraft;
 
-    const current = normalizeNumericInputConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeNumericInputConfig(selectedNumericInputNode.config);
 
     const parsedValue = Number.parseFloat(effectiveDraft.value);
     const parsedMin = Number.parseFloat(effectiveDraft.min);
@@ -597,28 +590,25 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedNumericInputNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          value: next.value,
-          min: next.min,
-          max: next.max,
-          step: next.step,
-          dragDebounceSeconds: next.dragDebounceSeconds,
-          propagateWhileDragging: effectiveDraft.propagateWhileDragging,
-        },
+        ...selectedNumericInputNode.config,
+        value: next.value,
+        min: next.min,
+        max: next.max,
+        step: next.step,
+        dragDebounceSeconds: next.dragDebounceSeconds,
+        propagateWhileDragging: effectiveDraft.propagateWhileDragging,
       },
     });
   }, [
     numericDraft,
-    selectedNode,
+    selectedNumericInputNode,
     updateNode,
   ]);
 
   const setNumericInputPropagateWhileDragging = useCallback((enabled: boolean) => {
-    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+    if (!selectedNumericInputNode) {
       return;
     }
 
@@ -627,33 +617,26 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       propagateWhileDragging: enabled,
     }));
 
-    const current = normalizeNumericInputConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeNumericInputConfig(selectedNumericInputNode.config);
     if (current.propagateWhileDragging === enabled) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedNumericInputNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config || {}),
-          propagateWhileDragging: enabled,
-        },
+        ...selectedNumericInputNode.config,
+        propagateWhileDragging: enabled,
       },
     });
-  }, [selectedNode, updateNode]);
+  }, [selectedNumericInputNode, updateNode]);
 
   const resetNumericInputDrafts = useCallback(() => {
-    if (!selectedNode || selectedNode.config.type !== NodeType.NUMERIC_INPUT) {
+    if (!selectedNumericInputNode) {
       return;
     }
 
-    setNumericDraft(createNumericInputDraft(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    ));
-  }, [selectedNode]);
+    setNumericDraft(createNumericInputDraft(selectedNumericInputNode.config));
+  }, [selectedNumericInputNode]);
 
   const commitAnnotationSettings = useCallback((overrides?: {
     text?: string;
@@ -662,13 +645,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     fontColor?: string;
     fontSize?: number | string;
   }) => {
-    if (!selectedNode || selectedNode.config.type !== NodeType.ANNOTATION) {
+    if (!selectedAnnotationNode) {
       return;
     }
 
-    const current = normalizeAnnotationConfig(
-      selectedNode.config.config as Record<string, unknown> | undefined
-    );
+    const current = normalizeAnnotationConfig(selectedAnnotationNode.config);
     const next = normalizeAnnotationDraft({
       text: overrides?.text ?? annotationDraft.text,
       backgroundColor: overrides?.backgroundColor ?? annotationDraft.backgroundColor,
@@ -689,22 +670,19 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       return;
     }
 
-    updateNode(selectedNode.id, {
+    updateNode(selectedAnnotationNode.id, {
       config: {
-        ...selectedNode.config,
-        config: {
-          ...(selectedNode.config.config ?? {}),
-          text: next.text,
-          backgroundColor: next.backgroundColor,
-          borderColor: next.borderColor,
-          fontColor: next.fontColor,
-          fontSize: next.fontSize,
-        },
+        ...selectedAnnotationNode.config,
+        text: next.text,
+        backgroundColor: next.backgroundColor,
+        borderColor: next.borderColor,
+        fontColor: next.fontColor,
+        fontSize: next.fontSize,
       },
     });
   }, [
     annotationDraft,
-    selectedNode,
+    selectedAnnotationNode,
     updateNode,
   ]);
 
@@ -867,12 +845,12 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     addNode(newNode);
   };
 
-  const autoRecomputeEnabled = Boolean(selectedNode?.config.config?.autoRecompute);
+  const autoRecomputeEnabled = selectedExecutableNode?.config.autoRecompute === true;
   const textOutputDisplayConfig = normalizeTextOutputDisplayConfig(
-    selectedNode?.config.config as Record<string, unknown> | undefined
+    selectedNode?.config as Record<string, unknown> | undefined
   );
-  const isNumericInputNode = selectedNode?.config.type === NodeType.NUMERIC_INPUT;
-  const isAnnotationNode = selectedNode?.config.type === NodeType.ANNOTATION;
+  const isNumericInputNode = selectedNumericInputNode !== null;
+  const isAnnotationNode = selectedAnnotationNode !== null;
   const selectedNodeAppearances = selectedNodes.map((node) => resolveNodeCardAppearance(node));
   const hasMixedCardBackgroundColor = new Set(
     selectedNodeAppearances.map((appearance) => appearance.backgroundColor)
@@ -885,8 +863,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
   const supportsInputEditing = Boolean(selectedNode && !isNumericInputNode && !isAnnotationNode);
   const graphPythonEnvs = graph?.pythonEnvs ?? [];
   const selectedPythonEnvExists = Boolean(
-    selectedNode?.config.pythonEnv &&
-      graphPythonEnvs.some((env) => env.name === selectedNode.config.pythonEnv)
+    selectedInlineCodeNode?.config.pythonEnv &&
+      graphPythonEnvs.some((env) => env.name === selectedInlineCodeNode.config.pythonEnv)
   );
   const statusLightColor = nodeExecutionState?.hasError
     ? '#ef4444'
@@ -962,7 +940,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
     let didChange = false;
     const version = Date.now().toString();
-    const nextNodes = graph.nodes.map((node) => {
+    const nextNodes: GraphNode[] = graph.nodes.map((node) => {
       if (!selectedNodeIdSet.has(node.id)) {
         return node;
       }
@@ -982,14 +960,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         ...node,
         config: {
           ...node.config,
-          config: {
-            ...(node.config.config ?? {}),
-            backgroundColor: resolvedBackgroundColor,
-            borderColor: resolvedBorderColor,
-          },
+          backgroundColor: resolvedBackgroundColor,
+          borderColor: resolvedBorderColor,
         },
         version,
-      };
+      } as GraphNode;
     });
 
     if (!didChange) {
@@ -1044,14 +1019,12 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     const selectedNodeIdSet = new Set(selectedNodes.map((node) => node.id));
     let didChange = false;
     const version = Date.now().toString();
-    const nextNodes = graph.nodes.map((node) => {
-      if (!selectedNodeIdSet.has(node.id) || node.config.type !== NodeType.ANNOTATION) {
+    const nextNodes: GraphNode[] = graph.nodes.map((node) => {
+      if (!selectedNodeIdSet.has(node.id) || node.type !== NodeType.ANNOTATION) {
         return node;
       }
 
-      const current = normalizeAnnotationConfig(
-        node.config.config as Record<string, unknown> | undefined
-      );
+      const current = normalizeAnnotationConfig(node.config);
       const resolvedFontColor = nextFontColor ?? current.fontColor;
       const resolvedFontSize = nextFontSize ?? current.fontSize;
       if (
@@ -1066,14 +1039,11 @@ function NodePanel({ embedded = false }: NodePanelProps) {
         ...node,
         config: {
           ...node.config,
-          config: {
-            ...(node.config.config ?? {}),
-            fontColor: resolvedFontColor,
-            fontSize: resolvedFontSize,
-          },
+          fontColor: resolvedFontColor,
+          fontSize: resolvedFontSize,
         },
         version,
-      };
+      } as GraphNode;
     });
 
     if (nextFontColor !== undefined) {
@@ -1258,7 +1228,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
               onCommitTextOutputMaxLines={commitTextOutputMaxLines}
               onResetTextOutputMaxLines={() => {
                 setTextOutputDisplayDraft(createTextOutputDisplayDraft(
-                  selectedNode.config.config as Record<string, unknown> | undefined
+                  selectedNode.config
                 ));
               }}
               onSetTextOutputOverflowMode={setTextOutputOverflowMode}
@@ -1284,7 +1254,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
             />
           )}
 
-          {selectedNode.config.type === NodeType.NUMERIC_INPUT && (
+          {selectedNumericInputNode && (
             <NodePanelNumericSection
               numericDraft={numericDraft}
               onNumericDraftChange={(field, value) => {
@@ -1299,7 +1269,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
             />
           )}
 
-          {selectedNode.config.type === NodeType.ANNOTATION && (
+          {selectedAnnotationNode && (
             <NodePanelAnnotationSection
               annotationDraft={annotationDraft}
               onAnnotationDraftChange={(field, value) => {
@@ -1311,35 +1281,35 @@ function NodePanel({ embedded = false }: NodePanelProps) {
               onCommitAnnotationSettings={commitAnnotationSettings}
               onResetAnnotationDrafts={() => {
                 setAnnotationDraft(createAnnotationDraft(
-                  selectedNode.config.config as Record<string, unknown> | undefined
+                  selectedAnnotationNode.config
                 ));
               }}
               onOpenAnnotationColorDialog={setAnnotationColorDialogTarget}
             />
           )}
 
-          {selectedNode.config.type === NodeType.INLINE_CODE && (
+          {selectedInlineCodeNode && (
             <NodePanelInlineCodeSection
-              selectedNode={selectedNode}
+              selectedNode={selectedInlineCodeNode}
               graphPythonEnvs={graphPythonEnvs}
               selectedPythonEnvExists={selectedPythonEnvExists}
               codeValue={codeValue}
               onUpdateNodeRuntime={(nextRuntime) => {
-                updateNode(selectedNode.id, {
+                updateNode(selectedInlineCodeNode.id, {
                   config: {
-                    ...selectedNode.config,
+                    ...selectedInlineCodeNode.config,
                     runtime: nextRuntime,
                     pythonEnv:
                       nextRuntime === 'python_process'
-                        ? selectedNode.config.pythonEnv
+                        ? selectedInlineCodeNode.config.pythonEnv
                         : undefined,
                   },
                 });
               }}
               onUpdateNodePythonEnv={(nextEnv) => {
-                updateNode(selectedNode.id, {
+                updateNode(selectedInlineCodeNode.id, {
                   config: {
-                    ...selectedNode.config,
+                    ...selectedInlineCodeNode.config,
                     pythonEnv: nextEnv || undefined,
                   },
                 });
@@ -1347,7 +1317,7 @@ function NodePanel({ embedded = false }: NodePanelProps) {
               onCodeChange={setCodeValue}
               onCommitInlineCode={commitInlineCode}
               onResetInlineCode={() => {
-                setCodeValue(selectedNode.config.code ?? '');
+                setCodeValue(selectedInlineCodeNode.config.code ?? '');
               }}
             />
           )}

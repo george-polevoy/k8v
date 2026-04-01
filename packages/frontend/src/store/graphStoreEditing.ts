@@ -26,6 +26,13 @@ interface CreateGraphEditingControllerParams {
   setState: GraphStoreEditingSetState;
 }
 
+type GraphNodeUpdate = {
+  position?: GraphNode['position'];
+  metadata?: GraphNode['metadata'];
+  config?: GraphNode['config'];
+  lastComputed?: GraphNode['lastComputed'];
+};
+
 export function createGraphEditingController({
   getState,
   setState,
@@ -54,15 +61,18 @@ export function createGraphEditingController({
       );
     },
 
-    updateNode(nodeId: string, updates: Partial<GraphNode>): void {
-      persistGraphEdit((graph) =>
-        [{
+    updateNode(nodeId: string, updates: GraphNodeUpdate): void {
+      persistGraphEdit((graph) => {
+        const nodes: GraphNode[] = graph.nodes.map((node) =>
+          node.id === nodeId
+            ? ({ ...node, ...updates, version: Date.now().toString() } as GraphNode)
+            : node
+        );
+        return [{
           kind: 'replace_nodes',
-          nodes: graph.nodes.map((node) =>
-            node.id === nodeId ? { ...node, ...updates, version: Date.now().toString() } : node
-          ),
-        }]
-      );
+          nodes,
+        }];
+      });
     },
 
     updateNodePosition(nodeId: string, position: Position): void {
@@ -75,9 +85,8 @@ export function createGraphEditingController({
     },
 
     updateNodeCardSize(nodeId: string, width: number, height: number): void {
-      persistGraphEdit((graph) => [{
-        kind: 'replace_nodes',
-        nodes: graph.nodes.map((node) => {
+      persistGraphEdit((graph) => {
+        const nodes: GraphNode[] = graph.nodes.map((node) => {
           if (node.id !== nodeId) {
             return node;
           }
@@ -86,15 +95,16 @@ export function createGraphEditingController({
             ...node,
             config: {
               ...node.config,
-              config: {
-                ...(node.config.config ?? {}),
-                cardWidth: width,
-                cardHeight: height,
-              },
+              cardWidth: width,
+              cardHeight: height,
             },
-          };
-        }),
-      }]);
+          } as GraphNode;
+        });
+        return [{
+          kind: 'replace_nodes',
+          nodes,
+        }];
+      });
     },
 
     deleteNode(nodeId: string): void {

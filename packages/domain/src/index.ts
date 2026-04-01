@@ -61,6 +61,9 @@ export enum NodeType {
 export const RuntimeId = z.enum(['javascript_vm', 'python_process']);
 export type RuntimeId = z.infer<typeof RuntimeId>;
 
+export const TextOutputOverflowMode = z.enum(['cap', 'scroll']);
+export type TextOutputOverflowMode = z.infer<typeof TextOutputOverflowMode>;
+
 export const PythonEnvironment = z.object({
   name: z.string().trim().min(1),
   pythonPath: z.string().trim().min(1),
@@ -188,28 +191,114 @@ export const GraphCamera = z.object({
 
 export type GraphCamera = z.infer<typeof GraphCamera>;
 
-export const NodeConfig = z.object({
-  type: z.nativeEnum(NodeType),
-  code: z.string().optional(),
-  subgraphId: z.string().optional(),
-  runtime: z.string().min(1).optional(),
-  pythonEnv: z.string().trim().min(1).optional(),
-  config: z.record(z.unknown()).optional(),
+const NodeCardSizeConfig = z.object({
+  cardWidth: z.number().finite().positive().optional(),
+  cardHeight: z.number().finite().positive().optional(),
 });
 
-export type NodeConfig = z.infer<typeof NodeConfig>;
+const NodeCardAppearanceConfig = z.object({
+  backgroundColor: z.string().trim().min(1).optional(),
+  borderColor: z.string().trim().min(1).optional(),
+});
 
-export const GraphNode = z.object({
+const NodeExecutionDisplayConfig = z.object({
+  autoRecompute: z.boolean().optional(),
+  displayTextOutputs: z.boolean().optional(),
+  textOutputMaxLines: z.number().int().positive().optional(),
+  textOutputOverflowMode: TextOutputOverflowMode.optional(),
+});
+
+export const InlineCodeNodeConfigSchema = NodeCardSizeConfig
+  .merge(NodeCardAppearanceConfig)
+  .merge(NodeExecutionDisplayConfig)
+  .extend({
+    code: z.string(),
+    runtime: z.string().min(1).optional(),
+    pythonEnv: z.string().trim().min(1).optional(),
+  });
+
+export const SubgraphNodeConfigSchema = NodeCardSizeConfig
+  .merge(NodeCardAppearanceConfig)
+  .merge(NodeExecutionDisplayConfig)
+  .extend({
+    subgraphId: z.string().trim().min(1),
+  });
+
+export const NumericInputNodeConfigSchema = NodeCardSizeConfig
+  .merge(NodeCardAppearanceConfig)
+  .merge(NodeExecutionDisplayConfig)
+  .extend({
+    value: z.number().finite(),
+    min: z.number().finite(),
+    max: z.number().finite(),
+    step: z.number().finite(),
+    dragDebounceSeconds: z.number().finite().nonnegative(),
+    propagateWhileDragging: z.boolean().optional(),
+  });
+
+export const AnnotationNodeConfigSchema = z.object({
+  text: z.string(),
+  backgroundColor: z.string().trim().min(1),
+  borderColor: z.string().trim().min(1),
+  fontColor: z.string().trim().min(1),
+  fontSize: z.number().finite().positive(),
+  cardWidth: z.number().finite().positive(),
+  cardHeight: z.number().finite().positive(),
+});
+
+export const NodeConfig = z.union([
+  InlineCodeNodeConfigSchema,
+  SubgraphNodeConfigSchema,
+  NumericInputNodeConfigSchema,
+  AnnotationNodeConfigSchema,
+]);
+
+export type NodeConfig = z.infer<typeof NodeConfig>;
+export type InlineCodeNodeConfig = z.infer<typeof InlineCodeNodeConfigSchema>;
+export type SubgraphNodeConfig = z.infer<typeof SubgraphNodeConfigSchema>;
+export type NumericInputNodeConfig = z.infer<typeof NumericInputNodeConfigSchema>;
+export type AnnotationNodeConfig = z.infer<typeof AnnotationNodeConfigSchema>;
+
+const GraphNodeBase = z.object({
   id: z.string(),
-  type: z.nativeEnum(NodeType),
   position: DrawingPoint,
   metadata: NodeMetadata,
-  config: NodeConfig,
   version: z.string(),
   lastComputed: z.number().optional(),
 });
 
+export const InlineCodeGraphNode = GraphNodeBase.extend({
+  type: z.literal(NodeType.INLINE_CODE),
+  config: InlineCodeNodeConfigSchema,
+});
+
+export const SubgraphGraphNode = GraphNodeBase.extend({
+  type: z.literal(NodeType.SUBGRAPH),
+  config: SubgraphNodeConfigSchema,
+});
+
+export const NumericInputGraphNode = GraphNodeBase.extend({
+  type: z.literal(NodeType.NUMERIC_INPUT),
+  config: NumericInputNodeConfigSchema,
+});
+
+export const AnnotationGraphNode = GraphNodeBase.extend({
+  type: z.literal(NodeType.ANNOTATION),
+  config: AnnotationNodeConfigSchema,
+});
+
+export const GraphNode = z.discriminatedUnion('type', [
+  InlineCodeGraphNode,
+  SubgraphGraphNode,
+  NumericInputGraphNode,
+  AnnotationGraphNode,
+]);
+
 export type GraphNode = z.infer<typeof GraphNode>;
+export type InlineCodeGraphNode = z.infer<typeof InlineCodeGraphNode>;
+export type SubgraphGraphNode = z.infer<typeof SubgraphGraphNode>;
+export type NumericInputGraphNode = z.infer<typeof NumericInputGraphNode>;
+export type AnnotationGraphNode = z.infer<typeof AnnotationGraphNode>;
 
 export const ConnectionAnchorSide = z.enum(['top', 'right', 'bottom', 'left']);
 export type ConnectionAnchorSide = z.infer<typeof ConnectionAnchorSide>;

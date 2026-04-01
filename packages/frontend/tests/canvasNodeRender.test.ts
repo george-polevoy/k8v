@@ -20,8 +20,7 @@ function createGraphNode(): GraphNode {
       outputs: [],
     },
     config: {
-      type: NodeType.INLINE_CODE,
-      config: {},
+      code: 'outputs.output = 1;',
     },
     version: '1',
   };
