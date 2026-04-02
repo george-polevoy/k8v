@@ -135,10 +135,14 @@ export function createGraphUpdatePersistenceController({
   setState,
   syncPersistedGraph,
 }: CreateGraphUpdatePersistenceControllerParams) {
-  let latestUpdateRequestId = 0;
   let pendingUpdateCount = 0;
-
-  const isLatestRequest = (requestId: number) => requestId === latestUpdateRequestId;
+  let processingQueue = false;
+  let pendingUpdates: Array<{
+    graphId: string;
+    commands: GraphCommand[];
+    resolve: () => void;
+  }> = [];
+  const persistedGraphs = new Map<string, Graph>();
 
   const sendGraphUpdate = async (
     graphId: string,
@@ -151,6 +155,165 @@ export function createGraphUpdatePersistenceController({
     }
     const response = await api.submitCommands(graphId, baseGraph.revision, commands);
     return normalizeGraph(response.graph);
+  };
+
+  const hasPendingUpdatesForGraph = (graphId: string): boolean =>
+    pendingUpdates.some((update) => update.graphId === graphId);
+
+  const reapplyPendingCommands = (graph: Graph): Graph => {
+    let nextGraph = graph;
+    for (const pendingUpdate of pendingUpdates) {
+      if (pendingUpdate.graphId !== graph.id) {
+        continue;
+      }
+      nextGraph = normalizeGraph(applyGraphCommands(nextGraph, pendingUpdate.commands));
+    }
+    return nextGraph;
+  };
+
+  const reconcileCurrentGraph = (graph: Graph, error: string | null) => {
+    setState((state) => {
+      if (!state.graph || state.graph.id !== graph.id) {
+        return {};
+      }
+
+      return buildGraphStateUpdate({
+        graph: reapplyPendingCommands(graph),
+        selectedCameraId: state.selectedCameraId,
+        selectedNodeId: state.selectedNodeId,
+        selectedNodeIds: state.selectedNodeIds,
+        selectedDrawingId: state.selectedDrawingId,
+        nodeExecutionStates: state.nodeExecutionStates,
+        nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+        nodeResults: state.nodeResults,
+        error,
+        isLoading: false,
+        selectionMode: 'reconcile',
+      });
+    });
+  };
+
+  const removePendingUpdatesForGraph = (graphId: string) => {
+    const removedUpdates = pendingUpdates.filter((update) => update.graphId === graphId);
+    if (removedUpdates.length === 0) {
+      return removedUpdates;
+    }
+
+    pendingUpdates = pendingUpdates.filter((update) => update.graphId !== graphId);
+    pendingUpdateCount = Math.max(0, pendingUpdateCount - removedUpdates.length);
+    return removedUpdates;
+  };
+
+  const processPendingUpdates = async (): Promise<void> => {
+    if (processingQueue) {
+      return;
+    }
+
+    processingQueue = true;
+    try {
+      while (pendingUpdates.length > 0) {
+        const pendingUpdate = pendingUpdates[0];
+        const activeGraph = getState().graph;
+        const baseGraph =
+          persistedGraphs.get(pendingUpdate.graphId) ??
+          (activeGraph?.id === pendingUpdate.graphId ? activeGraph : null);
+
+        if (!baseGraph) {
+          pendingUpdates.shift();
+          pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
+          pendingUpdate.resolve();
+          continue;
+        }
+
+        try {
+          const persistedGraph = await sendGraphUpdate(
+            pendingUpdate.graphId,
+            baseGraph,
+            pendingUpdate.commands
+          );
+          pendingUpdates.shift();
+          pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
+          persistedGraphs.set(pendingUpdate.graphId, persistedGraph);
+          reconcileCurrentGraph(persistedGraph, null);
+          if (getState().graph?.id === pendingUpdate.graphId) {
+            syncPersistedGraph(persistedGraph);
+          }
+          pendingUpdate.resolve();
+          continue;
+        } catch (error: any) {
+          if (error?.response?.status === 409) {
+            try {
+              const latestGraph = normalizeGraph(await api.fetchGraph(pendingUpdate.graphId));
+              persistedGraphs.set(pendingUpdate.graphId, latestGraph);
+              const droppedUpdates = removePendingUpdatesForGraph(pendingUpdate.graphId);
+              if (getState().graph?.id === pendingUpdate.graphId) {
+                setState((state) =>
+                  buildGraphStateUpdate({
+                    graph: latestGraph,
+                    selectedCameraId: state.selectedCameraId,
+                    selectedNodeId: state.selectedNodeId,
+                    selectedNodeIds: state.selectedNodeIds,
+                    selectedDrawingId: state.selectedDrawingId,
+                    nodeExecutionStates: state.nodeExecutionStates,
+                    nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                    nodeResults: state.nodeResults,
+                    error: 'Graph changed remotely. Reloaded latest graph state.',
+                    isLoading: false,
+                    selectionMode: 'reconcile',
+                  })
+                );
+                syncPersistedGraph(latestGraph);
+              }
+              for (const droppedUpdate of droppedUpdates) {
+                droppedUpdate.resolve();
+              }
+              continue;
+            } catch (reloadError: any) {
+              const droppedUpdates = removePendingUpdatesForGraph(pendingUpdate.graphId);
+              if (getState().graph?.id === pendingUpdate.graphId) {
+                setState((state) =>
+                  buildGraphStateUpdate({
+                    graph: baseGraph,
+                    selectedCameraId: state.selectedCameraId,
+                    selectedNodeId: state.selectedNodeId,
+                    selectedNodeIds: state.selectedNodeIds,
+                    selectedDrawingId: state.selectedDrawingId,
+                    nodeExecutionStates: state.nodeExecutionStates,
+                    nodeGraphicsOutputs: state.nodeGraphicsOutputs,
+                    nodeResults: state.nodeResults,
+                    error: resolveErrorMessage(
+                      reloadError,
+                      'Graph changed remotely and latest graph could not be reloaded'
+                    ),
+                    isLoading: false,
+                  })
+                );
+              }
+              for (const droppedUpdate of droppedUpdates) {
+                droppedUpdate.resolve();
+              }
+              continue;
+            }
+          }
+
+          const droppedUpdates = removePendingUpdatesForGraph(pendingUpdate.graphId);
+          if (getState().graph?.id === pendingUpdate.graphId) {
+            reconcileCurrentGraph(
+              baseGraph,
+              resolveErrorMessage(error, 'Failed to update graph')
+            );
+          }
+          for (const droppedUpdate of droppedUpdates) {
+            droppedUpdate.resolve();
+          }
+        }
+      }
+    } finally {
+      processingQueue = false;
+      if (pendingUpdates.length > 0) {
+        void processPendingUpdates();
+      }
+    }
   };
 
   const persistCommands = async (commands: GraphCommand[]): Promise<void> => {
@@ -175,8 +338,10 @@ export function createGraphUpdatePersistenceController({
       return;
     }
 
-    const requestId = latestUpdateRequestId + 1;
-    latestUpdateRequestId = requestId;
+    if (!hasPendingUpdatesForGraph(graph.id)) {
+      persistedGraphs.set(graph.id, graph);
+    }
+
     pendingUpdateCount += 1;
 
     setState(buildGraphStateUpdate({
@@ -189,91 +354,14 @@ export function createGraphUpdatePersistenceController({
       isLoading: false,
     }));
 
-    try {
-      const persistedGraph = await sendGraphUpdate(graph.id, graph, commands);
-
-      if (!isLatestRequest(requestId)) {
-        return;
-      }
-
-      setState((state) =>
-        buildGraphStateUpdate({
-          graph: persistedGraph,
-          selectedCameraId: state.selectedCameraId,
-          selectedNodeId: state.selectedNodeId,
-          selectedNodeIds: state.selectedNodeIds,
-          selectedDrawingId: state.selectedDrawingId,
-          nodeExecutionStates: state.nodeExecutionStates,
-          nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-          nodeResults: state.nodeResults,
-          error: null,
-          isLoading: false,
-          selectionMode: 'reconcile',
-        })
-      );
-      syncPersistedGraph(persistedGraph);
-    } catch (error: any) {
-      if (!isLatestRequest(requestId)) {
-        return;
-      }
-
-      if (error?.response?.status === 409) {
-        try {
-          const latestGraph = normalizeGraph(await api.fetchGraph(graph.id));
-          if (!isLatestRequest(requestId)) {
-            return;
-          }
-
-          setState((state) =>
-            buildGraphStateUpdate({
-              graph: latestGraph,
-              selectedCameraId: state.selectedCameraId,
-              selectedNodeId: state.selectedNodeId,
-              selectedNodeIds: state.selectedNodeIds,
-              selectedDrawingId: state.selectedDrawingId,
-              nodeExecutionStates: state.nodeExecutionStates,
-              nodeGraphicsOutputs: state.nodeGraphicsOutputs,
-              nodeResults: state.nodeResults,
-              error: 'Graph changed remotely. Reloaded latest graph state.',
-              isLoading: false,
-              selectionMode: 'reconcile',
-            })
-          );
-          syncPersistedGraph(latestGraph);
-          return;
-        } catch (reloadError: any) {
-          if (!isLatestRequest(requestId)) {
-            return;
-          }
-
-          setState(buildGraphStateUpdate({
-            graph,
-            selectedCameraId,
-            nodeExecutionStates,
-            nodeGraphicsOutputs,
-            nodeResults,
-            error: resolveErrorMessage(
-              reloadError,
-              'Graph changed remotely and latest graph could not be reloaded'
-            ),
-            isLoading: false,
-          }));
-          return;
-        }
-      }
-
-      setState(buildGraphStateUpdate({
-        graph,
-        selectedCameraId,
-        nodeExecutionStates,
-        nodeGraphicsOutputs,
-        nodeResults,
-        error: resolveErrorMessage(error, 'Failed to update graph'),
-        isLoading: false,
-      }));
-    } finally {
-      pendingUpdateCount = Math.max(0, pendingUpdateCount - 1);
-    }
+    await new Promise<void>((resolve) => {
+      pendingUpdates.push({
+        graphId: graph.id,
+        commands,
+        resolve,
+      });
+      void processPendingUpdates();
+    });
   };
 
   return {

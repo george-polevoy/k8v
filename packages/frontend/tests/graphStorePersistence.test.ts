@@ -656,7 +656,7 @@ test('runtime state polling refreshes the current graph when a remote update is 
   }
 });
 
-test('updateGraph keeps the latest persisted graph when responses resolve out of order', async () => {
+test('updateGraph serializes overlapping local updates against the latest persisted revision', async () => {
   const originalPost = axios.post;
 
   const initialGraph: Graph = {
@@ -687,8 +687,18 @@ test('updateGraph keeps the latest persisted graph when responses resolve out of
     const firstUpdate = useGraphStore.getState().updateGraph({ name: 'Graph first optimistic' });
     const secondUpdate = useGraphStore.getState().updateGraph({ name: 'Graph second optimistic' });
 
-    assert.equal(pendingResponses.length, 2);
+    assert.equal(pendingResponses.length, 1);
     assert.equal(useGraphStore.getState().graph?.name, 'Graph second optimistic');
+
+    pendingResponses[0].resolve(buildCommandResponse({
+      ...initialGraph,
+      revision: 1,
+      name: 'Graph first persisted',
+      updatedAt: 201,
+    }));
+    await delay(0);
+
+    assert.equal(pendingResponses.length, 2);
 
     pendingResponses[1].resolve(buildCommandResponse({
       ...initialGraph,
@@ -696,19 +706,13 @@ test('updateGraph keeps the latest persisted graph when responses resolve out of
       name: 'Graph second persisted',
       updatedAt: 202,
     }));
-    pendingResponses[0].resolve(buildCommandResponse({
-      ...initialGraph,
-      revision: 1,
-      name: 'Graph first persisted',
-      updatedAt: 201,
-    }));
 
     await Promise.all([firstUpdate, secondUpdate]);
 
     const state = useGraphStore.getState();
     assert.equal(commandRequests.length, 2);
     assert.equal(commandRequests[0].baseRevision, 0);
-    assert.equal(commandRequests[1].baseRevision, 0);
+    assert.equal(commandRequests[1].baseRevision, 1);
     assert.equal(state.graph?.name, 'Graph second persisted');
     assert.equal(state.graph?.updatedAt, 202);
     assert.equal(state.error, null);

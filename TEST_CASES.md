@@ -16,6 +16,7 @@ Last reviewed: April 1, 2026.
 - `A-E2E-32` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` live slider propagation respects the configured debounce interval before persisting mid-drag updates.
 - `A-E2E-33` `packages/frontend/tests/e2e/canvasTextOutputOverlay.test.ts`: per-node canvas text-output overlays render only for non-empty output, support capped versus scrollable multiline display, hide immediately when disabled, and still render whitespace-only output.
 - `A-E2E-34` `packages/frontend/tests/e2e/manualRecomputeOverlap.test.ts`: clicking `Run Selected Node` repeatedly before a Python recompute finishes drains queued work without leaving downstream Python dependents errored.
+- `A-E2E-35` `packages/frontend/tests/e2e/localOverlappingGraphUpdates.test.ts`: same-tab overlapping graph-save requests stay queued locally and do not surface a false remote-conflict reload in diagnostics.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: the right sidebar icon rail switches sections and clicking the active icon collapses/reopens the wide content pane.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node preserves the current sidebar section instead of auto-switching to Node.
@@ -90,6 +91,7 @@ Last reviewed: April 1, 2026.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
 - `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
 - `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
+- `A-FE-48` `packages/frontend/tests/graphStorePersistence.test.ts`: overlapping same-tab graph updates serialize onto the latest persisted revision instead of racing on the same `baseRevision`.
 - `A-FE-46` `packages/frontend/tests/e2eConfig.test.ts`: frontend e2e support defaults to dedicated local backend/frontend URLs and Vite's dev proxy honors `K8V_BACKEND_URL` for managed test servers.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
 - `A-BE-02` `packages/backend/tests/app.test.ts`: `POST /api/graphs` rejects malformed runtime config.
@@ -277,8 +279,8 @@ Last reviewed: April 1, 2026.
 | Load last opened graph from localStorage on startup | `A-FE-01` | Automated |
 | Fallback to latest stored graph when saved graph ID is stale | `A-FE-01` | Automated |
 | Auto-create a new graph when no graph exists | `M-GRAPH-01` | Manual |
-| Persist graph edits through `POST /api/graphs/:id/commands` | `A-FE-02`, `A-BE-37` | Automated |
-| Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-E2E-08` | Automated + Manual |
+| Persist graph edits through `POST /api/graphs/:id/commands` | `A-FE-02`, `A-FE-48`, `A-E2E-35`, `A-BE-37` | Automated |
+| Optimistic graph updates to avoid UI snap-back during save | `M-GRAPH-02`, `A-FE-24`, `A-FE-48`, `A-E2E-08`, `A-E2E-35` | Automated + Manual |
 | Graph update conflict detection and reload (`baseRevision` + `409`) | `A-BE-44`, `A-FE-24`, `A-E2E-08` | Automated |
 | Open sessions auto-refresh the current graph when remote updates are detected | `A-FE-41`, `A-E2E-28` | Automated |
 | Graph query API supports lightweight field projection, BFS/DFS traversal, and starting-vertex discovery (connections always include source/target node ids) | `A-BE-59`, `A-BE-60`, `A-BE-61`, `A-BE-62`, `A-BE-63`, `A-BE-64` | Automated |
