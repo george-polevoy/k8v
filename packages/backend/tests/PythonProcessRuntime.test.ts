@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { PythonProcessRuntime } from '../src/core/execution/PythonProcessRuntime.js';
+import { PythonExecutionManager } from '../src/core/execution/PythonExecutionManager.js';
 
 const PNG_1X1_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z8S8AAAAASUVORK5CYII=';
@@ -282,6 +283,51 @@ test('PythonProcessRuntime reuses a warm service for repeated executions in the 
     assert.equal(runtime.getActiveServiceCount(), 1);
   } finally {
     await runtime.dispose();
+  }
+});
+
+test('PythonExecutionManager keeps a warm service alive while a new request is entering execution', { skip: skipPythonTests }, async () => {
+  const manager = new PythonExecutionManager();
+  const pythonBin = process.env.K8V_PYTHON_BIN || 'python3';
+
+  try {
+    const first = await manager.execute({
+      code: 'outputs.answer = 1',
+      inputs: {},
+      timeoutMs: 1000,
+      pythonBin,
+      graphId: 'graph-idle-boundary',
+    });
+
+    assert.equal(first.outputs.answer, 1);
+
+    const services = (manager as any).services as Map<string, any>;
+    assert.equal(services.size, 1);
+
+    const service = services.values().next().value as any;
+    const originalEnsureStarted = service.ensureStarted.bind(service);
+
+    service.ensureStarted = async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return await originalEnsureStarted();
+    };
+    service.idleTtlMs = 1;
+    service.lastUsedAt = Date.now() - 100;
+    service.clearIdleTimer();
+    service.scheduleIdleTimer();
+
+    const second = await manager.execute({
+      code: 'outputs.answer = 2',
+      inputs: {},
+      timeoutMs: 1000,
+      pythonBin,
+      graphId: 'graph-idle-boundary',
+    });
+
+    assert.equal(second.outputs.answer, 2);
+    assert.equal(manager.getActiveServiceCount(), 1);
+  } finally {
+    await manager.dispose();
   }
 });
 

@@ -692,13 +692,16 @@ export class PythonExecutionManager {
     }
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const service = await this.getOrCreateService(request);
+      let service: PythonServiceHandle | null = null;
       try {
+        service = await this.getOrCreateService(request);
         await service.configure(resolveWorkerConcurrencyHint(request.workerConcurrencyHint));
         return await service.execute(request);
       } catch (error) {
         if (error instanceof PythonServiceUnavailableError && attempt === 1) {
-          await this.dropService(service.scopeKey, service);
+          if (service) {
+            await this.dropService(service.scopeKey, service);
+          }
           continue;
         }
         throw error;
@@ -739,7 +742,6 @@ export class PythonExecutionManager {
     const scopeKey = makeScopeKey(request);
     const existingService = this.services.get(scopeKey);
     if (existingService) {
-      await existingService.ensureStarted();
       return existingService;
     }
 
@@ -760,14 +762,7 @@ export class PythonExecutionManager {
       },
     });
     this.services.set(scopeKey, service);
-
-    try {
-      await service.ensureStarted();
-      return service;
-    } catch (error) {
-      await this.dropService(scopeKey, service);
-      throw error;
-    }
+    return service;
   }
 
   private async dropService(scopeKey: string, service: PythonServiceHandle): Promise<void> {
@@ -842,10 +837,10 @@ class PythonServiceHandle {
       return;
     }
 
-    await this.ensureStarted();
-    this.desiredWorkerCount = workerCount;
-
+    this.beginUse();
     try {
+      await this.ensureStarted();
+      this.desiredWorkerCount = workerCount;
       await this.requestJson('POST', '/configure', { workerCount }, this.startupTimeoutMs);
     } catch (error) {
       if (error instanceof PythonServiceTransportError) {
@@ -853,16 +848,15 @@ class PythonServiceHandle {
         throw new PythonServiceUnavailableError(error.message);
       }
       throw error;
+    } finally {
+      this.endUse();
     }
   }
 
   async execute(request: ManagedPythonExecutionRequest): Promise<ExecutionResult> {
-    await this.ensureStarted();
-    this.lastUsedAt = Date.now();
-    this.clearIdleTimer();
-    this.inFlightCount += 1;
-
+    this.beginUse();
     try {
+      await this.ensureStarted();
       const response = await this.requestJson(
         'POST',
         '/execute',
@@ -898,9 +892,7 @@ class PythonServiceHandle {
       }
       throw error;
     } finally {
-      this.inFlightCount = Math.max(0, this.inFlightCount - 1);
-      this.lastUsedAt = Date.now();
-      this.scheduleIdleTimer();
+      this.endUse();
     }
   }
 
@@ -1118,6 +1110,21 @@ class PythonServiceHandle {
       : 'not running';
     const stderr = this.stderrTail.trim();
     return `${prefix} (${status})${stderr ? `\n${stderr}` : ''}`;
+  }
+
+  private beginUse(): void {
+    if (this.disposed) {
+      throw new PythonServiceUnavailableError('Python service is disposed');
+    }
+    this.lastUsedAt = Date.now();
+    this.clearIdleTimer();
+    this.inFlightCount += 1;
+  }
+
+  private endUse(): void {
+    this.inFlightCount = Math.max(0, this.inFlightCount - 1);
+    this.lastUsedAt = Date.now();
+    this.scheduleIdleTimer();
   }
 
   private scheduleIdleTimer(): void {
