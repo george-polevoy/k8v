@@ -15,6 +15,7 @@ Last reviewed: April 1, 2026.
 - `A-E2E-31` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag can either hold persisted value until release or propagate mid-drag when the numeric input toggle is enabled.
 - `A-E2E-32` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` live slider propagation respects the configured debounce interval before persisting mid-drag updates.
 - `A-E2E-33` `packages/frontend/tests/e2e/canvasTextOutputOverlay.test.ts`: per-node canvas text-output overlays render only for non-empty output, support capped versus scrollable multiline display, hide immediately when disabled, and still render whitespace-only output.
+- `A-E2E-34` `packages/frontend/tests/e2e/manualRecomputeOverlap.test.ts`: clicking `Run Selected Node` repeatedly before a Python recompute finishes drains queued work without leaving downstream Python dependents errored.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: the right sidebar icon rail switches sections and clicking the active icon collapses/reopens the wide content pane.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node preserves the current sidebar section instead of auto-switching to Node.
@@ -177,6 +178,7 @@ Last reviewed: April 1, 2026.
 - `A-BE-85` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
 - `A-BE-86` `packages/backend/tests/app.test.ts`: graph update APIs persist node `metadata.custom` JSON payloads and add-node commands accept custom metadata.
 - `A-BE-87` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` updates existing node `metadata.custom` dictionaries via `node_set_custom`.
+- `A-BE-88` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python service transport failures retire the shared service without killing sibling in-flight requests, and later executions recover on a fresh warm service.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.

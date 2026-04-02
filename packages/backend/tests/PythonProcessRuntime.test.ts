@@ -331,6 +331,129 @@ test('PythonExecutionManager keeps a warm service alive while a new request is e
   }
 });
 
+test('PythonExecutionManager retires a broken service without killing sibling in-flight requests', { skip: skipPythonTests }, async () => {
+  const manager = new PythonExecutionManager();
+  const pythonBin = process.env.K8V_PYTHON_BIN || 'python3';
+
+  try {
+    const warmup = await manager.execute({
+      code: 'outputs.answer = 1',
+      inputs: {},
+      timeoutMs: 1000,
+      pythonBin,
+      graphId: 'graph-transport-retire',
+      workerConcurrencyHint: 2,
+    });
+
+    assert.equal(warmup.outputs.answer, 1);
+
+    const services = (manager as any).services as Map<string, any>;
+    assert.equal(services.size, 1);
+
+    const service = services.values().next().value as any;
+    const originalRequestJson = service.requestJson.bind(service);
+    const originalBuildRequestOptions = service.buildRequestOptions.bind(service);
+
+    let TransportErrorCtor: (new (message: string) => Error) | null = null;
+    service.buildRequestOptions = (method: string, requestPath: string, body?: string) => ({
+      ...originalBuildRequestOptions(method, requestPath, body),
+      socketPath: path.join(service.serviceDir, 'missing.sock'),
+    });
+    try {
+      await service.requestJson('GET', '/health', undefined, 25);
+      assert.fail('expected a transport error while probing the constructor');
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      TransportErrorCtor = error.constructor as new (message: string) => Error;
+    } finally {
+      service.buildRequestOptions = originalBuildRequestOptions;
+    }
+
+    assert.ok(TransportErrorCtor, 'expected to capture the transport error constructor');
+
+    let releaseFirstExecute: (() => void) | null = null;
+    const firstExecuteBlocked = new Promise<void>((resolve) => {
+      releaseFirstExecute = resolve;
+    });
+    let firstExecuteEnteredResolve: (() => void) | null = null;
+    const firstExecuteEntered = new Promise<void>((resolve) => {
+      firstExecuteEnteredResolve = resolve;
+    });
+    let firstExecuteHeld = false;
+    let injectedFailure = false;
+
+    service.requestJson = async (
+      method: string,
+      requestPath: string,
+      payload: unknown,
+      timeoutMs: number
+    ) => {
+      if (requestPath !== '/execute') {
+        return await originalRequestJson(method, requestPath, payload, timeoutMs);
+      }
+
+      if (!firstExecuteHeld) {
+        firstExecuteHeld = true;
+        firstExecuteEnteredResolve?.();
+        await firstExecuteBlocked;
+        return await originalRequestJson(method, requestPath, payload, timeoutMs);
+      }
+
+      if (!injectedFailure) {
+        injectedFailure = true;
+        throw new TransportErrorCtor!('synthetic transport failure');
+      }
+
+      return await originalRequestJson(method, requestPath, payload, timeoutMs);
+    };
+
+    const sharedRequest = {
+      inputs: {},
+      meta: {},
+      timeoutMs: 1000,
+    };
+
+    const firstPromise = service.execute({
+      ...sharedRequest,
+      code: 'outputs.answer = 42',
+    });
+    await firstExecuteEntered;
+
+    const secondPromise = service.execute({
+      ...sharedRequest,
+      code: 'outputs.answer = 7',
+    });
+
+    await assert.rejects(
+      secondPromise,
+      /synthetic transport failure/i
+    );
+
+    assert.equal(service.child?.exitCode, null);
+    assert.equal(service.child?.signalCode, null);
+
+    releaseFirstExecute?.();
+
+    const firstResult = await firstPromise;
+    assert.equal(firstResult.outputs.answer, 42);
+    assert.equal(manager.getActiveServiceCount(), 0);
+
+    const recovered = await manager.execute({
+      code: 'outputs.answer = 99',
+      inputs: {},
+      timeoutMs: 1000,
+      pythonBin,
+      graphId: 'graph-transport-retire',
+      workerConcurrencyHint: 2,
+    });
+
+    assert.equal(recovered.outputs.answer, 99);
+    assert.equal(manager.getActiveServiceCount(), 1);
+  } finally {
+    await manager.dispose();
+  }
+});
+
 test('PythonProcessRuntime keeps separate warm services per graph and can drop one graph scope', { skip: skipPythonTests }, async () => {
   const runtime = new PythonProcessRuntime();
 

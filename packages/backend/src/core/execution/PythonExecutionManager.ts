@@ -717,7 +717,7 @@ export class PythonExecutionManager {
     );
     await Promise.allSettled(
       matchingServices.map(async (service) => {
-        await this.dropService(service.scopeKey, service);
+        await this.dropService(service.scopeKey, service, { force: true });
       })
     );
   }
@@ -765,11 +765,19 @@ export class PythonExecutionManager {
     return service;
   }
 
-  private async dropService(scopeKey: string, service: PythonServiceHandle): Promise<void> {
+  private async dropService(
+    scopeKey: string,
+    service: PythonServiceHandle,
+    options: { force?: boolean } = {}
+  ): Promise<void> {
     if (this.services.get(scopeKey) === service) {
       this.services.delete(scopeKey);
     }
-    await service.dispose();
+    if (options.force) {
+      await service.dispose();
+      return;
+    }
+    await service.retire();
   }
 }
 
@@ -795,6 +803,7 @@ class PythonServiceHandle {
   private lastUsedAt = Date.now();
   private desiredWorkerCount: number;
   private stderrTail = '';
+  private cleanupPromise: Promise<void> | null = null;
 
   constructor(params: {
     scopeKey: string;
@@ -844,7 +853,7 @@ class PythonServiceHandle {
       await this.requestJson('POST', '/configure', { workerCount }, this.startupTimeoutMs);
     } catch (error) {
       if (error instanceof PythonServiceTransportError) {
-        await this.dispose();
+        await this.retire();
         throw new PythonServiceUnavailableError(error.message);
       }
       throw error;
@@ -887,7 +896,7 @@ class PythonServiceHandle {
       );
     } catch (error) {
       if (error instanceof PythonServiceTransportError) {
-        await this.dispose();
+        await this.retire();
         throw new PythonServiceUnavailableError(error.message);
       }
       throw error;
@@ -896,26 +905,26 @@ class PythonServiceHandle {
     }
   }
 
-  async dispose(): Promise<void> {
+  async retire(): Promise<void> {
     if (this.disposed) {
+      if (this.inFlightCount === 0) {
+        await this.finalizeCleanup();
+      }
       return;
     }
+
     this.disposed = true;
     this.clearIdleTimer();
     this.onDispose();
 
-    if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.kill('SIGKILL');
-      await onceProcessExit(this.child).catch(() => undefined);
+    if (this.inFlightCount === 0) {
+      await this.finalizeCleanup();
     }
+  }
 
-    this.child = null;
-    this.location = null;
-
-    if (this.serviceDir) {
-      await fs.rm(this.serviceDir, { recursive: true, force: true }).catch(() => undefined);
-      this.serviceDir = null;
-    }
+  async dispose(): Promise<void> {
+    await this.retire();
+    await this.finalizeCleanup();
   }
 
   private async start(): Promise<void> {
@@ -1124,7 +1133,37 @@ class PythonServiceHandle {
   private endUse(): void {
     this.inFlightCount = Math.max(0, this.inFlightCount - 1);
     this.lastUsedAt = Date.now();
+    if (this.disposed) {
+      if (this.inFlightCount === 0) {
+        void this.finalizeCleanup();
+      }
+      return;
+    }
     this.scheduleIdleTimer();
+  }
+
+  private async finalizeCleanup(): Promise<void> {
+    if (this.cleanupPromise) {
+      await this.cleanupPromise;
+      return;
+    }
+
+    this.cleanupPromise = (async () => {
+      if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
+        this.child.kill('SIGKILL');
+        await onceProcessExit(this.child).catch(() => undefined);
+      }
+
+      this.child = null;
+      this.location = null;
+
+      if (this.serviceDir) {
+        await fs.rm(this.serviceDir, { recursive: true, force: true }).catch(() => undefined);
+        this.serviceDir = null;
+      }
+    })();
+
+    await this.cleanupPromise;
   }
 
   private scheduleIdleTimer(): void {
