@@ -10,12 +10,16 @@ npm run install:all
 ## Running the Application
 
 ```bash
-# Start both frontend and backend
+# Start both frontend and backend in development
 npm run dev
+
+# Build and run the release app
+npm run release
 ```
 
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3000
+- Release app: http://localhost:3000
 
 ## Creating Your First Graph
 

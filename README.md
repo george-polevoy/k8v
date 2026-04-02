@@ -49,9 +49,14 @@ npm run install:all
 
 # Start development servers
 npm run dev
+
+# Build and run the release app
+npm run release
 ```
 
-The frontend will be available at `http://localhost:5173` and the backend at `http://localhost:3000`.
+In development, the frontend is available at `http://localhost:5173` and the backend API at `http://localhost:3000`.
+
+For the release path, `npm run release` builds the frontend and backend once, then starts the built backend on `http://localhost:3000`, which also serves the compiled frontend bundle. If the app is already built, run the release server again with `npm start`.
 
 ## Testing
 

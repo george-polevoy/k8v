@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
@@ -11,13 +14,33 @@ import { createGraphRouter } from './routes/graphRoutes.js';
 interface AppDependencies {
   dataStore?: DataStore;
   graphEngine?: GraphEngine;
+  frontendDistPath?: string | null;
 }
 
 const JSON_BODY_LIMIT = '10mb';
+const DEFAULT_FRONTEND_DIST_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../frontend/dist'
+);
 
 const GraphicsBinaryQuerySchema = z.object({
   maxPixels: z.coerce.number().int().positive().optional(),
 });
+
+function resolveFrontendDistPath(configuredPath?: string | null): string | null {
+  if (configuredPath === null) {
+    return null;
+  }
+
+  const trimmedPath = configuredPath?.trim();
+  const candidatePath = trimmedPath
+    ? path.resolve(trimmedPath)
+    : DEFAULT_FRONTEND_DIST_PATH;
+
+  return fs.existsSync(path.join(candidatePath, 'index.html'))
+    ? candidatePath
+    : null;
+}
 
 export function createApp(deps?: AppDependencies) {
   const app = express();
@@ -69,6 +92,25 @@ export function createApp(deps?: AppDependencies) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  const frontendDistPath = resolveFrontendDistPath(deps?.frontendDistPath);
+  if (frontendDistPath) {
+    const frontendIndexPath = path.join(frontendDistPath, 'index.html');
+    app.use(express.static(frontendDistPath));
+    app.get('*', (req, res, next) => {
+      if (req.path === '/api' || req.path.startsWith('/api/')) {
+        next();
+        return;
+      }
+
+      if (path.extname(req.path)) {
+        next();
+        return;
+      }
+
+      res.sendFile(frontendIndexPath);
+    });
+  }
 
   return app;
 }

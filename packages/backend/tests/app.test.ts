@@ -134,7 +134,36 @@ async function setupTestServer(): Promise<AppTestContext> {
   const dataStore = new DataStore(':memory:', tmpDir);
   const nodeExecutor = new NodeExecutor(dataStore);
   const graphEngine = new GraphEngine(dataStore, nodeExecutor);
-  const app = createApp({ dataStore, graphEngine });
+  const app = createApp({
+    dataStore,
+    graphEngine,
+    frontendDistPath: null,
+  });
+  const server = app.listen(0);
+  const port = (server.address() as AddressInfo).port;
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    dataStore,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await graphEngine.dispose();
+      dataStore.close();
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    },
+  };
+}
+
+async function setupStaticFrontendServer(frontendDistPath: string): Promise<AppTestContext> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-app-test-'));
+  const dataStore = new DataStore(':memory:', tmpDir);
+  const nodeExecutor = new NodeExecutor(dataStore);
+  const graphEngine = new GraphEngine(dataStore, nodeExecutor);
+  const app = createApp({
+    dataStore,
+    graphEngine,
+    frontendDistPath,
+  });
   const server = app.listen(0);
   const port = (server.address() as AddressInfo).port;
 
@@ -372,6 +401,45 @@ test('POST /api/graphs creates an empty graph and accepts only name payload', as
     assert.equal(invalidResponse.status, 400);
   } finally {
     await ctx.close();
+  }
+});
+
+test('non-api routes serve the release frontend bundle when configured', async () => {
+  const frontendDistDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-frontend-dist-'));
+  await fs.mkdir(path.join(frontendDistDir, 'assets'));
+  await fs.writeFile(
+    path.join(frontendDistDir, 'index.html'),
+    '<!DOCTYPE html><html><body>k8v release shell</body></html>'
+  );
+  await fs.writeFile(
+    path.join(frontendDistDir, 'assets', 'app.js'),
+    'console.log("k8v release asset");'
+  );
+
+  const ctx = await setupStaticFrontendServer(frontendDistDir);
+
+  try {
+    const rootResponse = await fetch(`${ctx.baseUrl}/`);
+    assert.equal(rootResponse.status, 200);
+    assert.match(rootResponse.headers.get('content-type') ?? '', /text\/html/);
+    assert.match(await rootResponse.text(), /k8v release shell/);
+
+    const routeResponse = await fetch(`${ctx.baseUrl}/graphs/demo`);
+    assert.equal(routeResponse.status, 200);
+    assert.match(routeResponse.headers.get('content-type') ?? '', /text\/html/);
+    assert.match(await routeResponse.text(), /k8v release shell/);
+
+    const assetResponse = await fetch(`${ctx.baseUrl}/assets/app.js`);
+    assert.equal(assetResponse.status, 200);
+    assert.equal(await assetResponse.text(), 'console.log("k8v release asset");');
+
+    const apiResponse = await fetch(`${ctx.baseUrl}/api/graphs`);
+    assert.equal(apiResponse.status, 200);
+    const graphPayload = await apiResponse.json();
+    assert.ok(Array.isArray(graphPayload.graphs));
+  } finally {
+    await ctx.close();
+    await fs.rm(frontendDistDir, { recursive: true, force: true });
   }
 });
 

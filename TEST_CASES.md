@@ -184,6 +184,7 @@ Last reviewed: April 1, 2026.
 - `A-BE-86` `packages/backend/tests/app.test.ts`: graph update APIs persist node `metadata.custom` JSON payloads and add-node commands accept custom metadata.
 - `A-BE-87` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` updates existing node `metadata.custom` dictionaries via `node_set_custom`.
 - `A-BE-88` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python service transport failures retire the shared service without killing sibling in-flight requests, and later executions recover on a fresh warm service.
+- `A-BE-91` `packages/backend/tests/app.test.ts`: backend app can serve the compiled frontend bundle for non-API routes while keeping API endpoints available.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.

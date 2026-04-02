@@ -31,6 +31,10 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Persists graphics as id-addressable artifacts with PNG mip-map levels through `GraphicsArtifactStore`
 - Centralizes schema-versioned SQLite bootstrap and version-scoped storage initialization through `DatabaseBootstrap`
 
+#### App Server (`packages/backend/src/app.ts`)
+- Hosts the backend REST API and graphics endpoints
+- In release mode, also serves the compiled frontend bundle from `packages/frontend/dist` so one backend process can host the full app
+
 #### GraphCommandService (`packages/backend/src/core/GraphCommandService.ts`)
 - Owns graph mutation and compute policy for the command API (`POST /api/graphs/:id/commands`)
 - Applies typed graph commands against a base graph revision and rejects stale writes with revision conflicts
