@@ -31,8 +31,12 @@ export const graphApi = {
     return response.data as { graphs: GraphSummary[] };
   },
 
-  async fetchRuntimeState(graphId: string): Promise<GraphRuntimeState> {
-    const response = await axios.get(`/api/graphs/${graphId}/runtime-state`);
+  async fetchRuntimeState(graphId: string, since?: string): Promise<GraphRuntimeState> {
+    const response = await axios.get(`/api/graphs/${graphId}/runtime-state`, since
+      ? {
+          params: { since },
+        }
+      : undefined);
     return response.data as GraphRuntimeState;
   },
 

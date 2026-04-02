@@ -15,15 +15,24 @@ test.beforeEach(() => {
   resetGraphStoreState();
 });
 
-function buildRuntimeState(graph: Graph) {
+function buildRuntimeState(
+  graph: Graph,
+  params: {
+    statusVersion?: number;
+    cursor?: string;
+    results?: Record<string, any>;
+    nodeStates?: Record<string, any>;
+  } = {}
+) {
   return {
     graphId: graph.id,
     revision: graph.revision,
-    statusVersion: 0,
+    statusVersion: params.statusVersion ?? 0,
+    cursor: params.cursor ?? `cursor-${graph.id}-${params.statusVersion ?? 0}`,
     queueLength: 0,
     workerConcurrency: graph.recomputeConcurrency ?? 1,
-    nodeStates: {},
-    results: {},
+    nodeStates: params.nodeStates ?? {},
+    results: params.results ?? {},
   };
 }
 

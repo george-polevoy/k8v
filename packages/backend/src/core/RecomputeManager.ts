@@ -105,19 +105,19 @@ export class RecomputeManager {
     return results;
   }
 
-  async getGraphStatus(graphId: string): Promise<GraphRecomputeStatus> {
+  async getGraphStatus(graphId: string, options: { sinceCursor?: string } = {}): Promise<GraphRecomputeStatus> {
     const graph = await this.requireGraph(graphId);
     const state = this.stateStore.getOrCreateGraphState(graphId);
 
     this.stateStore.synchronizeNodeStates(graph, state);
 
-    return {
-      graphId,
-      statusVersion: state.statusVersion,
-      queueLength: state.queue.length + (state.isProcessing ? 1 : 0),
-      workerConcurrency: clampRecomputeConcurrency(graph.recomputeConcurrency),
-      nodeStates: { ...state.nodeStates },
-    };
+    return this.stateStore.buildRuntimeStatus(
+      graph,
+      state,
+      state.queue.length + (state.isProcessing ? 1 : 0),
+      clampRecomputeConcurrency(graph.recomputeConcurrency),
+      options.sinceCursor
+    );
   }
 
   dropGraphState(graphId: string): void {
@@ -427,6 +427,7 @@ export class RecomputeManager {
         errorMessage: hasError ? result.textOutput ?? 'Execution error' : null,
         lastRunAt: result.timestamp,
       });
+      this.stateStore.markResultUpdated(state, nodeId);
       this.publishNodeUpdates(graph, [nodeId]);
 
       return {
@@ -590,7 +591,10 @@ export class RecomputeManager {
   }
 
   private async resolveGraphUpdateNodeIds(graph: Graph): Promise<string[]> {
-    const latestResults = await this.dataStore.listLatestResultsForGraph(graph.id);
+    const latestResults = await this.dataStore.listLatestResultsForGraph(
+      graph.id,
+      graph.nodes.map((node) => node.id)
+    );
     const orderedNodeIds = selectNodeIdsForTask(
       graph,
       'manual_graph',

@@ -100,13 +100,22 @@ export class GraphCommandService {
     };
   }
 
-  async buildRuntimeState(graph: GraphType): Promise<GraphRuntimeState> {
-    const status = await this.recomputeManager.getGraphStatus(graph.id);
-    const results = await this.dataStore.listLatestResultsForGraph(graph.id);
+  async buildRuntimeState(
+    graph: GraphType,
+    options: { sinceCursor?: string } = {}
+  ): Promise<GraphRuntimeState> {
+    const status = await this.recomputeManager.getGraphStatus(graph.id, {
+      sinceCursor: options.sinceCursor,
+    });
+    const resultNodeIds = status.isSnapshot
+      ? graph.nodes.map((node) => node.id)
+      : status.changedResultNodeIds;
+    const results = await this.dataStore.listLatestResultsForGraph(graph.id, resultNodeIds);
     return {
       graphId: graph.id,
       revision: graph.revision,
       statusVersion: status.statusVersion,
+      cursor: status.cursor,
       queueLength: status.queueLength,
       workerConcurrency: status.workerConcurrency,
       nodeStates: status.nodeStates,

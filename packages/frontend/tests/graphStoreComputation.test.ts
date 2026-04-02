@@ -17,6 +17,7 @@ function buildRuntimeState(
   graph: Graph,
   params: {
     statusVersion?: number;
+    cursor?: string;
     results?: Record<string, any>;
     nodeStates?: Record<string, any>;
   } = {}
@@ -40,6 +41,7 @@ function buildRuntimeState(
     graphId: graph.id,
     revision: graph.revision ?? 0,
     statusVersion: params.statusVersion ?? 1,
+    cursor: params.cursor ?? `cursor-${graph.id}-${params.statusVersion ?? 1}`,
     queueLength: 0,
     workerConcurrency: graph.recomputeConcurrency ?? 1,
     nodeStates,
@@ -524,6 +526,128 @@ test('runtime-state refresh preserves prior node results when results payload om
     assert.equal(state.nodeResults['node-a']?.graphics?.id, 'gfx-existing');
     assert.equal(state.nodeGraphicsOutputs['node-a']?.id, 'gfx-existing');
   } finally {
+    (axios as any).get = originalGet;
+  }
+});
+
+test('loadGraph starts polling runtime-state with the last applied cursor and merges unseen deltas only', async () => {
+  const originalWindow = (globalThis as any).window;
+  const originalGet = axios.get;
+
+  (globalThis as any).window = {};
+
+  const graph: Graph = {
+    id: 'g-runtime-cursor',
+    name: 'Runtime Cursor Graph',
+    revision: 0,
+    nodes: [
+      {
+        id: 'node-a',
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'A',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'a-v1',
+      },
+    ],
+    connections: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  const initialResult = {
+    nodeId: 'node-a',
+    outputs: { output: 1 },
+    schema: { output: { type: 'number' } },
+    timestamp: 100,
+    version: 'r1',
+  };
+  const updatedResult = {
+    ...initialResult,
+    timestamp: 200,
+    version: 'r2',
+  };
+
+  const sinceRequests: Array<string | undefined> = [];
+  let runtimeStateRequests = 0;
+
+  (axios as any).get = async (url: string, config?: { params?: { since?: string } }) => {
+    if (url === '/api/graphs/g-runtime-cursor') {
+      return { data: graph };
+    }
+    if (url === '/api/graphs/g-runtime-cursor/runtime-state') {
+      sinceRequests.push(config?.params?.since);
+      runtimeStateRequests += 1;
+      if (runtimeStateRequests === 1) {
+        return {
+          data: buildRuntimeState(graph, {
+            statusVersion: 1,
+            cursor: 'cursor:1',
+            results: {
+              'node-a': initialResult,
+            },
+            nodeStates: {
+              'node-a': {
+                lastRunAt: initialResult.timestamp,
+              },
+            },
+          }),
+        };
+      }
+
+      return {
+        data: {
+          ...buildRuntimeState(graph, {
+            statusVersion: 2,
+            cursor: 'cursor:2',
+            results: {
+              'node-a': updatedResult,
+            },
+            nodeStates: {
+              'node-a': {
+                lastRunAt: updatedResult.timestamp,
+              },
+            },
+          }),
+          nodeStates: {
+            'node-a': {
+              isPending: false,
+              isComputing: false,
+              hasError: false,
+              isStale: false,
+              errorMessage: null,
+              lastRunAt: updatedResult.timestamp,
+            },
+          },
+        },
+      };
+    }
+    throw new Error(`Unexpected GET: ${url}`);
+  };
+
+  try {
+    await useGraphStore.getState().loadGraph('g-runtime-cursor');
+
+    const startedAt = Date.now();
+    while ((Date.now() - startedAt) < 2_000) {
+      if (useGraphStore.getState().nodeResults['node-a']?.version === 'r2') {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    const state = useGraphStore.getState();
+    assert.equal(state.nodeResults['node-a']?.version, 'r2');
+    assert.deepEqual(sinceRequests.slice(0, 2), [undefined, 'cursor:1']);
+  } finally {
+    resetGraphStoreState();
+    (globalThis as any).window = originalWindow;
     (axios as any).get = originalGet;
   }
 });

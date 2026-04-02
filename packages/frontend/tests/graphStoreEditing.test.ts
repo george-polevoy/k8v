@@ -19,6 +19,7 @@ function buildRuntimeState(graph: Graph) {
     graphId: graph.id,
     revision: graph.revision,
     statusVersion: 0,
+    cursor: `cursor-${graph.id}-0`,
     queueLength: 0,
     workerConcurrency: graph.recomputeConcurrency ?? 1,
     nodeStates: {},

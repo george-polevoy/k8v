@@ -271,8 +271,15 @@ async function updateGraphWithCommands(
   );
 }
 
-async function fetchRuntimeState(baseUrl: string, graphId: string) {
-  const response = await fetch(`${baseUrl}/api/graphs/${graphId}/runtime-state`);
+async function fetchRuntimeState(
+  baseUrl: string,
+  graphId: string,
+  options: { since?: string } = {}
+) {
+  const query = typeof options.since === 'string' && options.since.trim()
+    ? `?${new URLSearchParams({ since: options.since }).toString()}`
+    : '';
+  const response = await fetch(`${baseUrl}/api/graphs/${graphId}/runtime-state${query}`);
   return response;
 }
 
@@ -1660,6 +1667,60 @@ test('runtime state reports graph-level worker concurrency and revision', async 
     const updatedStatus = await updatedStatusResponse.json();
     assert.equal(updatedStatus.workerConcurrency, 2);
     assert.equal(updatedStatus.revision, updatedGraph.revision);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('runtime state supports cursor-based delta refreshes', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const node = createValidInlineNode();
+    node.id = 'node-a';
+    node.metadata.name = 'A';
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [node],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const firstComputeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'node-a');
+    assert.equal(firstComputeResponse.status, 200);
+
+    const snapshotResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
+    assert.equal(snapshotResponse.status, 200);
+    const snapshot = await snapshotResponse.json();
+    assert.equal(typeof snapshot.cursor, 'string');
+    assert.ok(snapshot.cursor.length > 0);
+    assert.equal(snapshot.results['node-a']?.nodeId, 'node-a');
+    assert.deepEqual(Object.keys(snapshot.nodeStates), ['node-a']);
+
+    const unchangedDeltaResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id, {
+      since: snapshot.cursor,
+    });
+    assert.equal(unchangedDeltaResponse.status, 200);
+    const unchangedDelta = await unchangedDeltaResponse.json();
+    assert.equal(unchangedDelta.cursor, snapshot.cursor);
+    assert.deepEqual(unchangedDelta.nodeStates, {});
+    assert.deepEqual(unchangedDelta.results, {});
+
+    const secondComputeResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'node-a');
+    assert.equal(secondComputeResponse.status, 200);
+
+    const deltaResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id, {
+      since: snapshot.cursor,
+    });
+    assert.equal(deltaResponse.status, 200);
+    const delta = await deltaResponse.json();
+    assert.notEqual(delta.cursor, snapshot.cursor);
+    assert.deepEqual(Object.keys(delta.nodeStates), ['node-a']);
+    assert.deepEqual(Object.keys(delta.results), ['node-a']);
+    assert.ok(
+      typeof delta.nodeStates['node-a']?.lastRunAt === 'number' &&
+      delta.nodeStates['node-a'].lastRunAt >= snapshot.nodeStates['node-a']?.lastRunAt
+    );
   } finally {
     await ctx.close();
   }

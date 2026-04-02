@@ -68,6 +68,33 @@ test('DataStore preserves versioned computation results for the same node', asyn
   }
 });
 
+test('DataStore lists only the latest result per requested node id', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-datastore-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const store = new DataStore(dbPath, dataDir);
+  const graphId = 'graph-latest-results';
+
+  try {
+    await store.storeGraph(makeGraph(graphId));
+    await store.storeResult(graphId, 'node-a', makeResult('node-a', 'a-v1', 1000, 1));
+    await store.storeResult(graphId, 'node-a', makeResult('node-a', 'a-v2', 2000, 2));
+    await store.storeResult(graphId, 'node-b', makeResult('node-b', 'b-v1', 1500, 3));
+
+    const allResults = await store.listLatestResultsForGraph(graphId);
+    assert.deepEqual(Object.keys(allResults).sort(), ['node-a', 'node-b']);
+    assert.equal(allResults['node-a']?.version, 'a-v2');
+    assert.equal(allResults['node-b']?.version, 'b-v1');
+
+    const scopedResults = await store.listLatestResultsForGraph(graphId, ['node-b']);
+    assert.deepEqual(Object.keys(scopedResults), ['node-b']);
+    assert.equal(scopedResults['node-b']?.version, 'b-v1');
+  } finally {
+    store.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('DataStore stores PNG graphics as mip levels and serves selected level by maxPixels', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-datastore-test-'));
   const dbPath = path.join(tmpDir, 'k8v.db');

@@ -53,6 +53,7 @@ export class DataStore {
       this.artifactRepository,
       this.graphicsStore
     );
+    this.resultRepository.syncLatestResultsProjection();
   }
 
   async storeResult(graphId: string, nodeId: string, result: ComputationResult): Promise<void> {
@@ -71,8 +72,11 @@ export class DataStore {
     return await this.resultRepository.getLatestResultByNodeId(nodeId, version);
   }
 
-  async listLatestResultsForGraph(graphId: string): Promise<Record<string, ComputationResult | null>> {
-    return await this.resultRepository.listLatestResultsForGraph(graphId);
+  async listLatestResultsForGraph(
+    graphId: string,
+    nodeIds?: readonly string[]
+  ): Promise<Record<string, ComputationResult | null>> {
+    return await this.resultRepository.listLatestResultsForGraph(graphId, nodeIds);
   }
 
   async getGraphicsArtifact(graphicsId: string): Promise<PublicGraphicsArtifact | null> {

@@ -16,7 +16,8 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - Nodes-only command updates sync the active projection layout server-side, so node move/resize edits do not need to resend the full projection set.
 - On graph update conflict (`409`), frontend reloads latest graph state and surfaces a non-fatal conflict message.
 - Open sessions detect remote current-graph updates through graph events and runtime-state polling fallback, then reload the latest graph state automatically when no local save is pending.
-- Frontend runtime-state polling backs off to a slower idle cadence when no backend work is active and ignores unchanged backend snapshots to avoid redundant UI churn.
+- Frontend runtime-state refreshes load a latest-per-node snapshot on first hydrate, then slide a backend-issued runtime cursor forward so later polling/SSE-triggered refreshes fetch only unseen runtime deltas.
+- Frontend runtime-state polling backs off to a slower idle cadence when no backend work is active and ignores unchanged backend snapshots/deltas to avoid redundant UI churn.
 - Graph behavior is directed (`source -> target`) and computed via dependency-aware topological ordering.
 - Graph query API (`POST /api/graphs/:id/query`) supports lightweight field-projected overview responses, downstream BFS/DFS traversal, and starting-vertex discovery (nodes with no downstream/outgoing edges); connection projections always include `sourceNodeId` and `targetNodeId`.
 - Graph panel graph management: select existing graph, create new graph, rename current graph, and delete current graph.
@@ -126,7 +127,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 ## Node Status and Indicators
 
-- Per-node execution state tracked in frontend store from graph-scoped runtime-state snapshots and persisted node results.
+- Per-node execution state tracked in frontend store from graph-scoped runtime-state snapshots/deltas and persisted node results.
 - Card status light:
   - red: last compute errored
   - amber: pending recompute or computing now
@@ -158,6 +159,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - When a new graph update arrives, pending graph-update recompute work is collapsed to the latest graph revision and rebuilt from the current graph-wide stale set; already-running work is not canceled.
 - Backend recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
 - Frontend does not run recompute chains locally; it sends explicit compute commands and refreshes from `/api/graphs/:id/runtime-state` plus SSE events.
+- Backend runtime-state responses include a monotonic cursor and can return only node states/results changed since the caller's last seen cursor.
 
 ## Validation and Safety
 

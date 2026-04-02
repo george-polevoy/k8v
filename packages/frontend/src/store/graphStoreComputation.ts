@@ -36,7 +36,7 @@ export type GraphStoreComputationSetState = (
 ) => void;
 
 interface GraphComputationApi {
-  fetchRuntimeState(graphId: string): Promise<GraphRuntimeState>;
+  fetchRuntimeState(graphId: string, since?: string): Promise<GraphRuntimeState>;
   submitCommands(
     graphId: string,
     baseRevision: number,
@@ -49,6 +49,7 @@ interface CreateGraphComputationControllerParams {
   getState: () => GraphStoreComputationState;
   setState: GraphStoreComputationSetState;
   startRuntimeStatePolling: (graphId: string) => void;
+  onRuntimeStateReceived?: (graphId: string, runtimeState: GraphRuntimeState) => void;
 }
 
 export function createGraphComputationController({
@@ -56,6 +57,7 @@ export function createGraphComputationController({
   getState,
   setState,
   startRuntimeStatePolling,
+  onRuntimeStateReceived,
 }: CreateGraphComputationControllerParams) {
   const applyRuntimeStateSnapshot = (
     graph: Graph,
@@ -98,9 +100,13 @@ export function createGraphComputationController({
     });
   };
 
-  const hydrateNodeExecutionStates = async (graph: Graph) => {
+  const hydrateNodeExecutionStates = async (
+    graph: Graph,
+    options: { since?: string } = {}
+  ) => {
     try {
-      const runtimeState = await api.fetchRuntimeState(graph.id);
+      const runtimeState = await api.fetchRuntimeState(graph.id, options.since);
+      onRuntimeStateReceived?.(graph.id, runtimeState);
       applyRuntimeStateSnapshot(graph, runtimeState);
     } catch (error: any) {
       setState({
@@ -137,6 +143,7 @@ export function createGraphComputationController({
         return;
       }
 
+      onRuntimeStateReceived?.(graph.id, response.runtimeState);
       applyRuntimeStateSnapshot(activeGraph, response.runtimeState, [nodeId]);
       startRuntimeStatePolling(graph.id);
     } catch (error: any) {
@@ -191,6 +198,7 @@ export function createGraphComputationController({
         return;
       }
 
+      onRuntimeStateReceived?.(graph.id, response.runtimeState);
       applyRuntimeStateSnapshot(activeGraph, response.runtimeState);
       setState({
         isLoading: false,

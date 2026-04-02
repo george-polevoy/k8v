@@ -397,6 +397,7 @@ export const GraphRuntimeState = z.object({
   graphId: z.string(),
   revision: z.number().int().nonnegative(),
   statusVersion: z.number().int().nonnegative(),
+  cursor: z.string(),
   queueLength: z.number().int().nonnegative(),
   workerConcurrency: z.number().int().positive(),
   nodeStates: z.record(NodeExecutionState),

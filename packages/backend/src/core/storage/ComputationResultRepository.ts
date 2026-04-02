@@ -16,6 +16,7 @@ export class ComputationResultRepository {
   ) {}
 
   async storeResult(graphId: string, nodeId: string, result: ComputationResultType): Promise<void> {
+    const runId = randomUUID();
     const graphics = result.graphicsOutput
       ? await this.graphicsStore.storeGraphicsArtifact(result.graphicsOutput)
       : null;
@@ -28,7 +29,7 @@ export class ComputationResultRepository {
       (run_id, graph_id, node_id, node_version, timestamp, outputs_json, schema_json, text_output, artifact_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      randomUUID(),
+      runId,
       graphId,
       nodeId,
       result.version,
@@ -38,6 +39,16 @@ export class ComputationResultRepository {
       result.textOutput ?? null,
       graphics?.id ?? null
     );
+
+    this.db.prepare(`
+      INSERT INTO latest_node_results
+      (graph_id, node_id, run_id, timestamp)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(graph_id, node_id) DO UPDATE SET
+        run_id = excluded.run_id,
+        timestamp = excluded.timestamp
+      WHERE excluded.timestamp >= latest_node_results.timestamp
+    `).run(graphId, nodeId, runId, result.timestamp);
   }
 
   async getResult(
@@ -88,23 +99,59 @@ export class ComputationResultRepository {
   }
 
   async listLatestResultsForGraph(
-    graphId: string
+    graphId: string,
+    nodeIds?: readonly string[]
   ): Promise<Record<string, ComputationResultType | null>> {
+    if (Array.isArray(nodeIds) && nodeIds.length === 0) {
+      return {};
+    }
+
+    const filters = ['latest.graph_id = ?'];
+    const params: Array<string> = [graphId];
+    if (Array.isArray(nodeIds) && nodeIds.length > 0) {
+      filters.push(`latest.node_id IN (${nodeIds.map(() => '?').join(', ')})`);
+      params.push(...nodeIds);
+    }
+
     const rows = this.db.prepare(`
-      SELECT *
-      FROM node_results
-      WHERE graph_id = ?
-      ORDER BY timestamp DESC, rowid DESC
-    `).all(graphId) as NodeResultRow[];
+      SELECT results.*
+      FROM latest_node_results latest
+      JOIN node_results results
+        ON results.run_id = latest.run_id
+      WHERE ${filters.join(' AND ')}
+      ORDER BY latest.node_id
+    `).all(...params) as NodeResultRow[];
 
     const results: Record<string, ComputationResultType | null> = {};
     for (const row of rows) {
-      if (row.node_id in results) {
-        continue;
-      }
       results[row.node_id] = await this.deserializeRow(row.node_id, row);
     }
     return results;
+  }
+
+  syncLatestResultsProjection(): void {
+    this.db.prepare(`
+      INSERT INTO latest_node_results
+      (graph_id, node_id, run_id, timestamp)
+      SELECT graph_id, node_id, run_id, timestamp
+      FROM (
+        SELECT
+          graph_id,
+          node_id,
+          run_id,
+          timestamp,
+          ROW_NUMBER() OVER (
+            PARTITION BY graph_id, node_id
+            ORDER BY timestamp DESC, rowid DESC
+          ) AS row_rank
+        FROM node_results
+      )
+      WHERE row_rank = 1
+      ON CONFLICT(graph_id, node_id) DO UPDATE SET
+        run_id = excluded.run_id,
+        timestamp = excluded.timestamp
+      WHERE excluded.timestamp >= latest_node_results.timestamp
+    `).run();
   }
 
   private async deserializeRow(

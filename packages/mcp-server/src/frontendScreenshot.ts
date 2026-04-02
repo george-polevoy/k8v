@@ -40,6 +40,7 @@ function buildEmptyRuntimeState(graph: Graph): GraphRuntimeState {
     graphId: graph.id,
     revision: graph.revision ?? 0,
     statusVersion: graph.updatedAt,
+    cursor: `snapshot:${graph.id}:${graph.updatedAt}`,
     queueLength: 0,
     workerConcurrency: graph.recomputeConcurrency ?? 1,
     nodeStates: {},

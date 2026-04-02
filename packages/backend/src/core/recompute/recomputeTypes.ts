@@ -10,8 +10,11 @@ export interface BackendNodeExecutionState {
 export interface GraphRecomputeStatus {
   graphId: string;
   statusVersion: number;
+  cursor: string;
   queueLength: number;
   workerConcurrency: number;
+  isSnapshot: boolean;
+  changedResultNodeIds: string[];
   nodeStates: Record<string, BackendNodeExecutionState>;
 }
 
@@ -33,11 +36,15 @@ export interface RecomputeTask {
 
 export interface GraphRuntimeState {
   isProcessing: boolean;
+  currentCursor: number;
+  nextCursor: number;
   statusVersion: number;
   queue: RecomputeTask[];
   activeTaskNodeIds: string[];
   activeTaskGraphRevision: number | null;
   nodeStates: Record<string, BackendNodeExecutionState>;
+  nodeStateCursorByNodeId: Record<string, number>;
+  nodeResultCursorByNodeId: Record<string, number>;
 }
 
 export interface NodeRunOutcome {

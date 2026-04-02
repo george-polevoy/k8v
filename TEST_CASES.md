@@ -91,6 +91,7 @@ Last reviewed: April 1, 2026.
 - `A-FE-41` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling refreshes the current graph when a newer remote graph revision is detected.
 - `A-FE-42` `packages/frontend/tests/graphStorePersistence.test.ts`: runtime-state polling backs off to a slower idle cadence when the backend reports no active queued or running work.
 - `A-FE-43` `packages/frontend/tests/graphStorePersistence.test.ts`: unchanged runtime-state snapshots do not rewrite frontend node execution state.
+- `A-FE-49` `packages/frontend/tests/graphStoreComputation.test.ts`: initial runtime-state hydrate stores the backend cursor and follow-up polling requests only unseen runtime deltas via `since=<cursor>`.
 - `A-FE-48` `packages/frontend/tests/graphStorePersistence.test.ts`: overlapping same-tab graph updates serialize onto the latest persisted revision instead of racing on the same `baseRevision`.
 - `A-FE-46` `packages/frontend/tests/e2eConfig.test.ts`: frontend e2e support defaults to dedicated local backend/frontend URLs and Vite's dev proxy honors `K8V_BACKEND_URL` for managed test servers.
 - `A-BE-01` `packages/backend/tests/app.test.ts`: `POST /api/graphs` accepts runtime in node config.
@@ -141,6 +142,8 @@ Last reviewed: April 1, 2026.
 - `A-BE-46` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` bumps versions for nodes whose inbound connections changed so stale input-missing errors recompute without manual node edits.
 - `A-BE-47` `packages/backend/tests/app.test.ts`: runtime-state endpoint reports graph-level worker concurrency, includes graph revision, and reflects updates.
 - `A-BE-48` `packages/backend/tests/app.test.ts`: graph command updates enqueue backend recompute for all impacted descendants and expose pending status through runtime-state reads.
+- `A-BE-89` `packages/backend/tests/app.test.ts`: runtime-state endpoint issues a cursor on full snapshots and serves empty or changed-only runtime deltas when callers pass `since=<cursor>`.
+- `A-BE-90` `packages/backend/tests/DataStore.test.ts`: DataStore latest-result projection returns only the newest result per node and can scope reads to a requested node-id subset.
 - `A-BE-49` `packages/backend/tests/app.test.ts`: `POST /api/graphs` applies default graph execution timeout (`executionTimeoutMs = 30000`).
 - `A-BE-50` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` persists graph execution timeout updates and accepts large values (no max cap).
 - `A-BE-51` `packages/backend/tests/NodeExecutor.test.ts`: NodeExecutor forwards graph-level `executionTimeoutMs` to runtime requests and defaults to 30 seconds when absent.
@@ -369,7 +372,7 @@ Last reviewed: April 1, 2026.
 | Per-node canvas text-output display controls (`Display Text Outputs`, max lines, cap/scroll overflow) | `A-E2E-33`, `M-CANVAS-32` | Automated + Manual |
 | Run selected node manually | `M-COMPUTE-01` | Manual |
 | Per-node execution state in store | `A-FE-06`, `A-FE-07`, `A-BE-48`, `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Automated + Manual |
-| Frontend runtime-state polling slows to an idle cadence and ignores unchanged backend snapshots | `A-FE-42`, `A-FE-43` | Automated |
+| Frontend runtime-state polling slows to an idle cadence, ignores unchanged backend snapshots, and advances a cursor over unseen runtime deltas | `A-FE-42`, `A-FE-43`, `A-FE-49` | Automated |
 | Card status light (red/amber/brown/green/gray) | `M-STATUS-01`, `M-STATUS-02`, `M-STATUS-03`, `M-STATUS-04` | Manual |
 | Node panel execution error text | `M-STATUS-02` | Manual |
 | Node panel graphics budget debug for selected projected-graphics node | `M-PANEL-14` | Manual |

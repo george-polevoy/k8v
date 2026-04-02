@@ -130,7 +130,9 @@ export function createGraphRouter(deps: GraphRoutesDependencies): Router {
         return res.status(404).json({ error: 'Graph not found' });
       }
 
-      return res.json(await graphCommandService.buildRuntimeState(graph));
+      return res.json(await graphCommandService.buildRuntimeState(graph, {
+        sinceCursor: typeof req.query.since === 'string' ? req.query.since : undefined,
+      }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({ error: message });

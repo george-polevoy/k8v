@@ -151,9 +151,20 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   const lastAppliedRuntimeStateMeta = new Map<string, {
     revision: number;
     statusVersion: number;
+    cursor: string | null;
   }>();
+  const runtimeCursorByGraphId = new Map<string, string>();
   const RUNTIME_STATE_POLL_IDLE_INTERVAL_MS = 1_500;
   const RUNTIME_STATE_POLL_HIDDEN_INTERVAL_MS = 5_000;
+
+  const normalizeRuntimeCursor = (value: unknown): string | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  };
 
   const hasActiveBackendRecompute = (runtimeState: GraphRuntimeState): boolean => {
     if (typeof runtimeState.queueLength === 'number' && runtimeState.queueLength > 0) {
@@ -174,10 +185,19 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     getState: () => get(),
     setState: (partial) => set(partial as Parameters<typeof set>[0]),
     startRuntimeStatePolling: (graphId) => runtimeStatePolling.start(graphId),
+    onRuntimeStateReceived: (graphId, runtimeState) => {
+      const cursor = normalizeRuntimeCursor((runtimeState as { cursor?: unknown }).cursor);
+      if (cursor) {
+        runtimeCursorByGraphId.set(graphId, cursor);
+      }
+    },
   });
 
   const runtimeStatePolling = createRecomputeStatusPollController<GraphRuntimeState>({
-    fetchStatus: graphApi.fetchRuntimeState,
+    fetchStatus: (graphId) => graphApi.fetchRuntimeState(
+      graphId,
+      runtimeCursorByGraphId.get(graphId)
+    ),
     onStatus: (graphId, runtimeState) => {
       const currentGraph = get().graph;
       if (!currentGraph || currentGraph.id !== graphId) {
@@ -190,14 +210,21 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       const statusVersion = typeof runtimeState.statusVersion === 'number'
         ? runtimeState.statusVersion
         : null;
+      const cursor = normalizeRuntimeCursor((runtimeState as { cursor?: unknown }).cursor);
       const previousStatusMeta = statusVersion === null
         ? null
         : lastAppliedRuntimeStateMeta.get(graphId);
       const isRepeatedStatus = Boolean(
         previousStatusMeta &&
-        statusVersion !== null &&
-        previousStatusMeta.statusVersion === statusVersion &&
-        previousStatusMeta.revision === revision
+        previousStatusMeta.revision === revision &&
+        (
+          (cursor && previousStatusMeta.cursor === cursor) ||
+          (
+            !cursor &&
+            statusVersion !== null &&
+            previousStatusMeta.statusVersion === statusVersion
+          )
+        )
       );
 
       if (revision > currentGraph.revision && !graphPersistence.hasPendingUpdates()) {
@@ -211,10 +238,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
       graphComputation.applyRuntimeStateSnapshot(currentGraph, runtimeState);
 
-      if (statusVersion !== null) {
+      if (cursor) {
+        runtimeCursorByGraphId.set(graphId, cursor);
+      }
+
+      if (statusVersion !== null || cursor) {
         lastAppliedRuntimeStateMeta.set(graphId, {
           revision,
-          statusVersion,
+          statusVersion: statusVersion ?? previousStatusMeta?.statusVersion ?? 0,
+          cursor,
         });
       }
     },
@@ -258,6 +290,8 @@ export const useGraphStore = create<GraphStore>((set, get) => {
   };
 
   const startGraphRealtime = (graphId: string) => {
+    runtimeStatePolling.stop();
+
     if (typeof EventSource === 'undefined') {
       runtimeStatePolling.start(graphId);
       return;
@@ -273,7 +307,9 @@ export const useGraphStore = create<GraphStore>((set, get) => {
     const refreshRuntime = () => {
       const currentGraph = get().graph;
       if (currentGraph && currentGraph.id === graphId) {
-        void graphComputation.hydrateNodeExecutionStates(currentGraph);
+        void graphComputation.hydrateNodeExecutionStates(currentGraph, {
+          since: runtimeCursorByGraphId.get(graphId),
+        });
       }
     };
 
@@ -343,7 +379,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       if (get().graph?.id !== graphId) {
         return;
       }
-      syncPersistedGraph(latestGraph);
+        syncPersistedGraph(latestGraph);
     } catch (error: any) {
       if (error?.response?.status === 404) {
         removeGraphSummary(graphId);
@@ -413,6 +449,7 @@ export const useGraphStore = create<GraphStore>((set, get) => {
       stopGraphRealtime();
       runtimeStatePolling.stop();
       lastAppliedRuntimeStateMeta.clear();
+      runtimeCursorByGraphId.clear();
 
       const graph = normalizeGraph(snapshotGraph);
       set(buildGraphStateUpdate({
@@ -428,6 +465,15 @@ export const useGraphStore = create<GraphStore>((set, get) => {
 
       if (runtimeState) {
         graphComputation.applyRuntimeStateSnapshot(graph, runtimeState);
+        const cursor = normalizeRuntimeCursor((runtimeState as { cursor?: unknown }).cursor);
+        if (cursor) {
+          runtimeCursorByGraphId.set(graph.id, cursor);
+          lastAppliedRuntimeStateMeta.set(graph.id, {
+            revision: typeof runtimeState.revision === 'number' ? runtimeState.revision : graph.revision,
+            statusVersion: typeof runtimeState.statusVersion === 'number' ? runtimeState.statusVersion : 0,
+            cursor,
+          });
+        }
       }
     },
 

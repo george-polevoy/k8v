@@ -115,11 +115,22 @@ export function initializeDataStoreDatabase(db: Database.Database): void {
       FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS latest_node_results (
+      graph_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      PRIMARY KEY (graph_id, node_id),
+      FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_graph_updated ON graphs(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_node_results_graph_node_time
       ON node_results(graph_id, node_id, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_node_results_graph_node_version_time
       ON node_results(graph_id, node_id, node_version, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_latest_node_results_graph
+      ON latest_node_results(graph_id);
   `);
 
   db.prepare(`
