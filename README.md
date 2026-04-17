@@ -101,6 +101,37 @@ The MCP server exposes:
   - captures a fixed-size bitmap from an explicit world rectangle (`x`, `y`, `width`, `height`)
   - avoids the interactive app shell and its floating toolbar/sidebar windows while preserving the canvas rendering stack
 
+### Layout Rules for Agents and API Clients
+
+- Node `position.x` and `position.y` are the top-left corner of the main card.
+- `cardWidth` and `cardHeight` describe the card box only, not projected text or graphics shown below it.
+- Normal create/edit flows clamp undersized card requests before persistence, so post-save `graph_get` and `graph_query` `cardSize` can be treated as the actual card box.
+- Current minimums:
+  - standard nodes: width `180`
+  - annotation nodes: width `140`, height `84`
+  - standard-node height: `max(68, 36 + 6 + 18 * max(inputCount, outputCount, 1))`
+  - numeric-input height: `max(80, standard-node-min-height)`
+- Projected text output appears below the card only when `displayTextOutputs=true` and the latest text output is non-empty.
+- Projected Python graphics also render below the card, preserve image aspect ratio, and therefore add variable visible height outside the card box.
+- When layout accuracy matters, do not trust the first requested size/position blindly. Create or update nodes, re-read with `graph_get` or `graph_query`, and use `graph_screenshot_region` when projected footer content may affect spacing.
+
+Example inspection query:
+
+```json
+{
+  "operation": "overview",
+  "nodeFields": ["id", "name", "type", "position", "cardSize", "config"]
+}
+```
+
+Example REST call:
+
+```bash
+curl -X POST http://localhost:3000/api/graphs/<graph-id>/query \
+  -H 'content-type: application/json' \
+  -d '{"operation":"overview","nodeFields":["id","name","type","position","cardSize","config"]}'
+```
+
 ## Project Structure
 
 ```

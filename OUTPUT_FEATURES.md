@@ -12,6 +12,7 @@ k8v now includes comprehensive output visualization for each node. When you run 
 - Shows in a collapsible panel with monospace font
 - Can optionally render non-empty node text output directly on canvas as an attached HTML `<pre>` overlay
 - Per-node canvas controls let you toggle text overlays, cap visible lines, or keep a scrollable multiline view
+- Projected text output is rendered below the node card and does not increase persisted `cardHeight`
 - Dark theme for better readability
 
 ### Graphics Output
@@ -21,6 +22,7 @@ k8v now includes comprehensive output visualization for each node. When you run 
 - PNG outputs are persisted with mip-map downsample levels for size-aware retrieval
 - Python runtime can emit PNG from raw bytes, raw PNG base64, `outputPng(...)`, or figure/image objects
 - Python node images are projected directly on the canvas below the node card (no in-card frame/padding)
+- Projected graphics preserve image aspect ratio and add visible height below the card without changing persisted `cardHeight`
 - Automatically scales to fit the panel
 - Collapsible panel for space management
 
@@ -35,6 +37,13 @@ k8v now includes comprehensive output visualization for each node. When you run 
    - This persists directly on the node as flat config keys: `displayTextOutputs`, `textOutputMaxLines`, and `textOutputOverflowMode`.
 5. For nodes with canvas output enabled, text is rendered below the node card as a synchronized HTML `<pre>` overlay.
 6. For `python_process` nodes with graphics output, the latest image is projected on canvas directly below that node card (or below the text overlay if one is visible).
+
+## Layout Implications
+
+- `cardWidth` and `cardHeight` describe only the card box.
+- Projected text and projected graphics are footer content below the card, so layout tools and agents need extra vertical spacing beyond `cardSize.height`.
+- Persisted `cardSize` is the right source for the saved card box after creation or resize, but it is not enough to predict total visible height when projected outputs are enabled.
+- When precise spacing matters, inspect the saved graph and verify visually with screenshot tooling rather than assuming requested dimensions equal total rendered bounds.
 
 ## Code Examples
 

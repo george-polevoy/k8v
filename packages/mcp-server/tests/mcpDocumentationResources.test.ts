@@ -27,6 +27,7 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.ok(server.resources.has('node-config-schema'));
   assert.ok(server.resources.has('graph-command-schema'));
   assert.ok(server.resources.has('graph-query-schema'));
+  assert.ok(server.resources.has('layout-rules'));
   assert.ok(server.resources.has('annotation-workflows'));
   assert.ok(server.resources.has('wasm-algo-invocation'));
   assert.ok(server.resources.has('workflow-examples'));
@@ -42,12 +43,17 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.match(overviewText, /node_set_custom/);
   assert.match(overviewText, /flat exhaustive `config` keyed by top-level `node\.type`/i);
   assert.match(overviewText, /k8v:\/\/docs\/node-config-schema\.json/);
+  assert.match(overviewText, /k8v:\/\/docs\/layout-rules\.md/);
   const recommendedReadingIndex = overviewText.indexOf('Recommended reading order:');
   const referenceSchemasIndex = overviewText.indexOf(
     'Reference schemas for uncommon commands or validation details:'
   );
   const recommendedBulkEditExampleIndex = overviewText.indexOf(
     'k8v://docs/examples/bulk-edit-call',
+    recommendedReadingIndex
+  );
+  const recommendedLayoutRulesIndex = overviewText.indexOf(
+    'k8v://docs/layout-rules.md',
     recommendedReadingIndex
   );
   const referenceNodeConfigSchemaIndex = overviewText.indexOf(
@@ -58,9 +64,19 @@ test('documentation resources register discoverability docs and schemas', async 
     recommendedReadingIndex >= 0 &&
       referenceSchemasIndex > recommendedReadingIndex &&
       recommendedBulkEditExampleIndex > recommendedReadingIndex &&
+      recommendedLayoutRulesIndex > recommendedReadingIndex &&
       referenceNodeConfigSchemaIndex > referenceSchemasIndex &&
-      recommendedBulkEditExampleIndex < referenceNodeConfigSchemaIndex
+      recommendedBulkEditExampleIndex < referenceNodeConfigSchemaIndex &&
+      recommendedLayoutRulesIndex < referenceNodeConfigSchemaIndex
   );
+
+  const layoutRules = await server.resources.get('layout-rules')!.callback();
+  const layoutRulesText = (layoutRules as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  assert.match(layoutRulesText, /top-left corner of the main node card/i);
+  assert.match(layoutRulesText, /Standard node minimum width: `180`/);
+  assert.match(layoutRulesText, /Annotation minimum width: `140`/);
+  assert.match(layoutRulesText, /projected text output and projected graphics are rendered below the card/i);
+  assert.match(layoutRulesText, /graph_screenshot_region/);
 
   const nodeConfigSchema = await server.resources.get('node-config-schema')!.callback();
   const nodeConfigSchemaText =

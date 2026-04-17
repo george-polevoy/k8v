@@ -15,6 +15,7 @@ const MCP_OVERVIEW_URI = 'k8v://docs/mcp-overview.md';
 const NODE_CONFIG_SCHEMA_URI = 'k8v://docs/node-config-schema.json';
 const GRAPH_COMMAND_SCHEMA_URI = 'k8v://docs/graph-command-schema.json';
 const GRAPH_QUERY_SCHEMA_URI = 'k8v://docs/graph-query-schema.json';
+const LAYOUT_RULES_URI = 'k8v://docs/layout-rules.md';
 const ANNOTATION_WORKFLOWS_URI = 'k8v://docs/annotation-workflows.md';
 const WASM_ALGO_INVOCATION_URI = 'k8v://docs/wasm-algo-invocation.md';
 
@@ -66,6 +67,7 @@ function buildMcpOverviewText(): string {
     '',
     'Recommended reading order:',
     '- `k8v://docs/examples/bulk-edit-call`',
+    `- \`${LAYOUT_RULES_URI}\``,
     '- `k8v://docs/examples/annotation-board`',
     '- `k8v://docs/examples/annotation-arrows`',
     '- `k8v://docs/examples/annotation-multi-arrows`',
@@ -89,6 +91,68 @@ function buildMcpOverviewText(): string {
     '',
     'Revision conflicts:',
     '- `bulk_edit` errors include `currentRevision` in backend responses; retry with that revision after reloading graph state.',
+  ].join('\n');
+}
+
+function buildLayoutRulesText(): string {
+  return [
+    '# Layout Rules for API and MCP Agents',
+    '',
+    'Use these rules when placing nodes through `bulk_edit` or the backend graph API.',
+    '',
+    '## Coordinate and Size Semantics',
+    '',
+    '- `position.x` and `position.y` are the top-left corner of the main node card.',
+    '- `cardWidth` and `cardHeight` describe the card box only.',
+    '- Projected text output and projected graphics are rendered below the card and do not increase `cardHeight`.',
+    '- For normal create/edit flows, undersized card requests are normalized before persistence. After save, `graph_get` and `graph_query` `cardSize` reflect the actual persisted card box.',
+    '',
+    '## Minimum Card Sizes',
+    '',
+    '- Standard node minimum width: `180`.',
+    '- Annotation minimum width: `140`.',
+    '- Annotation minimum height: `84`.',
+    '- Standard node minimum height formula: `max(68, 36 + 6 + 18 * max(inputCount, outputCount, 1))`.',
+    '- Numeric input minimum height formula: `max(80, standard-node-min-height)`.',
+    '- If you request smaller values, the backend persists the clamped size instead.',
+    '',
+    '## Projected Footer Content',
+    '',
+    '- Text output appears below the card only when `config.displayTextOutputs === true` and the latest text output is non-empty.',
+    '- Visible text height is based on rendered lines, with `textOutputMaxLines` defaulting to `8`; overflow mode changes scrolling/capping behavior, not the card box.',
+    '- Python graphics output is rendered below the card, or below projected text if both are present.',
+    '- Graphics keep their image aspect ratio, so footer height cannot be inferred safely from graph structure alone.',
+    '- When projected footer content matters, reserve extra vertical spacing instead of packing nodes based only on `cardSize.height`.',
+    '',
+    '## Recommended Agent Workflow',
+    '',
+    '1. Choose conservative initial `x`, `y`, `cardWidth`, and `cardHeight` values.',
+    '2. Create or update nodes.',
+    '3. Re-read the graph with `graph_get` or `graph_query` including `position`, `cardSize`, and `config`.',
+    '4. Treat the returned `cardSize` as the true card box for follow-up layout.',
+    '5. If projected text or graphics may be visible, verify with `graph_screenshot_region` before claiming the layout is correct.',
+    '6. Move or resize nodes after inspection instead of assuming the first requested layout will fit.',
+    '',
+    'Suggested inspection query:',
+    '```json',
+    JSON.stringify({
+      operation: 'overview',
+      nodeFields: ['id', 'name', 'type', 'position', 'cardSize', 'config'],
+    }, null, 2),
+    '```',
+    '',
+    'Example screenshot verification:',
+    '```json',
+    JSON.stringify({
+      graphId: 'graph-1',
+      regionX: 0,
+      regionY: 0,
+      regionWidth: 1200,
+      regionHeight: 900,
+      bitmapWidth: 1600,
+      bitmapHeight: 1200,
+    }, null, 2),
+    '```',
   ].join('\n');
 }
 
@@ -430,6 +494,17 @@ export function registerDocumentationResources(server: any): void {
         GraphQueryDocumentationSchema,
         'GraphQueryRequest'
       )
+  );
+
+  server.registerResource(
+    'layout-rules',
+    LAYOUT_RULES_URI,
+    {
+      title: 'Layout Rules',
+      description: 'Renderer-aware node placement guidance for MCP and API consumers.',
+      mimeType: 'text/markdown',
+    },
+    async () => createTextResource(LAYOUT_RULES_URI, buildLayoutRulesText())
   );
 
   server.registerResource(
