@@ -39,6 +39,7 @@ export interface GraphRuntimeState {
   currentCursor: number;
   nextCursor: number;
   statusVersion: number;
+  queueGeneration: number;
   queue: RecomputeTask[];
   activeTaskNodeIds: string[];
   activeTaskGraphRevision: number | null;

@@ -60,7 +60,7 @@ export function selectNodeIdsForTask(
     return [];
   }
 
-  const impactedNodeIds = collectImpactedDescendants(graph, normalizedRoots);
+  const impactedNodeIds = collectImpactedNodeIds(graph, normalizedRoots);
   const selectedNodeIds = new Set<string>();
 
   if (type === 'graph_update') {
@@ -163,7 +163,6 @@ export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph
       continue;
     }
 
-    rootNodeIds.add(connection.sourceNodeId);
     rootNodeIds.add(connection.targetNodeId);
   }
 
@@ -176,9 +175,6 @@ export function collectChangedRootNodeIds(previousGraph: Graph, nextGraph: Graph
       continue;
     }
 
-    if (nextNodeMap.has(connection.sourceNodeId)) {
-      rootNodeIds.add(connection.sourceNodeId);
-    }
     if (nextNodeMap.has(connection.targetNodeId)) {
       rootNodeIds.add(connection.targetNodeId);
     }
@@ -200,7 +196,7 @@ function getAutoRecomputeEnabled(node: GraphNode): boolean {
   }
 }
 
-function collectImpactedDescendants(graph: Graph, roots: string[]): Set<string> {
+export function collectImpactedNodeIds(graph: Graph, roots: string[]): Set<string> {
   const outgoing = buildOutgoingAdjacency(graph);
   const queue = [...roots];
   const visited = new Set<string>();

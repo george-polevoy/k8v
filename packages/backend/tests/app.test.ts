@@ -840,6 +840,96 @@ test('POST /api/graphs/:id/commands performs manual recompute even when node ver
   }
 });
 
+test('POST /api/graphs/:id/commands manual node recompute leaves clean shared upstream and sibling lane untouched', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sharedSource = {
+      id: 'shared-source',
+      type: 'inline_code',
+      position: { x: 0, y: 100 },
+      metadata: {
+        name: 'Shared Source',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = 5;',
+        autoRecompute: false,
+      },
+      version: 'source-v1',
+    };
+    const makeLaneNode = (id: string, name: string) => ({
+      id,
+      type: 'inline_code',
+      position: { x: 220, y: id === 'lane-a' ? 0 : 200 },
+      metadata: {
+        name,
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        autoRecompute: false,
+      },
+      version: `${id}-v1`,
+    });
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [
+        sharedSource,
+        makeLaneNode('lane-a', 'Lane A'),
+        makeLaneNode('lane-b', 'Lane B'),
+      ],
+      connections: [
+        {
+          id: 'source-to-a',
+          sourceNodeId: 'shared-source',
+          sourcePort: 'output',
+          targetNodeId: 'lane-a',
+          targetPort: 'input',
+        },
+        {
+          id: 'source-to-b',
+          sourceNodeId: 'shared-source',
+          sourcePort: 'output',
+          targetNodeId: 'lane-b',
+          targetPort: 'input',
+        },
+      ],
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+
+    const initialComputeResponse = await computeGraph(ctx.baseUrl, createdGraph.id);
+    assert.equal(initialComputeResponse.status, 200);
+    const sourceBefore = await ctx.dataStore.getResult(createdGraph.id, 'shared-source');
+    const laneABefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-a');
+    const laneBBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-b');
+    assert.ok(sourceBefore);
+    assert.ok(laneABefore);
+    assert.ok(laneBBefore);
+
+    await delay(5);
+    const manualLaneBResponse = await computeNode(ctx.baseUrl, createdGraph.id, 'lane-b');
+    assert.equal(manualLaneBResponse.status, 200);
+
+    const sourceAfter = await ctx.dataStore.getResult(createdGraph.id, 'shared-source');
+    const laneAAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-a');
+    const laneBAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-b');
+    assert.ok(sourceAfter);
+    assert.ok(laneAAfter);
+    assert.ok(laneBAfter);
+    assert.equal(sourceAfter.timestamp, sourceBefore.timestamp);
+    assert.equal(laneAAfter.timestamp, laneABefore.timestamp);
+    assert.ok(laneBAfter.timestamp > laneBBefore.timestamp);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('POST /api/graphs applies default graph execution timeout', async () => {
   const ctx = await setupTestServer();
 
@@ -2084,7 +2174,7 @@ test('POST /api/graphs/:id/commands replaces pending graph-update recomputes wit
   }
 });
 
-test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes from the whole graph stale set', async () => {
+test('POST /api/graphs/:id/commands preserves roots from collapsed pending graph-update recomputes', async () => {
   const ctx = await setupTestServer();
 
   try {
@@ -2129,6 +2219,8 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
         makeLeafNode('node-b-leaf'),
         makeRootNode('node-c-root', 3),
         makeLeafNode('node-c-leaf'),
+        makeRootNode('node-d-root', 4),
+        makeLeafNode('node-d-leaf'),
       ],
       connections: [
         {
@@ -2150,6 +2242,13 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
           sourceNodeId: 'node-c-root',
           sourcePort: 'output',
           targetNodeId: 'node-c-leaf',
+          targetPort: 'input',
+        },
+        {
+          id: 'd-chain',
+          sourceNodeId: 'node-d-root',
+          sourcePort: 'output',
+          targetNodeId: 'node-d-leaf',
           targetPort: 'input',
         },
       ],
@@ -2188,6 +2287,32 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
       await delay(20);
     }
     assert.equal(activeRunStarted, true);
+
+    const staleDResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
+        nodes: graph.nodes.map((node: any) =>
+          node.id === 'node-d-root'
+            ? {
+                ...node,
+                version: 'node-d-root-v2',
+                config: {
+                  ...node.config,
+                  code: 'import time\ntime.sleep(0)\noutputs.output = 40',
+                },
+              }
+            : node
+        ),
+      }),
+      { noRecompute: true }
+    );
+    assert.equal(staleDResponse.status, 200);
+    const nodeDRootBefore = await ctx.dataStore.getResult(createdGraph.id, 'node-d-root');
+    const nodeDLeafBefore = await ctx.dataStore.getResult(createdGraph.id, 'node-d-leaf');
+    assert.ok(nodeDRootBefore);
+    assert.ok(nodeDLeafBefore);
 
     const pendingAResponse = await updateGraphWithCommands(ctx.baseUrl, createdGraph.id, (graph) => ({
       ...graph,
@@ -2228,9 +2353,333 @@ test('POST /api/graphs/:id/commands rebuilds pending graph-update recomputes fro
     const nodeALeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-a-leaf');
     const nodeBLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-b-leaf');
     const nodeCLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-c-leaf');
+    const nodeDRootResult = await ctx.dataStore.getResult(createdGraph.id, 'node-d-root');
+    const nodeDLeafResult = await ctx.dataStore.getResult(createdGraph.id, 'node-d-leaf');
     assert.equal(nodeALeafResult?.outputs.output, 10);
     assert.equal(nodeBLeafResult?.outputs.output, 20);
     assert.equal(nodeCLeafResult?.outputs.output, 30);
+    assert.equal(nodeDRootResult?.timestamp, nodeDRootBefore.timestamp);
+    assert.equal(nodeDLeafResult?.timestamp, nodeDLeafBefore.timestamp);
+    assert.equal(nodeDLeafResult?.outputs.output, 4);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('POST /api/graphs/:id/commands keeps stale sibling lanes outside graph-update recompute scope', async () => {
+  const ctx = await setupTestServer();
+
+  try {
+    const sharedSource = {
+      id: 'shared-source',
+      type: 'inline_code',
+      position: { x: 0, y: 160 },
+      metadata: {
+        name: 'Shared Source',
+        inputs: [],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = 5;',
+        autoRecompute: false,
+      },
+      version: 'shared-source-v1',
+    };
+    const laneAAdapter = {
+      id: 'lane-a-adapter',
+      type: 'inline_code',
+      position: { x: 200, y: 0 },
+      metadata: {
+        name: 'Lane A Input Adapter',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        autoRecompute: false,
+      },
+      version: 'lane-a-adapter-v1',
+    };
+    const laneASolver = {
+      id: 'lane-a-solver',
+      type: 'inline_code',
+      position: { x: 400, y: 0 },
+      metadata: {
+        name: 'Regular Circles TV Solver',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'python_process',
+        code: 'outputs.output = 10',
+        autoRecompute: false,
+      },
+      version: 'lane-a-solver-v1',
+    };
+    const laneAFinal = {
+      id: 'lane-a-final',
+      type: 'inline_code',
+      position: { x: 600, y: 0 },
+      metadata: {
+        name: 'Regular Circles TV Final',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        autoRecompute: true,
+      },
+      version: 'lane-a-final-v1',
+    };
+    const laneBSlider = {
+      id: 'lane-b-slider',
+      type: 'numeric_input',
+      position: { x: 200, y: 320 },
+      metadata: {
+        name: 'PDHG - fixed iteration budget',
+        inputs: [],
+        outputs: [{ name: 'value', schema: { type: 'number' } }],
+      },
+      config: {
+        value: 1,
+        min: 1,
+        max: 100,
+        step: 1,
+        dragDebounceSeconds: 0.1,
+        propagateWhileDragging: false,
+        autoRecompute: false,
+      },
+      version: 'lane-b-slider-v1',
+    };
+    const laneBAdapter = {
+      id: 'lane-b-adapter',
+      type: 'inline_code',
+      position: { x: 200, y: 180 },
+      metadata: {
+        name: 'Lane B Input Adapter',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        autoRecompute: false,
+      },
+      version: 'lane-b-adapter-v1',
+    };
+    const laneBSolver = {
+      id: 'lane-b-solver',
+      type: 'inline_code',
+      position: { x: 400, y: 240 },
+      metadata: {
+        name: 'PDHG Solver',
+        inputs: [
+          { name: 'input', schema: { type: 'number' } },
+          { name: 'budget', schema: { type: 'number' } },
+        ],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input + inputs.budget;',
+        autoRecompute: false,
+      },
+      version: 'lane-b-solver-v1',
+    };
+    const laneBFinal = {
+      id: 'lane-b-final',
+      type: 'inline_code',
+      position: { x: 600, y: 240 },
+      metadata: {
+        name: 'PDHG Final',
+        inputs: [{ name: 'input', schema: { type: 'number' } }],
+        outputs: [{ name: 'output', schema: { type: 'number' } }],
+      },
+      config: {
+        runtime: 'javascript_vm',
+        code: 'outputs.output = inputs.input;',
+        autoRecompute: true,
+      },
+      version: 'lane-b-final-v1',
+    };
+
+    const createResponse = await createGraph(ctx.baseUrl, {
+      nodes: [
+        sharedSource,
+        laneAAdapter,
+        laneASolver,
+        laneAFinal,
+        laneBSlider,
+        laneBAdapter,
+        laneBSolver,
+        laneBFinal,
+      ],
+      connections: [
+        {
+          id: 'shared-to-a',
+          sourceNodeId: 'shared-source',
+          sourcePort: 'output',
+          targetNodeId: 'lane-a-adapter',
+          targetPort: 'input',
+        },
+        {
+          id: 'a-adapter-to-solver',
+          sourceNodeId: 'lane-a-adapter',
+          sourcePort: 'output',
+          targetNodeId: 'lane-a-solver',
+          targetPort: 'input',
+        },
+        {
+          id: 'a-solver-to-final',
+          sourceNodeId: 'lane-a-solver',
+          sourcePort: 'output',
+          targetNodeId: 'lane-a-final',
+          targetPort: 'input',
+        },
+        {
+          id: 'shared-to-b',
+          sourceNodeId: 'shared-source',
+          sourcePort: 'output',
+          targetNodeId: 'lane-b-adapter',
+          targetPort: 'input',
+        },
+        {
+          id: 'b-adapter-to-solver',
+          sourceNodeId: 'lane-b-adapter',
+          sourcePort: 'output',
+          targetNodeId: 'lane-b-solver',
+          targetPort: 'input',
+        },
+        {
+          id: 'b-slider-to-solver',
+          sourceNodeId: 'lane-b-slider',
+          sourcePort: 'value',
+          targetNodeId: 'lane-b-solver',
+          targetPort: 'budget',
+        },
+        {
+          id: 'b-solver-to-final',
+          sourceNodeId: 'lane-b-solver',
+          sourcePort: 'output',
+          targetNodeId: 'lane-b-final',
+          targetPort: 'input',
+        },
+      ],
+      recomputeConcurrency: 1,
+    });
+    assert.equal(createResponse.status, 200);
+    const createdGraph = await createResponse.json();
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 180, 20);
+
+    const initialComputeResponse = await computeGraph(ctx.baseUrl, createdGraph.id);
+    assert.equal(initialComputeResponse.status, 200);
+    await waitForRuntimeIdle(ctx.baseUrl, createdGraph.id, 180, 20);
+
+    const staleLaneAResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
+        nodes: graph.nodes.map((node: any) =>
+          node.id === 'lane-a-solver'
+            ? {
+                ...node,
+                version: 'lane-a-solver-v2',
+                config: {
+                  ...node.config,
+                  code: 'import time\ntime.sleep(0.3)\noutputs.output = 11',
+                },
+              }
+            : node
+        ),
+      }),
+      { noRecompute: true }
+    );
+    assert.equal(staleLaneAResponse.status, 200);
+
+    const sourceBefore = await ctx.dataStore.getResult(createdGraph.id, 'shared-source');
+    const laneASolverBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-a-solver');
+    const laneAFinalBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-a-final');
+    const laneBSliderBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-slider');
+    const laneBSolverBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-solver');
+    const laneBFinalBefore = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-final');
+    assert.ok(sourceBefore);
+    assert.ok(laneASolverBefore);
+    assert.ok(laneAFinalBefore);
+    assert.ok(laneBSliderBefore);
+    assert.ok(laneBSolverBefore);
+    assert.ok(laneBFinalBefore);
+
+    await delay(5);
+    const sliderUpdateResponse = await updateGraphWithCommands(
+      ctx.baseUrl,
+      createdGraph.id,
+      (graph) => ({
+        ...graph,
+        nodes: graph.nodes.map((node: any) =>
+          node.id === 'lane-b-slider'
+            ? {
+                ...node,
+                version: 'lane-b-slider-v2',
+                config: {
+                  ...node.config,
+                  value: 2,
+                },
+              }
+            : node
+        ),
+      })
+    );
+    assert.equal(sliderUpdateResponse.status, 200);
+
+    let sawLaneAActive = false;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const statusResponse = await fetchRuntimeState(ctx.baseUrl, createdGraph.id);
+      assert.equal(statusResponse.status, 200);
+      const status = await statusResponse.json();
+      const nodeStates = status.nodeStates ?? {};
+      if (
+        nodeStates['lane-a-solver']?.isPending ||
+        nodeStates['lane-a-solver']?.isComputing ||
+        nodeStates['lane-a-final']?.isPending ||
+        nodeStates['lane-a-final']?.isComputing
+      ) {
+        sawLaneAActive = true;
+      }
+
+      const hasActiveWork =
+        status.queueLength > 0 ||
+        Object.values(nodeStates).some((state: any) => state?.isPending || state?.isComputing);
+      if (!hasActiveWork) {
+        break;
+      }
+      await delay(10);
+    }
+
+    const sourceAfter = await ctx.dataStore.getResult(createdGraph.id, 'shared-source');
+    const laneASolverAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-a-solver');
+    const laneAFinalAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-a-final');
+    const laneBSliderAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-slider');
+    const laneBSolverAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-solver');
+    const laneBFinalAfter = await ctx.dataStore.getResult(createdGraph.id, 'lane-b-final');
+    assert.ok(sourceAfter);
+    assert.ok(laneASolverAfter);
+    assert.ok(laneAFinalAfter);
+    assert.ok(laneBSliderAfter);
+    assert.ok(laneBSolverAfter);
+    assert.ok(laneBFinalAfter);
+
+    assert.equal(sawLaneAActive, false);
+    assert.equal(sourceAfter.timestamp, sourceBefore.timestamp);
+    assert.equal(laneASolverAfter.timestamp, laneASolverBefore.timestamp);
+    assert.equal(laneAFinalAfter.timestamp, laneAFinalBefore.timestamp);
+    assert.ok(laneBSliderAfter.timestamp > laneBSliderBefore.timestamp);
+    assert.ok(laneBSolverAfter.timestamp > laneBSolverBefore.timestamp);
+    assert.ok(laneBFinalAfter.timestamp > laneBFinalBefore.timestamp);
+    assert.equal(laneBFinalAfter.outputs.output, 7);
   } finally {
     await ctx.close();
   }

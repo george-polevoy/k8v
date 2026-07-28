@@ -311,15 +311,19 @@ export async function submitGraphCommands(
   graphId: string,
   baseRevision: number,
   commands: Array<Record<string, unknown>>,
-  context: string
+  context: string,
+  options: {
+    noRecompute?: boolean;
+  } = {}
 ): Promise<GraphResponse> {
   const startedAt = Date.now();
   const timeoutMs = E2E_ASSERT_TIMEOUT_MS;
   let payload: GraphCommandsResponse | null = null;
   let lastNotFoundBody = '';
+  const query = options.noRecompute ? '?noRecompute=true' : '';
 
   while ((Date.now() - startedAt) < timeoutMs) {
-    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/commands`, {
+    const response = await fetch(`${E2E_BACKEND_URL}/api/graphs/${graphId}/commands${query}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

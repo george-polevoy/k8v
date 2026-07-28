@@ -18,8 +18,11 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Owns backend-driven recomputation scheduling for graph updates and manual recompute requests
 - Delegates task planning and stale-state derivation to `packages/backend/src/core/recompute/`
 - Computes impacted downstream chains and marks all queued descendants as pending before execution
-- Collapses pending graph-update recompute work to the latest graph revision and rebuilds the pending node list from the latest graph-wide stale set
+- Collapses pending graph-update recompute work to the latest graph revision, merges changed roots from superseded pending updates, and resolves stale auto-recompute work only inside the combined downstream scope
+- Guards asynchronous pending-state planning with a queue generation so a superseded planner cannot publish or restore obsolete pending state
 - Executes recompute batches through a graph-level configurable worker queue (`recomputeConcurrency`)
+- Preserves transitive execution order between scheduled nodes even when their connecting prerequisite nodes have auto-recompute disabled
+- Deduplicates concurrent recursive requests for the same graph revision, node version, and recompute mode so parallel descendants share one in-flight prerequisite execution
 - Uses an internal `RecomputeStateStore` to track node execution state snapshots, node/result change cursors, and sparse runtime deltas exposed through graph runtime-state responses and SSE-triggered refreshes
 - Graph command batches can bypass enqueueing update-driven recompute via `POST /api/graphs/:id/commands?noRecompute=true`
 
@@ -119,9 +122,12 @@ k8v is a flow-based modeling software that enables visual programming through an
 - Computation dependencies follow edge direction: a node depends on all nodes with incoming edges to it.
 - Runtime computation uses topological ordering so dependencies are computed before dependents.
 - Backend recompute queue processing follows upstream-to-downstream topological order.
+- Scheduled nodes remain ordered across intervening non-scheduled prerequisites, preventing concurrent duplicate execution of a manual root and its auto-recompute descendant.
 - Connections using the presentation pseudo-port / edge anchors are presentation-only: they persist/render on canvas but are excluded from dependency ordering, recompute propagation, and cycle validation.
 - Graph updates can enqueue all impacted auto-recompute descendants as pending before execution starts.
-- A newer graph update replaces any older pending graph-update recompute task and rebuilds pending auto-recompute work from the current graph-wide stale set; currently running work is allowed to finish.
+- A newer graph update replaces older pending graph-update recompute tasks, merges their changed roots into the replacement task, and rebuilds pending auto-recompute work only within those roots and their downstream descendants; currently running work is allowed to finish.
+- Connection topology changes invalidate the affected target lane; they do not use the unchanged source as a root and therefore do not spread recompute work sideways through a shared upstream node.
+- Manual node recompute force tokens apply only to nodes explicitly scheduled by the task. Recursive prerequisites outside that set recompute only when their stored result is genuinely stale.
 - When an upstream node is errored, backend recompute skips affected downstream nodes and marks them stale.
 - Circular dependencies are rejected for new graphs and all graph updates.
 

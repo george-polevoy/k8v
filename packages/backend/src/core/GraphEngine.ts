@@ -6,6 +6,11 @@ import {
   filterComputationalConnections,
 } from './annotationConnections.js';
 
+interface ComputeNodeOptions {
+  recomputeVersion?: number;
+  forceNodeIds?: ReadonlySet<string>;
+}
+
 /**
  * Graph computation engine with deterministic recomputation
  */
@@ -14,6 +19,7 @@ export class GraphEngine {
   private nodeExecutor: NodeExecutor;
   private computationCache: Map<string, ComputationResult> = new Map();
   private manualRecomputeVersionByNodeId: Map<string, number> = new Map();
+  private inFlightComputations: Map<string, Promise<ComputationResult>> = new Map();
 
   constructor(dataStore: DataStore, nodeExecutor: NodeExecutor) {
     this.dataStore = dataStore;
@@ -26,17 +32,59 @@ export class GraphEngine {
   async computeNode(
     graph: Graph,
     nodeId: string,
-    options: { recomputeVersion?: number } = {}
+    options: ComputeNodeOptions = {}
+  ): Promise<ComputationResult> {
+    const hasManualRecomputeVersion =
+      typeof options.recomputeVersion === 'number' &&
+      Number.isFinite(options.recomputeVersion);
+    const forceNodeIds =
+      options.forceNodeIds ??
+      (hasManualRecomputeVersion ? new Set([nodeId]) : undefined);
+
+    return await this.computeNodeWithContext(graph, nodeId, {
+      ...options,
+      forceNodeIds,
+    });
+  }
+
+  private async computeNodeWithContext(
+    graph: Graph,
+    nodeId: string,
+    options: ComputeNodeOptions
   ): Promise<ComputationResult> {
     const node = graph.nodes.find(n => n.id === nodeId);
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
 
+    const inFlightKey = this.makeInFlightKey(graph, node, options);
+    const existingComputation = this.inFlightComputations.get(inFlightKey);
+    if (existingComputation) {
+      return await existingComputation;
+    }
+
+    const computation = this.computeNodeOnce(graph, node, options);
+    this.inFlightComputations.set(inFlightKey, computation);
+    try {
+      return await computation;
+    } finally {
+      if (this.inFlightComputations.get(inFlightKey) === computation) {
+        this.inFlightComputations.delete(inFlightKey);
+      }
+    }
+  }
+
+  private async computeNodeOnce(
+    graph: Graph,
+    node: GraphNode,
+    options: ComputeNodeOptions
+  ): Promise<ComputationResult> {
+    const nodeId = node.id;
+
     // Compute dependencies first so recomputation checks can use fresh dependency results.
     const dependencies = this.getDependencies(graph, nodeId);
     for (const depNodeId of dependencies) {
-      await this.computeNode(graph, depNodeId, options);
+      await this.computeNodeWithContext(graph, depNodeId, options);
     }
 
     const currentResult = await this.getCachedOrStoredResult(graph.id, nodeId);
@@ -57,7 +105,11 @@ export class GraphEngine {
         graphicsOutput: undefined,
       };
       this.computationCache.set(this.makeCacheKey(graph.id, nodeId), result);
-      if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
+      if (
+        typeof options.recomputeVersion === 'number' &&
+        Number.isFinite(options.recomputeVersion) &&
+        options.forceNodeIds?.has(nodeId)
+      ) {
         this.manualRecomputeVersionByNodeId.set(this.makeCacheKey(graph.id, nodeId), options.recomputeVersion);
       }
 
@@ -81,9 +133,13 @@ export class GraphEngine {
     graph: Graph,
     node: GraphNode,
     currentResult: ComputationResult | null,
-    options: { recomputeVersion?: number }
+    options: ComputeNodeOptions
   ): Promise<boolean> {
-    if (typeof options.recomputeVersion === 'number' && Number.isFinite(options.recomputeVersion)) {
+    if (
+      typeof options.recomputeVersion === 'number' &&
+      Number.isFinite(options.recomputeVersion) &&
+      options.forceNodeIds?.has(node.id)
+    ) {
       const lastManualRecomputeVersion = this.manualRecomputeVersionByNodeId.get(
         this.makeCacheKey(graph.id, node.id)
       );
@@ -200,6 +256,7 @@ export class GraphEngine {
   clearCache(): void {
     this.computationCache.clear();
     this.manualRecomputeVersionByNodeId.clear();
+    this.inFlightComputations.clear();
   }
 
   async disposeGraphExecutionResources(graphId: string): Promise<void> {
@@ -228,5 +285,26 @@ export class GraphEngine {
 
   private makeCacheKey(graphId: string, nodeId: string): string {
     return `${graphId}:${nodeId}`;
+  }
+
+  private makeInFlightKey(
+    graph: Graph,
+    node: GraphNode,
+    options: ComputeNodeOptions
+  ): string {
+    const recomputeVersion =
+      typeof options.recomputeVersion === 'number' &&
+      Number.isFinite(options.recomputeVersion)
+        ? options.recomputeVersion
+        : 'automatic';
+    const forceMode = options.forceNodeIds?.has(node.id) ? 'forced' : 'stale-only';
+    return JSON.stringify([
+      graph.id,
+      graph.revision,
+      node.id,
+      node.version,
+      recomputeVersion,
+      forceMode,
+    ]);
   }
 }

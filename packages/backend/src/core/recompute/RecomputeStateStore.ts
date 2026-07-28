@@ -22,6 +22,7 @@ export class RecomputeStateStore {
       currentCursor: 0,
       nextCursor: 1,
       statusVersion: 0,
+      queueGeneration: 0,
       queue: [],
       activeTaskNodeIds: [],
       activeTaskGraphRevision: null,
@@ -110,7 +111,6 @@ export class RecomputeStateStore {
     for (const nodeId of nodeIds) {
       if (this.patchNodeState(state, nodeId, {
         isPending: true,
-        isComputing: false,
         hasError: false,
         isStale: false,
         errorMessage: null,

@@ -1,7 +1,7 @@
 # k8v Test Case Inventory
 
 This file maps implemented features (`FUNCTIONALITY.md`) to documented test cases.
-Last reviewed: April 1, 2026.
+Last reviewed: July 28, 2026.
 
 ## Coverage Legend
 
@@ -17,6 +17,7 @@ Last reviewed: April 1, 2026.
 - `A-E2E-33` `packages/frontend/tests/e2e/canvasTextOutputOverlay.test.ts`: per-node canvas text-output overlays render only for non-empty output, support capped versus scrollable multiline display, hide immediately when disabled, and still render whitespace-only output.
 - `A-E2E-34` `packages/frontend/tests/e2e/manualRecomputeOverlap.test.ts`: clicking `Run Selected Node` repeatedly before a Python recompute finishes drains queued work without leaving downstream Python dependents errored.
 - `A-E2E-35` `packages/frontend/tests/e2e/localOverlappingGraphUpdates.test.ts`: same-tab overlapping graph-save requests stay queued locally and do not surface a false remote-conflict reload in diagnostics.
+- `A-E2E-36` `packages/frontend/tests/e2e/graphUpdateBranchIsolation.test.ts`: committing a non-live numeric slider in lane B recomputes only lane B descendants while an independently stale lane A and the shared source keep their runtime states and result timestamps unchanged.
 - `A-E2E-02` `packages/frontend/tests/e2e/graphDeletion.test.ts`: graph deletion uses inline confirmation (no browser dialog) and removes target graph.
 - `A-E2E-03` `packages/frontend/tests/e2e/panelAccordion.test.ts`: the right sidebar icon rail switches sections and clicking the active icon collapses/reopens the wide content pane.
 - `A-E2E-04` `packages/frontend/tests/e2e/panelAccordion.test.ts`: selecting a node preserves the current sidebar section instead of auto-switching to Node.
@@ -177,7 +178,7 @@ Last reviewed: April 1, 2026.
 - `A-BE-78` `packages/backend/tests/algoInjections.test.ts`: sandboxed wasm can read via `graph_get`/`graph_query`, while backend transient wasm invocation returns only minimal execution status and command count, stages `bulk_edit`, rejects compute commands, and leaves the graph unchanged on timeout.
 - `A-BE-79` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` accepts initial `cardWidth` and `cardHeight` on add-node commands and persists them into the active projection card-size map.
 - `A-BE-80` `packages/backend/tests/app.test.ts`: rapid graph updates replace older pending graph-update recompute tasks so only the active run plus the latest pending graph-update run remain queued.
-- `A-BE-81` `packages/backend/tests/app.test.ts`: when graph updates collapse pending recompute work, the replacement pending task is rebuilt from the latest graph-wide stale set rather than only the latest change roots.
+- `A-BE-81` `packages/backend/tests/app.test.ts`: when graph updates collapse pending recompute work, the replacement task preserves the union of changed roots from superseded pending tasks without scanning unrelated stale branches.
 - `A-BE-82` `packages/backend/tests/DataStore.test.ts`: DataStore honors `K8V_STORAGE_DIR` so managed browser-test backends can keep their SQLite/artifact storage separate from the default app storage.
 - `A-BE-84` `packages/backend/tests/JavaScriptVmRuntime.test.ts`: JavaScript runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
 - `A-BE-85` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python runtime exposes `meta.custom`, `meta.graph`, and `meta.node` to inline code.
@@ -185,6 +186,14 @@ Last reviewed: April 1, 2026.
 - `A-BE-87` `packages/backend/tests/app.test.ts`: `POST /api/graphs/:id/commands` updates existing node `metadata.custom` dictionaries via `node_set_custom`.
 - `A-BE-88` `packages/backend/tests/PythonProcessRuntime.test.ts`: Python service transport failures retire the shared service without killing sibling in-flight requests, and later executions recover on a fresh warm service.
 - `A-BE-91` `packages/backend/tests/app.test.ts`: backend app can serve the compiled frontend bundle for non-API routes while keeping API endpoints available.
+- `A-BE-92` `packages/backend/tests/GraphEngine.test.ts`: manual node recompute forces the selected node while reusing clean recursive dependencies and still recomputing dependencies that are genuinely stale.
+- `A-BE-93` `packages/backend/tests/app.test.ts`: manual lane B recompute leaves a clean shared source and sibling lane A result timestamps unchanged.
+- `A-BE-94` `packages/backend/tests/app.test.ts`: a lane B graph update does not make stale lane A nodes pending/computing or rerun its manual solver/final, while lane B auto descendants recompute.
+- `A-BE-95` `packages/backend/tests/recomputePlanning.test.ts`: connection additions/removals use the affected target as the changed root and exclude the unchanged source.
+- `A-BE-96` `packages/backend/tests/RecomputeManager.test.ts`: scheduled manual roots execute before auto descendants across intervening `autoRecompute: false` prerequisites at concurrency greater than one, avoiding duplicate root execution.
+- `A-BE-97` `packages/backend/tests/RecomputeManager.test.ts`: a delayed pending planner discarded by graph-update replacement cannot restore obsolete pending state after the replacement task drains.
+- `A-BE-98` `packages/backend/tests/RecomputeManager.test.ts`: queueing a rerun preserves the active node's computing state while also marking it pending.
+- `A-BE-99` `packages/backend/tests/RecomputeManager.test.ts`: parallel auto descendants share one execution of a common stale non-scheduled prerequisite.
 - `A-MCP-01` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `graph_create` creates an empty graph via `POST /api/graphs` and sends only the optional `name` payload.
 - `A-MCP-02` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` accepts ordered backend/domain `GraphCommand[]` batches and resolves `baseRevision` from the current graph when omitted.
 - `A-MCP-03` `packages/mcp-server/tests/graphEdits.test.ts`: MCP `bulk_edit` forwards explicit `baseRevision` values and respects `noRecompute`.
@@ -381,18 +390,19 @@ Last reviewed: April 1, 2026.
 | Compute entire graph from the Tools section | `M-COMPUTE-02` | Manual |
 | Compute single selected node from node panel | `M-COMPUTE-01` | Manual |
 | Deterministic recomputation by node version + deps timestamps | `A-BE-08` | Automated |
-| Inbound connection topology updates invalidate affected target nodes for recomputation | `A-BE-46` | Automated |
+| Inbound connection topology updates invalidate affected target nodes for recomputation without spreading through the unchanged source | `A-BE-46`, `A-BE-95` | Automated |
 | Persist outputs/schema/text/graphics | `A-BE-09`, `A-BE-13` | Automated |
 | Output panel shows text/graphics for selected node | `M-COMPUTE-01` | Manual |
 | Cached frontend node graphics outputs hydrate from persisted results and refresh on compute | `A-FE-12`, `A-FE-13`, `A-FE-14` | Automated |
 | Output refresh retry after compute (persistence lag) | `M-COMPUTE-03` | Manual |
 | Frontend graph updates do not run local auto-recompute chains | `A-FE-05` | Automated |
-| Auto-recompute downstream nodes on graph updates (backend-driven) | `A-BE-48`, `A-BE-80`, `A-BE-81`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
+| Auto-recompute downstream nodes on graph updates, scoped to changed branches (backend-driven) | `A-BE-48`, `A-BE-80`, `A-BE-81`, `A-BE-94`, `A-E2E-36`, `M-PANEL-06`, `M-COMPUTE-02` | Automated + Manual |
 | Graph command API optional recompute suppression (`POST /api/graphs/:id/commands?noRecompute=true`) | `A-BE-55` | Automated |
 | Auto-recompute pending status includes impacted descendants | `A-BE-48`, `M-STATUS-01` | Automated + Manual |
-| Pending graph-update recompute work collapses to the latest graph-wide stale set | `A-BE-80`, `A-BE-81` | Automated |
+| Pending graph-update recompute work collapses to the latest revision while preserving superseded changed roots and rejecting obsolete planners | `A-BE-80`, `A-BE-81`, `A-BE-97` | Automated |
+| Manual node recompute reuses clean shared prerequisites and leaves sibling lanes untouched | `A-BE-92`, `A-BE-93` | Automated |
 | Graph-level recompute worker concurrency is configurable | `A-BE-47`, `A-E2E-11` | Automated |
-| Auto-recompute execution order is upstream to downstream | `M-COMPUTE-02` | Manual |
+| Auto-recompute execution order is upstream to downstream, including paths across non-scheduled prerequisites | `A-BE-96`, `M-COMPUTE-02` | Automated + Manual |
 | Auto-recompute marks downstream stale when upstream errors and skips affected downstream runs | `M-STATUS-04` | Manual |
 | Backend request validation via Zod | `A-BE-02`, `A-BE-03` | Automated |
 | Reject duplicate inbound connections on the same target slot | `A-BE-68`, `A-FE-36`, `A-FE-37` | Automated + Manual |
@@ -423,6 +433,6 @@ Last reviewed: April 1, 2026.
 
 ## Open Gaps
 
-- Automated UI e2e coverage is currently limited to numeric slider drag/cursor behavior and live drag-propagation mode, graph deletion confirmation flow, docked sidebar navigation/collapse behaviors, node card resize, diagnostics error surfacing, Tools-section drawing hint wrapping, conflict reload on stale local save, live multi-session graph sync, graphics mip-selection quality bias, wheel navigation behaviors, graph recompute concurrency setting persistence, graph execution timeout persistence, node-drag stability during polling rerenders, annotation markdown/TeX resize flows, annotation edge-arrow creation, inline-code output-port sync on source edit, graph connection-stroke settings persistence, docked-sidebar/viewport refresh persistence, dedicated screenshot harness mode, Tools add-node dialog layering, shared color-dialog layering, shared hue/saturation-value color picking, canvas multi-selection/space-pan interactions, node-panel multi-selection shared color editing, selection Alt-drag duplication, and inline-input connection replacement (`A-E2E-01`, `A-E2E-02`, `A-E2E-03`, `A-E2E-04`, `A-E2E-05`, `A-E2E-06`, `A-E2E-07`, `A-E2E-08`, `A-E2E-09`, `A-E2E-10`, `A-E2E-11`, `A-E2E-12`, `A-E2E-13`, `A-E2E-14`, `A-E2E-15`, `A-E2E-16`, `A-E2E-17`, `A-E2E-18`, `A-E2E-19`, `A-E2E-20`, `A-E2E-21`, `A-E2E-22`, `A-E2E-23`, `A-E2E-24`, `A-E2E-25`, `A-E2E-26`, `A-E2E-27`, `A-E2E-28`, `A-E2E-29`, `A-E2E-30`, `A-E2E-31`).
+- Automated UI e2e coverage is currently limited to numeric slider drag/cursor, live drag-propagation, and branch-isolated recompute behavior; graph deletion confirmation; docked sidebar navigation/collapse; node card resize; diagnostics error surfacing; Tools-section drawing hint wrapping; conflict reload; overlapping local saves; live multi-session graph sync; graphics mip-selection quality; wheel navigation; graph recompute concurrency and execution-timeout persistence; node-drag stability; annotation markdown/TeX and edge arrows; inline-code output-port sync; connection-stroke and viewport persistence; screenshot harness mode; dialog layering and color picking; canvas multi-selection/space-pan; multi-selection editing/duplication; inline-input replacement; text-output overlays; and overlapping manual recompute (`A-E2E-01` through `A-E2E-36`).
 - No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

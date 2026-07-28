@@ -153,10 +153,16 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 
 - On graph updates, backend detects impacted downstream chains.
 - Nodes with auto-recompute enabled are automatically recomputed when upstream nodes change.
+- Graph-update recompute is scoped to changed roots and their downstream descendants; stale nodes in unrelated branches remain untouched.
+- Connection changes use the affected target as the changed root, avoiding sideways invalidation through an unchanged shared source.
 - Backend marks all impacted recompute nodes as pending before execution begins.
 - Backend recompute queue processes nodes in upstream-to-downstream order.
+- Scheduled descendants wait for scheduled upstream nodes even when the path crosses `autoRecompute: false` prerequisites.
+- Parallel descendants share one in-flight execution of the same stale prerequisite instead of running it concurrently more than once.
 - Backend recompute queue uses graph-level configurable worker concurrency (`recomputeConcurrency`).
-- When a new graph update arrives, pending graph-update recompute work is collapsed to the latest graph revision and rebuilt from the current graph-wide stale set; already-running work is not canceled.
+- When a new graph update arrives, pending graph-update recompute work is collapsed to the latest graph revision; changed roots from superseded pending updates are merged into the replacement task, while unrelated stale branches are excluded. Already-running work is not canceled.
+- Superseded asynchronous pending planners are discarded by queue generation, so they cannot restore obsolete pending state after replacement work drains.
+- Manual node recompute does not force clean recursive prerequisites such as a shared source; prerequisites outside the explicitly scheduled task nodes run only when genuinely stale.
 - Backend recompute skips downstream execution when any upstream dependency is errored; skipped downstream nodes are marked stale until upstream errors are resolved.
 - Frontend does not run recompute chains locally; it sends explicit compute commands and refreshes from `/api/graphs/:id/runtime-state` plus SSE events.
 - Backend runtime-state responses include a monotonic cursor and can return only node states/results changed since the caller's last seen cursor.

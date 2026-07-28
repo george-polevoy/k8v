@@ -202,6 +202,207 @@ test('GraphEngine recomputes once per manual recompute version', async () => {
   }
 });
 
+test('GraphEngine in-flight deduplication distinguishes node ids and versions containing colons', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-in-flight-key-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const dataStore = new DataStore(dbPath, dataDir);
+  const executionCountByNodeId = new Map<string, number>();
+  const countingRuntime: ExecutionRuntime = {
+    execute: async (request) => {
+      const nodeId = request.meta?.node.id ?? 'unknown';
+      executionCountByNodeId.set(
+        nodeId,
+        (executionCountByNodeId.get(nodeId) ?? 0) + 1
+      );
+      await delay(30);
+      return {
+        outputs: {
+          value: nodeId,
+        },
+      };
+    },
+  };
+  const graphEngine = new GraphEngine(
+    dataStore,
+    new NodeExecutor(dataStore, {
+      javascript_vm: countingRuntime,
+    })
+  );
+  const now = Date.now();
+  const graph: Graph = {
+    id: 'graph-in-flight-key',
+    name: 'In-flight Key Graph',
+    revision: 0,
+    createdAt: now,
+    updatedAt: now,
+    pythonEnvs: [],
+    drawings: [],
+    nodes: [
+      {
+        id: 'node:a',
+        type: NodeType.INLINE_CODE,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Colon In Id',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'string' } }],
+        },
+        config: {
+          code: 'outputs.value = "node:a";',
+          runtime: 'javascript_vm',
+        },
+        version: 'v',
+      },
+      {
+        id: 'node',
+        type: NodeType.INLINE_CODE,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'Colon In Version',
+          inputs: [],
+          outputs: [{ name: 'value', schema: { type: 'string' } }],
+        },
+        config: {
+          code: 'outputs.value = "node";',
+          runtime: 'javascript_vm',
+        },
+        version: 'a:v',
+      },
+    ],
+    connections: [],
+  };
+
+  try {
+    await dataStore.storeGraph(graph);
+    const [colonIdResult, colonVersionResult] = await Promise.all([
+      graphEngine.computeNode(graph, 'node:a'),
+      graphEngine.computeNode(graph, 'node'),
+    ]);
+
+    assert.equal(colonIdResult.outputs.value, 'node:a');
+    assert.equal(colonVersionResult.outputs.value, 'node');
+    assert.equal(executionCountByNodeId.get('node:a'), 1);
+    assert.equal(executionCountByNodeId.get('node'), 1);
+  } finally {
+    await graphEngine.dispose();
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('GraphEngine manual recompute does not force clean recursive dependencies', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-manual-scope-test-'));
+  const dbPath = path.join(tmpDir, 'k8v.db');
+  const dataDir = path.join(tmpDir, 'data');
+  const dataStore = new DataStore(dbPath, dataDir);
+  const executionCountByNodeId = new Map<string, number>();
+  const countingRuntime: ExecutionRuntime = {
+    execute: async (request) => {
+      const nodeId = request.meta?.node.id ?? 'unknown';
+      const executionCount = (executionCountByNodeId.get(nodeId) ?? 0) + 1;
+      executionCountByNodeId.set(nodeId, executionCount);
+      return {
+        outputs: {
+          output: executionCount,
+        },
+      };
+    },
+  };
+  const graphEngine = new GraphEngine(
+    dataStore,
+    new NodeExecutor(dataStore, {
+      javascript_vm: countingRuntime,
+    })
+  );
+  const now = Date.now();
+  const graph: Graph = {
+    id: 'graph-manual-scope',
+    name: 'Manual Recompute Scope Graph',
+    revision: 0,
+    createdAt: now,
+    updatedAt: now,
+    pythonEnvs: [],
+    drawings: [],
+    nodes: [
+      {
+        id: 'shared-source',
+        type: NodeType.INLINE_CODE,
+        position: { x: 0, y: 0 },
+        metadata: {
+          name: 'Shared Source',
+          inputs: [],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          code: 'outputs.output = 1;',
+          runtime: 'javascript_vm',
+        },
+        version: 'source-v1',
+      },
+      {
+        id: 'lane-b-target',
+        type: NodeType.INLINE_CODE,
+        position: { x: 200, y: 0 },
+        metadata: {
+          name: 'Lane B Target',
+          inputs: [{ name: 'input', schema: { type: 'number' } }],
+          outputs: [{ name: 'output', schema: { type: 'number' } }],
+        },
+        config: {
+          code: 'outputs.output = inputs.input;',
+          runtime: 'javascript_vm',
+        },
+        version: 'target-v1',
+      },
+    ],
+    connections: [
+      {
+        id: 'source-to-target',
+        sourceNodeId: 'shared-source',
+        sourcePort: 'output',
+        targetNodeId: 'lane-b-target',
+        targetPort: 'input',
+      },
+    ],
+  };
+
+  try {
+    await dataStore.storeGraph(graph);
+    const initialTarget = await graphEngine.computeNode(graph, 'lane-b-target');
+    const initialSource = await dataStore.getResult(graph.id, 'shared-source');
+    assert.ok(initialSource);
+    assert.equal(executionCountByNodeId.get('shared-source'), 1);
+    assert.equal(executionCountByNodeId.get('lane-b-target'), 1);
+
+    await delay(5);
+
+    const manualTarget = await graphEngine.computeNode(
+      graph,
+      'lane-b-target',
+      { recomputeVersion: 1 }
+    );
+    const sourceAfterManualTarget = await dataStore.getResult(graph.id, 'shared-source');
+    assert.ok(sourceAfterManualTarget);
+    assert.equal(executionCountByNodeId.get('shared-source'), 1);
+    assert.equal(sourceAfterManualTarget.timestamp, initialSource.timestamp);
+    assert.equal(executionCountByNodeId.get('lane-b-target'), 2);
+    assert.ok(manualTarget.timestamp > initialTarget.timestamp);
+
+    await delay(5);
+    const sharedSource = graph.nodes.find((node) => node.id === 'shared-source');
+    assert.ok(sharedSource);
+    sharedSource.version = 'source-v2';
+
+    await graphEngine.computeNode(graph, 'lane-b-target', { recomputeVersion: 2 });
+    assert.equal(executionCountByNodeId.get('shared-source'), 2);
+    assert.equal(executionCountByNodeId.get('lane-b-target'), 3);
+  } finally {
+    dataStore.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('GraphEngine ignores presentation-link cycles when computing executable nodes', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-graph-engine-presentation-cycle-test-'));
   const dbPath = path.join(tmpDir, 'k8v.db');

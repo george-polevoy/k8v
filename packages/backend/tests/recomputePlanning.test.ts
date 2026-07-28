@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  collectChangedRootNodeIds,
   collectStaleNodeIdsFromErrorStates,
   selectNodeIdsForTask,
 } from '../src/core/recompute/recomputePlanning.ts';
@@ -88,6 +89,25 @@ test('selectNodeIdsForTask keeps manual root nodes and auto-recompute descendant
   const scheduled = selectNodeIdsForTask(graph, 'manual_node', ['source']);
 
   assert.deepEqual(scheduled, ['source', 'middle']);
+});
+
+test('collectChangedRootNodeIds scopes connection changes to the affected target lane', () => {
+  const connectedGraph = createGraph();
+  const disconnectedGraph = {
+    ...structuredClone(connectedGraph),
+    connections: connectedGraph.connections.filter(
+      (connection) => connection.id !== 'connection-1'
+    ),
+  };
+
+  assert.deepEqual(
+    collectChangedRootNodeIds(disconnectedGraph, connectedGraph),
+    ['middle']
+  );
+  assert.deepEqual(
+    collectChangedRootNodeIds(connectedGraph, disconnectedGraph),
+    ['middle']
+  );
 });
 
 test('collectStaleNodeIdsFromErrorStates marks downstream descendants of errored nodes', () => {
