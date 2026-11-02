@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { GraphNode } from '../../types';
 import { sectionCardStyle } from './panelSectionStyles';
+import InputValueEditor, { type InputUpdates } from './InputValueEditor';
 
 interface NodePanelInputsSectionProps {
   selectedNode: GraphNode;
@@ -14,6 +15,8 @@ interface NodePanelInputsSectionProps {
   onCommitInputName: (index: number) => void;
   onMoveInputPort: (index: number, direction: 'up' | 'down') => void;
   onDeleteInputPort: (index: number) => void;
+  inputSources: Record<string, string>;
+  onUpdateInput: (inputName: string, updates: InputUpdates) => Promise<void>;
 }
 
 function NodePanelInputsSection({
@@ -28,6 +31,8 @@ function NodePanelInputsSection({
   onCommitInputName,
   onMoveInputPort,
   onDeleteInputPort,
+  inputSources,
+  onUpdateInput,
 }: NodePanelInputsSectionProps) {
   return (
     <div style={sectionCardStyle}>
@@ -61,7 +66,7 @@ function NodePanelInputsSection({
           {selectedNode.metadata.inputs.map((input, index) => (
             <div
               data-testid={`input-row-${index}`}
-              key={`${input.name}-${index}`}
+              key={`${selectedNode.id}:${input.name}`}
               style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '6px', alignItems: 'center' }}
             >
               <input
@@ -141,6 +146,7 @@ function NodePanelInputsSection({
               >
                 X
               </button>
+              {supportsInputEditing && <InputValueEditor input={input} index={index} source={inputSources[input.name]} onUpdate={(updates) => onUpdateInput(input.name, updates)} />}
             </div>
           ))}
         </div>

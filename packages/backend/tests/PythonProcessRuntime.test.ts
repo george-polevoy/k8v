@@ -664,7 +664,8 @@ import reload_guard
 outputs.value = 1
 `,
       inputs: {},
-      timeoutMs: 1000,
+      // Native loading can exceed a second; this test checks module reuse, not timeout enforcement.
+      timeoutMs: 5000,
       cwd: tmpDir,
       graphId: 'graph-native-module-reuse',
     });
@@ -675,13 +676,13 @@ import reload_guard
 outputs.value = 2
 `,
       inputs: {},
-      timeoutMs: 1000,
+      timeoutMs: 5000,
       cwd: tmpDir,
       graphId: 'graph-native-module-reuse',
     });
 
-    assert.equal(first.outputs.value, 1);
-    assert.equal(second.outputs.value, 2);
+    assert.equal(first.outputs.value, 1, first.textOutput ?? undefined);
+    assert.equal(second.outputs.value, 2, second.textOutput ?? undefined);
     assert.equal(second.textOutput, null);
     assert.equal(runtime.getActiveServiceCount(), 1);
   } finally {

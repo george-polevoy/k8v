@@ -223,7 +223,7 @@ export function createInlineCodeNode(options: InlineCodeNodeOptions): InlineCode
     position: options.position,
     metadata: {
       name: options.name ?? 'Inline Code',
-      inputs: inputNames.map(createObjectPortDefinition),
+      inputs: inputNames.map((name) => ({ name, schema: { type: 'any' as const } })),
       outputs: outputNames.map(createObjectPortDefinition),
       custom: cloneCustomMetadata(options.custom),
     },

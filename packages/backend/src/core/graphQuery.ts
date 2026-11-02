@@ -104,6 +104,9 @@ function projectGraphNode(
       case 'inputNames':
         projected.inputNames = node.metadata.inputs.map((input) => input.name);
         break;
+      case 'inputs':
+        projected.inputs = node.metadata.inputs;
+        break;
       case 'outputNames':
         projected.outputNames = node.metadata.outputs.map((output) => output.name);
         break;

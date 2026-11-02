@@ -9,6 +9,7 @@ import {
   DataSchema,
   normalizeGraphExecutionTimeoutMs,
   normalizeNumericInputConfig,
+  getInputValueError,
 } from '../types/index.js';
 import { DataStore } from './DataStore.js';
 import { DEFAULT_RUNTIME_ID, ExecutionRuntime, PYTHON_RUNTIME_ID } from './execution/types.js';
@@ -94,6 +95,12 @@ export class NodeExecutor {
     textOutput?: string;
     graphicsOutput?: string;
   }> {
+    for (const input of node.metadata.inputs) {
+      // Legacy object schemas were placeholders for arbitrary incoming values.
+      if (inputs[input.name] === undefined || input.schema.type === 'object') continue;
+      const error = getInputValueError(input.schema, inputs[input.name]);
+      if (error) throw new Error(`Input ${input.name}: ${error}`);
+    }
     if (!node.config.code) {
       throw new Error(`Inline code node ${node.id} has no code`);
     }

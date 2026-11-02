@@ -10,6 +10,7 @@ export const GRAPH_QUERY_NODE_FIELDS = [
   'annotationText',
   'config',
   'inputNames',
+  'inputs',
   'outputNames',
 ] as const;
 

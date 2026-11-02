@@ -116,6 +116,10 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
   - choose whether slider drags persist on release only or propagate while dragging
   - configure live-drag debounce in seconds for propagated slider updates
 - Input rename/delete propagates to connections targeting that input.
+- Inline-code inputs support an unspecified type (`any`), numeric, text, boolean, or date-time. Node panel controls edit local values: numeric field/slider with `min`/`max`/`step`, text field, checkbox, and local date-time picker (saved as UTC ISO 8601).
+- Local values persist with each input through rename, reorder, reload, and node duplication. Explicit clearing distinguishes unset values from `false`, `0`, empty strings, and `null`. Incompatible type changes require explicit clearing/replacement.
+- Connected inputs disable local value controls and identify their source; disconnect restores the retained local value. Missing/failed connected outputs never use local defaults. Primitive/date-time types are validated before runtime execution; numeric editor bounds apply to local editing only.
+- Input field drafts save on blur/Enter and cancel on Escape; boolean saves immediately; sliders save on pointer release or keyboard adjustment.
 - Toggle auto-recompute per node.
 - Per-node text-output display controls: toggle canvas text overlays, set max visible lines, and choose capped versus scrollable overflow.
 - Run selected node manually.
@@ -207,6 +211,7 @@ Test-case coverage mapping for these features is maintained in `TEST_CASES.md`.
 - `graph_create` is the only non-bulk mutator, creating an empty graph with defaults and no seeded nodes/connections.
 - `bulk_edit` is the single graph mutation surface: it accepts ordered backend/domain `GraphCommand[]` (including compute commands) and applies them sequentially through the backend command service.
 - `bulk_edit` supports granular existing-node `metadata.custom` updates through `node_set_custom`, so agents do not need `replace_nodes` for that edit.
+- `bulk_edit` supports typed inline inputs through `node_add_input` (`schema`, `defaultValue`, `editor`) and `node_update_input` (patch those fields, `clearDefaultValue:true`, `editor:null`). Existing name-only input commands remain supported; `graph_get` returns metadata and `graph_query` can request full definitions with `nodeFields:["id","inputs"]`. A compact `k8v://docs/inline-inputs.md` resource documents the workflow.
 - MCP publishes `k8v://docs/node-config-schema.json` for the exhaustive flat `node.config` contract keyed by `node.type`.
 - `node_add_inline`, `node_add_numeric_input`, and `node_add_annotation` accept optional initial `cardWidth` and `cardHeight` values so agents can size cards before first render.
 - MCP exposes transient wasm algo invocation via `algo_injection_run`, which accepts an absolute `wasmPath` plus optional `entrypoint` and `input`, and returns only `status` and `commandCount`.

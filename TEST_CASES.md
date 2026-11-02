@@ -5,11 +5,18 @@ Last reviewed: July 28, 2026.
 
 ## Coverage Legend
 
+- The root `npm run test` includes every unit file and e2e/browser test. Unit files run with `--test-concurrency=1` to avoid cross-file CPU contention in existing short Python timeout/retry tests; tests of runtime concurrency still exercise their own parallel requests.
 - `Automated`: Covered by committed test code in `packages/*/tests`.
 - `Manual`: Covered by a documented manual regression case (not yet automated).
 - `Gap`: No documented test case yet.
 
 ## Automated Test Cases
+
+- `A-E2E-37` `packages/frontend/tests/e2e/typedInlineInputs.test.ts`: edit numeric/slider, text (including empty), boolean (including false), and local date-time; save/reload, bounds validation, explicit unset and incompatible type changes; connected controls identify their source and restore local values after disconnecting.
+- `A-BE-98` `packages/backend/tests/inlineInputs.test.ts`: input schemas/commands validate local values, numeric settings, timezone-bearing dates and explicit clearing; JavaScript/Python receive local inputs, connections override them without losing falsy values, missing/failed upstream values never use defaults, and input updates invalidate computation.
+- `A-BE-99` `packages/backend/tests/app.test.ts`: typed input command API round-trips settings/values, rejects invalid updates/replacements atomically, changes node versions, and exposes full input definitions through requested `graph_query` inputs fields.
+- `A-FE-49` `packages/frontend/tests/selectionDuplication.test.ts`: duplicated input definitions retain independent values, editor settings and date-time format.
+- `A-MCP-10` `packages/mcp-server/tests/graphEdits.test.ts`, `mcpDocumentationResources.test.ts`: bulk edit retains typed input fields and false/zero values; documentation and generated command schemas expose setting/clearing and source-precedence rules; graph_query accepts full inputs selection.
 
 - `A-E2E-01` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag maintains `ew-resize` cursor and persists dragged value.
 - `A-E2E-31` `packages/frontend/tests/e2e/numericInputSlider.test.ts`: `numeric_input` slider drag can either hold persisted value until release or propagate mid-drag when the numeric input toggle is enabled.
@@ -372,7 +379,8 @@ Last reviewed: July 28, 2026.
 | Edit inline-code node `pythonEnv` binding | `A-FE-08`, `A-BE-21`, `M-PANEL-08` | Automated + Manual |
 | Edit selected drawing metadata (name/delete) | `M-PANEL-09`, `M-CANVAS-18` | Manual |
 | Edit inline-code source with stable local draft and save-on-blur | `A-E2E-15`, `M-PANEL-07` | Automated + Manual |
-| Input management: add/rename/reorder/delete | `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Manual |
+| Input management: add/rename/reorder/delete | `A-E2E-37`, `M-PANEL-02`, `M-PANEL-03`, `M-PANEL-04`, `M-PANEL-05` | Automated + Manual |
+| Typed inline inputs and local values, connection precedence, date-time timezone handling | `A-E2E-37`, `A-BE-98`, `A-BE-99`, `A-FE-49`, `A-MCP-10` | Automated |
 | Numeric input settings (`value`, `min`, `max`, `step`, drag propagation mode, live-drag debounce`) | `A-FE-15`, `A-FE-44`, `A-FE-45`, `A-E2E-01`, `A-E2E-31`, `A-E2E-32`, `M-PANEL-10`, `M-CANVAS-21` | Automated + Manual |
 | Annotation node editing (`markdown` content + note colors, including border/opacity via shared color dialog, plus font size) | `A-E2E-14`, `A-FE-28`, `M-PANEL-15` | Automated + Manual |
 | Node panel summarizes multi-node selection as a set preview instead of a single node title | `A-E2E-22` | Automated |
@@ -434,5 +442,5 @@ Last reviewed: July 28, 2026.
 ## Open Gaps
 
 - Automated UI e2e coverage is currently limited to numeric slider drag/cursor, live drag-propagation, and branch-isolated recompute behavior; graph deletion confirmation; docked sidebar navigation/collapse; node card resize; diagnostics error surfacing; Tools-section drawing hint wrapping; conflict reload; overlapping local saves; live multi-session graph sync; graphics mip-selection quality; wheel navigation; graph recompute concurrency and execution-timeout persistence; node-drag stability; annotation markdown/TeX and edge arrows; inline-code output-port sync; connection-stroke and viewport persistence; screenshot harness mode; dialog layering and color picking; canvas multi-selection/space-pan; multi-selection editing/duplication; inline-input replacement; text-output overlays; and overlapping manual recompute (`A-E2E-01` through `A-E2E-36`).
-- No committed automated frontend tests yet for node panel input editing and backend runtime-state/SSE UI workflows.
+- Typed inline input editing (including add/rename/reorder/delete) is covered by `A-E2E-37`. Backend runtime-state/SSE UI workflows still need dedicated automated coverage.
 - Missing-node-reference API validation has documented manual case only (`M-VALID-01`) and should gain an automated backend test.

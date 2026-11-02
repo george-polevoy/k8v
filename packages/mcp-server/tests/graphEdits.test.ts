@@ -336,10 +336,30 @@ test('graph_query uses shared GraphQueryRequestSchema contract', async () => {
     operation: 'traverse_bfs',
     startNodeIds: ['source'],
     depth: 2,
-    nodeFields: ['id', 'name', 'config', 'cardSize'],
+    nodeFields: ['id', 'name', 'config', 'cardSize', 'inputs'],
     connectionFields: ['sourcePort', 'targetPort'],
   });
 
   assert.equal(parsed.operation, 'traverse_bfs');
   assert.equal(parsed.depth, 2);
+});
+
+test('bulk_edit forwards typed input definitions, false values and explicit clearing intact', async () => {
+  const server = new FakeMcpServer();
+  const commands = [
+    { kind: 'node_add_input', nodeId: 'inline', inputName: 'flag', schema: { type: 'boolean' }, defaultValue: false },
+    { kind: 'node_add_input', nodeId: 'inline', inputName: 'amount', schema: { type: 'number' }, defaultValue: 0, editor: { min: 0, max: 10, step: 0.1 } },
+    { kind: 'node_update_input', nodeId: 'inline', inputName: 'amount', schema: { type: 'string', format: 'date-time' }, defaultValue: '2026-11-02T12:00:00Z', editor: null },
+    { kind: 'node_update_input', nodeId: 'inline', inputName: 'flag', clearDefaultValue: true },
+  ];
+  let forwarded: unknown;
+  registerGraphTools(server as unknown as any, {
+    resolveBackendUrl: () => 'http://backend.test',
+    submitGraphCommands: async (_url, _graphId, _revision, received) => {
+      forwarded = received;
+      return { graph: createGraphFixture() as any };
+    },
+  });
+  await server.tools.get('bulk_edit')!.handler({ graphId: 'graph-1', baseRevision: 0, commands });
+  assert.deepEqual(forwarded, commands);
 });

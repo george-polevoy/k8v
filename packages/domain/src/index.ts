@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { normalizeDrawingColor } from './graphDrawing.js';
 
 export const DataSchema = z.object({
-  type: z.enum(['string', 'number', 'boolean', 'object', 'array', 'null']),
+  type: z.enum(['any', 'string', 'number', 'boolean', 'object', 'array', 'null']),
+  format: z.literal('date-time').optional(),
   properties: z.record(z.any()).optional(),
   items: z.any().optional(),
   required: z.array(z.string()).optional(),
@@ -39,10 +40,56 @@ export const PortDefinition = z.object({
 
 export type PortDefinition = z.infer<typeof PortDefinition>;
 
+export const InputEditorConfig = z.object({
+  min: z.number().finite().optional(),
+  max: z.number().finite().optional(),
+  step: z.number().finite().positive().optional(),
+});
+export type InputEditorConfig = z.infer<typeof InputEditorConfig>;
+
+export function getInputValueError(schema: DataSchema, value: unknown): string | null {
+  if (schema.type === 'any') return null;
+  const matches = schema.type === 'null' ? value === null
+    : schema.type === 'array' ? Array.isArray(value)
+    : schema.type === 'object' ? value !== null && typeof value === 'object' && !Array.isArray(value)
+    : schema.type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+    : typeof value === schema.type;
+  if (!matches) return `Expected ${schema.type}.`;
+  if (schema.format === 'date-time' && !z.string().datetime({ offset: true }).safeParse(value).success) {
+    return 'Expected an ISO 8601 date-time with a timezone.';
+  }
+  return null;
+}
+
+export const InputDefinition = PortDefinition.extend({
+  defaultValue: JsonValueSchema.optional(),
+  editor: InputEditorConfig.optional(),
+}).superRefine((input, ctx) => {
+  const issue = (message: string, path: string[]) => ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+  if (input.schema.format && input.schema.type !== 'string') {
+    issue('date-time format requires a string schema.', ['schema', 'format']);
+  }
+  if (input.editor && input.schema.type !== 'number') {
+    issue('Numeric editor settings require a number schema.', ['editor']);
+  }
+  if (input.editor?.min !== undefined && input.editor.max !== undefined && input.editor.min >= input.editor.max) {
+    issue('Slider min must be less than max.', ['editor', 'max']);
+  }
+  if (input.defaultValue !== undefined) {
+    const error = getInputValueError(input.schema, input.defaultValue);
+    if (error) issue(error, ['defaultValue']);
+    if (typeof input.defaultValue === 'number' && (
+      (input.editor?.min !== undefined && input.defaultValue < input.editor.min) ||
+      (input.editor?.max !== undefined && input.defaultValue > input.editor.max)
+    )) issue('Local value must be within the numeric editor range.', ['defaultValue']);
+  }
+});
+export type InputDefinition = z.infer<typeof InputDefinition>;
+
 export const NodeMetadata = z.object({
   name: z.string(),
   description: z.string().optional(),
-  inputs: z.array(PortDefinition),
+  inputs: z.array(InputDefinition),
   outputs: z.array(PortDefinition),
   custom: JsonObjectSchema.default({}),
   category: z.string().optional(),
@@ -596,6 +643,19 @@ const NodeAddInputCommand = z.object({
   kind: z.literal('node_add_input'),
   nodeId: z.string(),
   inputName: z.string(),
+  schema: DataSchema.optional(),
+  defaultValue: JsonValueSchema.optional(),
+  editor: InputEditorConfig.optional(),
+});
+
+const NodeUpdateInputCommand = z.object({
+  kind: z.literal('node_update_input'),
+  nodeId: z.string(),
+  inputName: z.string(),
+  schema: DataSchema.optional(),
+  defaultValue: JsonValueSchema.optional(),
+  editor: InputEditorConfig.nullable().optional(),
+  clearDefaultValue: z.boolean().optional(),
 });
 
 const NodeDeleteInputCommand = z.object({
@@ -734,6 +794,7 @@ export const GraphCommand = z.discriminatedUnion('kind', [
   NodeSetAnnotationCommand,
   NodeSetAutoRecomputeCommand,
   NodeAddInputCommand,
+  NodeUpdateInputCommand,
   NodeDeleteInputCommand,
   NodeMoveInputCommand,
   NodeRenameInputCommand,

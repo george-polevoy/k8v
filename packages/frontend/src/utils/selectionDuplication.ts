@@ -47,6 +47,7 @@ function cloneConnectionAnchor(anchor?: ConnectionAnchor): ConnectionAnchor | un
 function cloneDataSchema(schema: DataSchema): DataSchema {
   return {
     type: schema.type,
+    ...(schema.format ? { format: schema.format } : {}),
     properties: schema.properties
       ? Object.fromEntries(
           Object.entries(schema.properties).map(([key, value]) => [key, cloneDataSchema(value)])
@@ -69,7 +70,7 @@ function cloneNodeMetadata(metadata: NodeMetadata): NodeMetadata {
   return {
     name: metadata.name,
     description: metadata.description,
-    inputs: metadata.inputs.map(clonePortDefinition),
+    inputs: metadata.inputs.map((input) => cloneUnknownValue(input)),
     outputs: metadata.outputs.map(clonePortDefinition),
     custom: cloneUnknownValue(metadata.custom ?? {}),
     category: metadata.category,

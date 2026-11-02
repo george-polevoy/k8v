@@ -134,6 +134,10 @@ k8v is a flow-based modeling software that enables visual programming through an
 ## Node Types
 
 ### Inline Code Nodes
+- Inputs live in `metadata.inputs` as `InputDefinition`: a port schema plus optional JSON `defaultValue` and numeric `editor` settings (`min`, `max`, `step`). New unspecified input schemas use `type: 'any'`; persisted legacy `object` input placeholders retain unrestricted runtime behavior.
+- GraphEngine resolves unconnected inputs from local values, then reads connected inputs exclusively from upstream results. A missing or failed connected output never falls back to the local value. NodeExecutor validates supplied primitive/date-time input values before invoking either runtime; slider bounds apply only to local values.
+- The node panel uses a reusable `InputValueEditor` for numeric fields/sliders, text, boolean, and date-time. Date-time values are ISO strings with explicit timezone; the panel displays browser-local time and saves UTC. Unset values remain distinct from `false`, `0`, empty strings, and `null`.
+- UI and MCP share `node_update_input` for granular patches and explicit clearing; `node_add_input` also accepts initial schema/value/editor settings. Changing types requires replacing or clearing incompatible values/settings without coercion.
 - Execute JavaScript code directly
 - Access inputs via `inputs` object
 - Set outputs via `outputs` object

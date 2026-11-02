@@ -186,6 +186,14 @@ export class GraphEngine {
       buildGraphNodeMap(graph.nodes)
     ).filter((connection) => connection.targetNodeId === nodeId);
 
+    const connectedPorts = new Set(connections.map((connection) => connection.targetPort));
+    const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+    for (const input of node?.metadata.inputs ?? []) {
+      if (!connectedPorts.has(input.name) && input.defaultValue !== undefined) {
+        inputs[input.name] = structuredClone(input.defaultValue);
+      }
+    }
+
     for (const connection of connections) {
       const sourceResult = await this.dataStore.getResult(graph.id, connection.sourceNodeId);
       if (sourceResult) {

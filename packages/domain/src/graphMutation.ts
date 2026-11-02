@@ -6,7 +6,7 @@ import type {
   GraphProjection,
   PythonEnvironment,
 } from './index.js';
-import { DEFAULT_GRAPH_PROJECTION_ID } from './index.js';
+import { DEFAULT_GRAPH_PROJECTION_ID, InputDefinition } from './index.js';
 import {
   applyConnectionSet,
   assertConnectionPortsExist,
@@ -482,6 +482,13 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
     case 'node_add_input': {
       assertValidPortName(command.inputName, 'input');
       const node = getNode(graph, command.nodeId);
+      if (node.type !== 'inline_code') throw new Error('Only inline-code nodes support editable inputs.');
+      const input = InputDefinition.parse({
+        name: command.inputName,
+        schema: command.schema ?? { type: 'any' },
+        ...(command.defaultValue !== undefined ? { defaultValue: command.defaultValue } : {}),
+        ...(command.editor ? { editor: command.editor } : {}),
+      });
       if (node.metadata.inputs.some((input) => input.name === command.inputName)) {
         throw new Error(`Input port ${command.inputName} already exists on node ${command.nodeId}`);
       }
@@ -491,13 +498,35 @@ export function applyGraphCommandMutation(graph: Graph, command: GraphCommand): 
           ...candidate.metadata,
           inputs: [
             ...candidate.metadata.inputs,
-            {
-              name: command.inputName,
-              schema: { type: 'object' as const },
-            },
+            input,
           ],
         },
         version: ensureNodeVersion(candidate),
+      }));
+    }
+
+    case 'node_update_input': {
+      const node = getNode(graph, command.nodeId);
+      if (node.type !== 'inline_code') throw new Error('Only inline-code nodes support editable inputs.');
+      const current = node.metadata.inputs.find((input) => input.name === command.inputName);
+      if (!current) throw new Error(`Input port ${command.inputName} was not found on node ${command.nodeId}`);
+      if (command.clearDefaultValue && command.defaultValue !== undefined) {
+        throw new Error('Cannot set and clear defaultValue in the same command.');
+      }
+      const next = { ...current };
+      if (command.schema) next.schema = command.schema;
+      if (command.defaultValue !== undefined) next.defaultValue = command.defaultValue;
+      if (command.clearDefaultValue) delete next.defaultValue;
+      if (command.editor === null) delete next.editor;
+      else if (command.editor !== undefined) next.editor = command.editor;
+      const input = InputDefinition.parse(next);
+      return replaceNode(graph, command.nodeId, (candidate) => ({
+        ...candidate,
+        metadata: {
+          ...candidate.metadata,
+          inputs: candidate.metadata.inputs.map((existing) => existing.name === command.inputName ? input : existing),
+        },
+        version: createGeneratedId('input-version'),
       }));
     }
 

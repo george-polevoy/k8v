@@ -129,6 +129,48 @@ function createPngGraphicsNode(id: string) {
   };
 }
 
+test('typed input API persists values and rejects incompatible updates atomically', async () => {
+  const ctx = await setupTestServer();
+  try {
+    const created = await createGraph(ctx.baseUrl, { nodes: [createValidInlineNode()] });
+    assert.equal(created.status, 200);
+    let graph = await created.json();
+    const response = await submitGraphCommands(ctx.baseUrl, graph.id, graph.revision, [
+      { kind: 'node_add_input', nodeId: 'node-1', inputName: 'flag', schema: { type: 'boolean' }, defaultValue: false },
+      { kind: 'node_add_input', nodeId: 'node-1', inputName: 'amount', schema: { type: 'number' }, defaultValue: 0, editor: { min: 0, max: 10, step: 0.5 } },
+      { kind: 'node_add_input', nodeId: 'node-1', inputName: 'text', schema: { type: 'string' }, defaultValue: '' },
+      { kind: 'node_add_input', nodeId: 'node-1', inputName: 'when', schema: { type: 'string', format: 'date-time' }, defaultValue: '2026-11-02T12:00:00Z' },
+    ]);
+    assert.equal(response.status, 200, await response.text());
+    graph = await fetchGraph(ctx.baseUrl, graph.id);
+    assert.deepEqual(graph.nodes[0].metadata.inputs.map((input: any) => input.defaultValue), [false, 0, '', '2026-11-02T12:00:00Z']);
+    const query = await fetch(`${ctx.baseUrl}/api/graphs/${graph.id}/query`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'overview', nodeFields: ['id', 'inputs'] }),
+    });
+    assert.equal(query.status, 200);
+    assert.deepEqual((await query.json()).nodes[0], { id: 'node-1', inputs: graph.nodes[0].metadata.inputs });
+    const version = graph.nodes[0].version;
+    const invalid = await submitGraphCommands(ctx.baseUrl, graph.id, graph.revision, [
+      { kind: 'node_update_input', nodeId: 'node-1', inputName: 'flag', schema: { type: 'number' } },
+    ]);
+    assert.equal(invalid.status, 400);
+    assert.equal((await fetchGraph(ctx.baseUrl, graph.id)).revision, graph.revision);
+    const invalidReplacement = structuredClone(graph.nodes);
+    invalidReplacement[0].metadata.inputs[0].defaultValue = 'bad';
+    assert.equal((await submitGraphCommands(ctx.baseUrl, graph.id, graph.revision, [{ kind: 'replace_nodes', nodes: invalidReplacement }])).status, 400);
+    const updated = await submitGraphCommands(ctx.baseUrl, graph.id, graph.revision, [
+      { kind: 'node_update_input', nodeId: 'node-1', inputName: 'flag', defaultValue: true },
+      { kind: 'node_update_input', nodeId: 'node-1', inputName: 'amount', clearDefaultValue: true, editor: null, schema: { type: 'any' } },
+    ]);
+    assert.equal(updated.status, 200, await updated.text());
+    graph = await fetchGraph(ctx.baseUrl, graph.id);
+    assert.equal(graph.nodes[0].metadata.inputs[0].defaultValue, true);
+    assert.equal(Object.hasOwn(graph.nodes[0].metadata.inputs[1], 'defaultValue'), false);
+    assert.notEqual(graph.nodes[0].version, version);
+  } finally { await ctx.close(); }
+});
+
 async function setupTestServer(): Promise<AppTestContext> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'k8v-app-test-'));
   const dataStore = new DataStore(':memory:', tmpDir);

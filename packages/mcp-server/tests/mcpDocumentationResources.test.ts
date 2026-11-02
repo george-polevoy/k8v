@@ -24,6 +24,13 @@ test('documentation resources register discoverability docs and schemas', async 
   registerDocumentationResources(server as unknown as any);
 
   assert.ok(server.resources.has('mcp-overview'));
+  assert.ok(server.resources.has('inline-inputs'));
+  const inputsDoc = await server.resources.get('inline-inputs')!.callback();
+  const inputsText = (inputsDoc as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  assert.match(inputsText, /node_add_inline accepts inputNames/);
+  assert.match(inputsText, /clearDefaultValue/);
+  const inputExample = JSON.parse(inputsText.split('```json\n')[1].split('\n```')[0]);
+  assert.equal(inputExample[1].defaultValue, false);
   assert.ok(server.resources.has('node-config-schema'));
   assert.ok(server.resources.has('graph-command-schema'));
   assert.ok(server.resources.has('graph-query-schema'));
@@ -41,6 +48,12 @@ test('documentation resources register discoverability docs and schemas', async 
   assert.match(overviewText, /structured MCP objects/i);
   assert.match(overviewText, /do not stringify/i);
   assert.match(overviewText, /node_set_custom/);
+  assert.match(overviewText, /node_update_input/);
+  assert.match(overviewText, /clearDefaultValue/);
+  assert.match(overviewText, /Connections override local input values/);
+  const commandsResource = await server.resources.get('graph-command-schema')!.callback();
+  const commandsText = (commandsResource as { contents: Array<{ text?: string }> }).contents[0]?.text ?? '';
+  for (const name of ['node_update_input', 'defaultValue', 'clearDefaultValue', 'date-time', 'editor']) assert.ok(commandsText.includes(name), name);
   assert.match(overviewText, /flat exhaustive `config` keyed by top-level `node\.type`/i);
   assert.match(overviewText, /k8v:\/\/docs\/node-config-schema\.json/);
   assert.match(overviewText, /k8v:\/\/docs\/layout-rules\.md/);

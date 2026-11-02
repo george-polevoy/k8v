@@ -383,47 +383,6 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     });
   }, [codeValue, graph?.connections, selectedInlineCodeNode, updateNode]);
 
-  const updateSelectedNodeInputs = useCallback((
-    nextInputs: PortDefinition[],
-    connectionMapper?: (node: GraphNode, connection: any) => any | null
-  ) => {
-    if (!graph || !selectedNode) {
-      return;
-    }
-
-    const nextNodes = graph.nodes.map((node) => {
-      if (node.id !== selectedNode.id) {
-        return node;
-      }
-      return {
-        ...node,
-        metadata: {
-          ...node.metadata,
-          inputs: nextInputs,
-        },
-        version: Date.now().toString(),
-      };
-    });
-
-    let nextConnections = graph.connections;
-    if (connectionMapper) {
-      nextConnections = graph.connections
-        .map((connection) => connectionMapper(selectedNode, connection))
-        .filter((connection): connection is NonNullable<typeof connection> => connection !== null);
-    }
-
-    void submitGraphCommands([
-      {
-        kind: 'replace_nodes',
-        nodes: nextNodes,
-      },
-      {
-        kind: 'replace_connections',
-        connections: nextConnections,
-      },
-    ]);
-  }, [graph, selectedNode, submitGraphCommands]);
-
   const commitNodeName = useCallback(() => {
     if (!selectedNode) {
       return;
@@ -696,14 +655,14 @@ function NodePanel({ embedded = false }: NodePanelProps) {
       ...selectedNode.metadata.inputs,
       {
         name: nextName,
-        schema: { type: 'object' as const },
+        schema: { type: 'any' as const },
       },
     ];
 
     setInputDraftNames(nextInputs.map((input) => input.name));
     setInputValidationError(null);
-    updateSelectedNodeInputs(nextInputs);
-  }, [selectedNode, updateSelectedNodeInputs]);
+    void submitGraphCommands([{ kind: 'node_add_input', nodeId: selectedNode.id, inputName: nextName }]);
+  }, [selectedNode, submitGraphCommands]);
 
   const moveInputPort = useCallback((index: number, direction: 'up' | 'down') => {
     if (!selectedNode) {
@@ -720,8 +679,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
 
     setInputDraftNames(nextInputs.map((input) => input.name));
     setInputValidationError(null);
-    updateSelectedNodeInputs(nextInputs);
-  }, [selectedNode, updateSelectedNodeInputs]);
+    void submitGraphCommands([{ kind: 'node_move_input', nodeId: selectedNode.id, inputName: selectedNode.metadata.inputs[index].name, direction }]);
+  }, [selectedNode, submitGraphCommands]);
 
   const deleteInputPort = useCallback((index: number) => {
     if (!selectedNode) {
@@ -738,13 +697,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     setInputDraftNames(nextInputs.map((input) => input.name));
     setInputValidationError(null);
 
-    updateSelectedNodeInputs(nextInputs, (node, connection) => {
-      if (connection.targetNodeId === node.id && connection.targetPort === targetInput.name) {
-        return null;
-      }
-      return connection;
-    });
-  }, [selectedNode, updateSelectedNodeInputs]);
+    void submitGraphCommands([{ kind: 'node_delete_input', nodeId: selectedNode.id, inputName: targetInput.name }]);
+  }, [selectedNode, submitGraphCommands]);
 
   const commitInputName = useCallback((index: number) => {
     if (!selectedNode) {
@@ -798,16 +752,8 @@ function NodePanel({ embedded = false }: NodePanelProps) {
     setInputDraftNames(nextInputs.map((input) => input.name));
     setInputValidationError(null);
 
-    updateSelectedNodeInputs(nextInputs, (node, connection) => {
-      if (connection.targetNodeId === node.id && connection.targetPort === currentInput.name) {
-        return {
-          ...connection,
-          targetPort: normalizedName,
-        };
-      }
-      return connection;
-    });
-  }, [inputDraftNames, selectedNode, updateSelectedNodeInputs]);
+    void submitGraphCommands([{ kind: 'node_rename_input', nodeId: selectedNode.id, oldName: currentInput.name, newName: normalizedName }]);
+  }, [inputDraftNames, selectedNode, submitGraphCommands]);
 
   const handleAddInlineCodeNode = () => {
     if (!graph) return;
@@ -1251,6 +1197,12 @@ function NodePanel({ embedded = false }: NodePanelProps) {
               onCommitInputName={commitInputName}
               onMoveInputPort={moveInputPort}
               onDeleteInputPort={deleteInputPort}
+              inputSources={Object.fromEntries((graph?.connections ?? [])
+                .filter((connection) => connection.targetNodeId === selectedNode.id)
+                .map((connection) => [connection.targetPort, `${graph?.nodes.find((node) => node.id === connection.sourceNodeId)?.metadata.name ?? connection.sourceNodeId}.${connection.sourcePort}`]))}
+              onUpdateInput={(inputName, updates) => submitGraphCommands([{
+                kind: 'node_update_input', nodeId: selectedNode.id, inputName, ...updates,
+              }])}
             />
           )}
 

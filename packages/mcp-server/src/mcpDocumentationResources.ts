@@ -15,6 +15,7 @@ const MCP_OVERVIEW_URI = 'k8v://docs/mcp-overview.md';
 const NODE_CONFIG_SCHEMA_URI = 'k8v://docs/node-config-schema.json';
 const GRAPH_COMMAND_SCHEMA_URI = 'k8v://docs/graph-command-schema.json';
 const GRAPH_QUERY_SCHEMA_URI = 'k8v://docs/graph-query-schema.json';
+const INLINE_INPUTS_URI = 'k8v://docs/inline-inputs.md';
 const LAYOUT_RULES_URI = 'k8v://docs/layout-rules.md';
 const ANNOTATION_WORKFLOWS_URI = 'k8v://docs/annotation-workflows.md';
 const WASM_ALGO_INVOCATION_URI = 'k8v://docs/wasm-algo-invocation.md';
@@ -58,6 +59,11 @@ function buildMcpOverviewText(): string {
     '- `bulk_edit` is the only graph mutation tool and accepts ordered `GraphCommand[]`.',
     '- Pass `bulk_edit.commands` as structured MCP objects in the tool arguments; do not stringify each command as JSON text.',
     '- Use `node_set_custom` for granular updates to an existing node\'s `metadata.custom` dictionary instead of replacing the whole node.',
+    '- Inline-code inputs support optional local values: `node_add_input` accepts `schema`, `defaultValue`, and numeric `editor: {min, max, step}`. Omitted schema means `{type:"any"}`.',
+    '- Use `node_update_input` with `nodeId` and `inputName` to patch schema, defaultValue, or editor. Use `clearDefaultValue:true` to unset a value (false, 0, empty string, and null are real values), and `editor:null` to remove numeric settings. Do not set and clear a value in the same command.',
+    '- Supported input controls: `{type:"number"}`, `{type:"boolean"}`, `{type:"string"}`, or `{type:"string",format:"date-time"}`. Date-time values must be ISO 8601 strings with a timezone; the UI saves UTC. `{type:"any"}` has no specialized control or type checking. Legacy object input schemas remain unrestricted at runtime.',
+    '- Connections override local input values, which become active again after disconnecting. Missing/failed connected outputs do not use the local value. Numeric editor bounds constrain local values only, not connected numeric data. Changing a type never coerces values: replace or explicitly clear an incompatible value and remove incompatible editor settings in the same command.',
+    '- Example typed input batch: `[{"kind":"node_add_input","nodeId":"node-1","inputName":"enabled","schema":{"type":"boolean"},"defaultValue":false},{"kind":"node_update_input","nodeId":"node-1","inputName":"enabled","defaultValue":true}]`.',
     '- `algo_injection_run` invokes a wasm module transiently from an absolute filesystem path accessible to the backend host.',
     '- `graph_query` is for lightweight inspection. Use `graph_get` when you need the full persisted graph.',
     '- Nodes use a flat exhaustive `config` keyed by top-level `node.type`; MCP does not expose `node.config` as an untyped property bag.',
@@ -66,6 +72,7 @@ function buildMcpOverviewText(): string {
     '- `graph_screenshot_region` renders through the dedicated screenshot harness and can start its own harness server when no explicit frontend URL override is provided.',
     '',
     'Recommended reading order:',
+    `- \`${INLINE_INPUTS_URI}\` for typed inline-code inputs and local values.`,
     '- `k8v://docs/examples/bulk-edit-call`',
     `- \`${LAYOUT_RULES_URI}\``,
     '- `k8v://docs/examples/annotation-board`',
@@ -424,6 +431,37 @@ function createTextResource(uri: string, text: string) {
   };
 }
 
+function buildInlineInputsText(): string {
+  return [
+    '# Typed Inline Inputs',
+    '',
+    'Use bulk_edit.commands as structured objects. Values live in node.metadata.inputs; inspect them with graph_get or graph_query requesting nodeFields:["id","inputs"].',
+    'node_add_inline accepts inputNames, not full input definitions. Configure those existing ports with node_update_input; use node_add_input only for additional ports.',
+    'For JavaScript, omit runtime or use runtime:"javascript_vm" (not "javascript"); Python uses runtime:"python_process". bulk_edit requires at least one command; use graph_get for readback. A compute command flushes preceding edits before execution, so a runtime failure may leave those edits persisted: inspect the graph before retrying creation.',
+    'node_add_input: {kind, nodeId, inputName, schema?, defaultValue?, editor?}. Schema defaults to {type:"any"}.',
+    'node_update_input: {kind, nodeId, inputName, schema?, defaultValue?, editor?, clearDefaultValue?}. Omitted fields are preserved. editor:null removes editor settings; clearDefaultValue:true removes the local value. Do not combine clearDefaultValue:true with defaultValue.',
+    'Schemas: {type:"any"} (unrestricted), {type:"number"}, {type:"string"}, {type:"boolean"}, or {type:"string",format:"date-time"}. Date-time values are ISO 8601 strings with an explicit timezone; prefer UTC Z. There is no date-time schema type.',
+    'Numeric editor: {min?,max?,step?}; finite values, min < max, step > 0. Bounds apply to local values only. Changing a type never coerces a value: replace or clear incompatible values and remove incompatible editor settings in the same command.',
+    'Connections override retained local values. Disconnecting restores them. Missing or failed connected outputs do not use defaults. false, 0, empty string, and null are real values; absence of defaultValue means unset.',
+    'Run compute_node/compute_graph through bulk_edit and inspect runtimeState.results in the command response. Input changes invalidate the node; autoRecompute controls automatic execution.',
+    '',
+    'Example ordered commands for one bulk_edit call:',
+    '```json',
+    JSON.stringify([
+      { kind: 'node_add_inline', nodeId: 'params', name: 'Parameters', x: 0, y: 0, inputNames: ['enabled', 'amount', 'title', 'when'], code: 'outputs.result = inputs;' },
+      { kind: 'node_update_input', nodeId: 'params', inputName: 'enabled', schema: { type: 'boolean' }, defaultValue: false },
+      { kind: 'node_update_input', nodeId: 'params', inputName: 'amount', schema: { type: 'number' }, defaultValue: 0, editor: { min: 0, max: 10, step: 0.5 } },
+      { kind: 'node_update_input', nodeId: 'params', inputName: 'title', schema: { type: 'string' }, defaultValue: '' },
+      { kind: 'node_update_input', nodeId: 'params', inputName: 'when', schema: { type: 'string', format: 'date-time' }, defaultValue: '2026-11-02T12:30:00Z' },
+      { kind: 'node_add_input', nodeId: 'params', inputName: 'extra' },
+      { kind: 'compute_node', nodeId: 'params' },
+    ], null, 2),
+    '```',
+    'To unset title: {"kind":"node_update_input","nodeId":"params","inputName":"title","clearDefaultValue":true}.',
+    'To remove numeric typing while retaining its value: {"kind":"node_update_input","nodeId":"params","inputName":"amount","schema":{"type":"any"},"editor":null}.',
+  ].join('\n');
+}
+
 function createJsonSchemaResource(uri: string, schema: ZodTypeAny, name: string) {
   return {
     contents: [
@@ -437,6 +475,11 @@ function createJsonSchemaResource(uri: string, schema: ZodTypeAny, name: string)
 }
 
 export function registerDocumentationResources(server: any): void {
+  server.registerResource(
+    'inline-inputs', INLINE_INPUTS_URI,
+    { title: 'Typed Inline Inputs', description: 'Compact command reference and examples for input types, local values, sliders, clearing and connection precedence.', mimeType: 'text/markdown' },
+    async () => createTextResource(INLINE_INPUTS_URI, buildInlineInputsText())
+  );
   server.registerResource(
     'mcp-overview',
     MCP_OVERVIEW_URI,

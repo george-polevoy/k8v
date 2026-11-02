@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { duplicateNodeSelectionInGraph } from '../src/utils/selectionDuplication.ts';
-import { NodeType, type Graph, type GraphNode, type Position } from '../src/types.ts';
+import { NodeType, createInlineCodeNode, type Graph, type GraphNode, type Position } from '../src/types.ts';
+
+test('duplicating inline nodes preserves and independently clones input values, editor settings and date format', () => {
+  const node = createInlineCodeNode({ nodeId: 'typed', position: { x: 0, y: 0 } });
+  node.metadata.inputs = [
+    { name: 'amount', schema: { type: 'number' }, defaultValue: 0, editor: { min: 0, max: 10, step: 0.1 } },
+    { name: 'flag', schema: { type: 'boolean' }, defaultValue: false },
+    { name: 'date', schema: { type: 'string', format: 'date-time' }, defaultValue: '2026-11-02T12:00:00Z' },
+  ];
+  const graph: Graph = { id: 'typed-graph', name: 'autotests_duplicate_inputs', revision: 0, nodes: [node], connections: [], pythonEnvs: [], drawings: [], createdAt: 0, updatedAt: 0 };
+  const result = duplicateNodeSelectionInGraph({ graph, selectedNodeIds: [node.id], createId: () => 'copy' });
+  const copy = result.graph.nodes.find((entry) => entry.id === 'copy')!;
+  assert.deepEqual(copy.metadata.inputs, node.metadata.inputs);
+  copy.metadata.inputs[0].editor!.max = 20;
+  copy.metadata.inputs[2].schema.format = undefined;
+  assert.equal(node.metadata.inputs[0].editor!.max, 10);
+  assert.equal(node.metadata.inputs[2].schema.format, 'date-time');
+});
 
 function makeNode(
   id: string,

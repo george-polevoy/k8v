@@ -50,6 +50,7 @@ Status: TODO
 - Add output port editing in node panel with connection-safe rename/delete behavior.
 - Add ordering controls for output ports.
 - Add schema type editing for ports.
+- Input schema editing and local values are DONE: node panel controls for numeric sliders, text, boolean and date-time; shared MCP commands and runtime resolution. Output schema editing remains TODO.
 
 ### B-005 Compute Observability
 Status: IN PROGRESS
@@ -88,6 +89,8 @@ Status: DONE
 - Provide internal Playwright screenshot rendering endpoint for fixed rectangle captures. (DONE)
 - Overlay stable unique concise node numbers in screenshots for OCR/agent targeting. (DONE)
 - Add automated MCP contract tests for `graph_create`, `bulk_edit`, shared `graph_query` validation, filtered connection inspection, and screenshot size/region assertions. (DONE)
+- Typed inline inputs have shared mutation/query support and a compact workflow resource. External consumer results and recovered errors are recorded in `MCP_INPUTS_VERIFICATION.md`.
+- Follow-up: split or reduce the generic command-schema resource, which can be truncated in an external agent's context; supply explicit read-tool approvals in isolated Codex CLI test configs.
 
 ### B-009 Python Backend Runtime
 Status: DONE

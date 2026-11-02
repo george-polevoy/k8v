@@ -160,6 +160,7 @@ export function registerGraphTools(server: any, deps: GraphToolRegistrarDeps): v
       description:
         'Apply an ordered GraphCommand[] batch to one graph. Pass `commands` as structured objects in the MCP arguments; do not stringify each command. ' +
         'This is the only MCP graph mutation tool. ' +
+        'Use node_add_input / node_update_input to configure typed inline inputs and local defaultValue (including boolean false); read k8v://docs/inline-inputs.md for compact examples, source precedence and clearing rules. ' +
         'See k8v://docs/node-config-schema.json, k8v://docs/graph-command-schema.json, and k8v://docs/annotation-workflows.md for command shapes and examples.',
       inputSchema: {
         graphId: z.string(),
